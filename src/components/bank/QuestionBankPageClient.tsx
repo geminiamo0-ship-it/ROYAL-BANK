@@ -90,6 +90,8 @@ export function QuestionBankPageClient({
   const [search, setSearch] = useState('');
   const [selectedDifficulties, setSelectedDifficulties] = useState<string[]>(['1', '2', '3']);
   const [questionSelection, setQuestionSelection] = useState<QuestionSelection>('new_only');
+  const [sessionMode, setSessionMode] = useState<'standard' | 'fixed_timed'>('standard');
+  const [questionCount, setQuestionCount] = useState<number>(40);
   const [questionOrderMode, setQuestionOrderMode] = useState('balanced');
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -199,7 +201,8 @@ export function QuestionBankPageClient({
           topicFilters: nextTopicFilters,
           difficulties: selectedDifficulties,
           questionSelection,
-          limit: 70,
+          sessionType: sessionMode,
+          limit: questionCount,
         });
         router.push(`/exam/${sessionId}`);
       } catch (err) {
@@ -391,110 +394,118 @@ export function QuestionBankPageClient({
           </div>
         </section>
 
-        <section className="rounded-[4px] bg-[#353c42] shadow-[0_1px_3px_rgba(0,0,0,0.28)]">
-          <PanelHeader title="Recent sessions" />
-          <div className="px-[12px] pb-[10px]">
-            {RECENT_SESSIONS.map((session, index) => (
-              <div
-                key={session.id}
-                className={`${index > 0 ? 'border-t border-[#5a5f64]' : ''} py-[14px]`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] uppercase text-[#a0a7ad]">{session.label}</p>
-                    <p className="mt-[6px] font-semibold text-white">{session.title}</p>
-                    {session.tag ? (
-                      <span className="mt-[8px] inline-flex rounded-[3px] bg-[#ffd7d1] px-2 py-[2px] text-[10px] font-semibold text-[#90443f]">
-                        {session.tag}
-                      </span>
-                    ) : null}
-                    <p className="mt-[10px] text-[11px] text-white">{session.age}</p>
-                  </div>
+        <div className="space-y-[12px]">
+          <section className="rounded-[4px] bg-[#353c42] shadow-[0_1px_3px_rgba(0,0,0,0.28)]">
+            <PanelHeader title="Question mode" />
+            <div className="p-3">
+              <div className="mb-4 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSessionMode('standard')}
+                  className={`flex flex-col items-start justify-center rounded-[4px] border p-3 text-left transition-colors ${
+                    sessionMode === 'standard'
+                      ? 'border-[#3e73ff] bg-[#2c3d5e] text-[#f4f4f4]'
+                      : 'border-[#4a545d] bg-[#2c3237] text-[#c6cdd3] hover:border-[#80868b]'
+                  }`}
+                >
+                  <span className="font-semibold">Tutor</span>
+                  <span className="mt-1 text-[11px] opacity-70">Answer shown after each question</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSessionMode('fixed_timed')}
+                  className={`flex flex-col items-start justify-center rounded-[4px] border p-3 text-left transition-colors ${
+                    sessionMode === 'fixed_timed'
+                      ? 'border-[#3e73ff] bg-[#2c3d5e] text-[#f4f4f4]'
+                      : 'border-[#4a545d] bg-[#2c3237] text-[#c6cdd3] hover:border-[#80868b]'
+                  }`}
+                >
+                  <span className="font-semibold">Timed</span>
+                  <span className="mt-1 text-[11px] opacity-70">Custom time per question</span>
+                </button>
+              </div>
 
+              <div className="flex items-center gap-3">
+                <span className="text-[12px] text-[#c6cdd3]">No. of questions</span>
+                <div className="flex items-center rounded-[4px] border border-[#4a545d] bg-[#22272b]">
                   <button
                     type="button"
-                    onClick={() =>
-                      launchQuestions(
-                        session.title === 'Cardiology' ? ['Cardiology'] : selectedCategoryIds,
-                        session.title === 'Cardiology' ? [] : selectedTopicFilters
-                      )
-                    }
-                    disabled={isPending}
-                    className="inline-flex items-center gap-1 text-[12px] text-[#cda9ff] hover:underline disabled:opacity-60"
+                    onClick={() => setQuestionCount(Math.max(1, questionCount - 1))}
+                    className="flex h-7 w-7 items-center justify-center text-[#c6cdd3] hover:text-white"
                   >
-                    <span>Continue</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={Math.min(70, Math.max(1, selectedQuestions))}
+                    value={questionCount}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (!isNaN(val)) {
+                        setQuestionCount(Math.min(Math.min(70, Math.max(1, selectedQuestions)), Math.max(1, val)));
+                      }
+                    }}
+                    className="w-12 bg-transparent text-center text-[13px] font-semibold text-white outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setQuestionCount(Math.min(Math.min(70, Math.max(1, selectedQuestions)), questionCount + 1))}
+                    className="flex h-7 w-7 items-center justify-center text-[#c6cdd3] hover:text-white"
+                  >
+                    +
                   </button>
                 </div>
+                <span className="text-[11px] text-[#8e9ba4]">of {selectedQuestions.toLocaleString()}</span>
               </div>
-            ))}
-          </div>
-        </section>
+            </div>
+          </section>
+
+          <section className="rounded-[4px] bg-[#353c42] shadow-[0_1px_3px_rgba(0,0,0,0.28)]">
+            <PanelHeader title="Difficulty" />
+            <div className="flex flex-wrap gap-8 px-[12px] py-[14px]">
+              {[
+                { value: '1', label: '1' },
+                { value: '2', label: '2' },
+                { value: '3', label: '3' },
+              ].map((difficulty) => (
+                <label key={difficulty.value} className="inline-flex items-center gap-2 text-[13px] text-white">
+                  <input
+                    type="checkbox"
+                    checked={selectedDifficulties.includes(difficulty.value)}
+                    onChange={() => toggleDifficulty(difficulty.value)}
+                    className="h-[12px] w-[12px] rounded-[2px] accent-[#3e73ff]"
+                  />
+                  <span>{difficulty.label}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-[4px] bg-[#353c42] shadow-[0_1px_3px_rgba(0,0,0,0.28)]">
+            <PanelHeader title="Question selection" />
+            <div className="space-y-[8px] px-[12px] py-[12px]">
+              <div className="rounded-[3px] border border-[#46505a] bg-[#2f353a] px-3 py-2 text-[11px] text-[#dfe7ee]">
+                Current filter: <span className="font-semibold text-white">{selectedQuestions.toLocaleString()} {selectionLabel}</span>
+              </div>
+              {QUESTION_SELECTION_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setQuestionSelection(option.value)}
+                  className={`flex h-[28px] w-full items-center rounded-[3px] border px-3 text-left text-[12px] transition-colors ${
+                    questionSelection === option.value
+                      ? 'border-[#b9cbf7] bg-[#2c3d5e] text-white'
+                      : 'border-[#80868b] bg-[#34393e] text-[#edf1f4] hover:border-[#aeb8c2]'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
       </div>
-
-      <section className="rounded-[4px] bg-[#353c42] shadow-[0_1px_3px_rgba(0,0,0,0.28)]">
-        <PanelHeader title="Difficulty" />
-        <div className="flex flex-wrap gap-8 px-[12px] py-[14px]">
-          {[
-            { value: '1', label: '1' },
-            { value: '2', label: '2' },
-            { value: '3', label: '3' },
-          ].map((difficulty) => (
-            <label key={difficulty.value} className="inline-flex items-center gap-2 text-[13px] text-white">
-              <input
-                type="checkbox"
-                checked={selectedDifficulties.includes(difficulty.value)}
-                onChange={() => toggleDifficulty(difficulty.value)}
-                className="h-[12px] w-[12px] rounded-[2px] accent-[#3e73ff]"
-              />
-              <span>{difficulty.label}</span>
-            </label>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-[4px] bg-[#353c42] shadow-[0_1px_3px_rgba(0,0,0,0.28)]">
-        <PanelHeader title="Question selection" />
-        <div className="space-y-[8px] px-[12px] py-[12px]">
-          <div className="rounded-[3px] border border-[#46505a] bg-[#2f353a] px-3 py-2 text-[11px] text-[#dfe7ee]">
-            Current filter: <span className="font-semibold text-white">{selectedQuestions.toLocaleString()} {selectionLabel}</span>
-          </div>
-          {QUESTION_SELECTION_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setQuestionSelection(option.value)}
-              className={`flex h-[28px] w-full items-center rounded-[3px] border px-3 text-left text-[12px] transition-colors ${
-                questionSelection === option.value
-                  ? 'border-[#b9cbf7] bg-[#2c3d5e] text-white'
-                  : 'border-[#80868b] bg-[#34393e] text-[#edf1f4] hover:border-[#aeb8c2]'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-[4px] bg-[#353c42] shadow-[0_1px_3px_rgba(0,0,0,0.28)]">
-        <PanelHeader title="Question order optimisation" />
-        <div className="flex flex-wrap gap-[10px] px-[12px] py-[12px]">
-          {QUESTION_ORDER_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setQuestionOrderMode(option.value)}
-              className={`rounded-[3px] px-3 py-[7px] text-[12px] transition-colors ${
-                questionOrderMode === option.value
-                  ? 'bg-[#d5e4ff] text-[#1d3152]'
-                  : 'bg-[#2c3237] text-[#c6cdd3] hover:bg-[#394148]'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
