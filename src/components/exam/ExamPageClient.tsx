@@ -15,6 +15,7 @@ interface ExamPageClientProps {
   initialQuestions: Question[];
   sessionId: string;
   initialAnswers?: Record<number, UserExamAnswer>;
+  session: any;
 }
 
 function htmlToPlainText(html: string) {
@@ -27,7 +28,7 @@ function htmlToPlainText(html: string) {
   return element.textContent?.replace(/\s+/g, ' ').trim() || html;
 }
 
-export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {} }: ExamPageClientProps) {
+export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {}, session }: ExamPageClientProps) {
   const router = useRouter();
   const [questions] = useState<Question[]>(initialQuestions);
 

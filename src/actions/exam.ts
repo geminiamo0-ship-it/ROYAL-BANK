@@ -145,9 +145,9 @@ export async function getExamSessionQuestions(sessionId: string): Promise<Questi
   }
 
   if (lockedQuestions && lockedQuestions.length > 0) {
-    return (lockedQuestions as unknown as { questions: Question | Question[] }[])
-      .map((row) => Array.isArray(row.questions) ? row.questions[0] : row.questions)
-      .filter(Boolean) as Question[];
+    return (lockedQuestions as Array<{ questions: unknown }>)
+      .map((row) => (Array.isArray(row.questions) ? row.questions[0] : row.questions) as Question)
+      .filter(Boolean);
   }
 
   // ==== LEGACY LOGIC: Fallback for old sessions created before test_session_questions ====
@@ -435,4 +435,12 @@ export async function getQuestionExplanation(questionId: number): Promise<string
   }
 
   return data?.explanation_html || null;
+}
+
+export async function getExamSession(sessionId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data } = await supabase.from('test_sessions').select('*').eq('id', sessionId).single();
+  return data;
 }

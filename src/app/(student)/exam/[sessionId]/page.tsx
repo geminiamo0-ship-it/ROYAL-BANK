@@ -1,6 +1,7 @@
-import { getExamSessionQuestions, getExamSessionAnswers } from '@/actions/exam';
+import { getExamSessionQuestions, getExamSessionAnswers, getExamSession } from '@/actions/exam';
 import { ExamPageClient } from '@/components/exam/ExamPageClient';
 import type { UserExamAnswer } from '@/stores/examStore';
+import { notFound } from 'next/navigation';
 
 interface RawExamAnswer {
   question_id: number;
@@ -18,11 +19,16 @@ interface ExamPageProps {
 export default async function ExamPage({ params }: ExamPageProps) {
   const { sessionId } = await params;
   
-  const [initialQuestions, rawAnswers] = await Promise.all([
+  const [initialQuestions, rawAnswers, session] = await Promise.all([
     getExamSessionQuestions(sessionId),
     getExamSessionAnswers(sessionId),
+    getExamSession(sessionId),
   ]);
   
+  if (!session) {
+    notFound();
+  }
+
   const initialAnswers: Record<number, UserExamAnswer> = {};
   rawAnswers.forEach((ans: RawExamAnswer) => {
     initialAnswers[ans.question_id] = {
@@ -38,6 +44,7 @@ export default async function ExamPage({ params }: ExamPageProps) {
       initialQuestions={initialQuestions}
       sessionId={sessionId} 
       initialAnswers={initialAnswers}
+      session={session}
     />
   );
 }
