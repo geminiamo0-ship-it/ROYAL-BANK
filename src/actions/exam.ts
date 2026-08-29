@@ -145,7 +145,7 @@ export async function getExamSessionQuestions(sessionId: string): Promise<Questi
   }
 
   if (lockedQuestions && lockedQuestions.length > 0) {
-    return (lockedQuestions as any[])
+    return (lockedQuestions as { questions: Question | Question[] }[])
       .map((row) => Array.isArray(row.questions) ? row.questions[0] : row.questions)
       .filter(Boolean) as Question[];
   }

@@ -237,36 +237,39 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
   const isCurrentConceptBookmarked = currentConceptKey ? bookmarkedConceptKeys.has(currentConceptKey) : false;
 
   const [explanations, setExplanations] = useState<Record<number, string>>({});
-  const [isFetchingExplanation, setIsFetchingExplanation] = useState(false);
+  const fetchingIds = React.useRef(new Set<number>());
 
   useEffect(() => {
     if (!currentQ) return;
-    const isAnswered = !!answers[currentQ.id];
     
     // EAGER PREFETCH: Fetch explanation for the current question immediately
-    if (!explanations[currentQ.id] && !isFetchingExplanation) {
-      setIsFetchingExplanation(true);
+    if (!explanations[currentQ.id] && !fetchingIds.current.has(currentQ.id)) {
+      fetchingIds.current.add(currentQ.id);
       getQuestionExplanation(currentQ.id).then((html) => {
         if (html) {
           setExplanations((prev) => ({ ...prev, [currentQ.id]: html }));
         }
       }).finally(() => {
-        setIsFetchingExplanation(false);
+        fetchingIds.current.delete(currentQ.id);
       });
     }
 
     // Prefetch next question's explanation quietly
     if (currentIndex + 1 < questions.length) {
       const nextQ = questions[currentIndex + 1];
-      if (!explanations[nextQ.id]) {
+      if (!explanations[nextQ.id] && !fetchingIds.current.has(nextQ.id)) {
+        fetchingIds.current.add(nextQ.id);
         getQuestionExplanation(nextQ.id).then((html) => {
           if (html) {
             setExplanations((prev) => ({ ...prev, [nextQ.id]: html }));
           }
+        }).finally(() => {
+          fetchingIds.current.delete(nextQ.id);
         });
       }
     }
-  }, [currentQ?.id, answers, currentIndex, questions.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQ?.id, currentIndex, questions.length]);
 
   const explanationPanels = useMemo(() => {
     const rawExplanation = explanations[currentQ?.id || 0] || '';
