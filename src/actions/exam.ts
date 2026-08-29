@@ -81,167 +81,37 @@ export async function startExamSession(input: StartExamInput): Promise<string> {
   }
   // =====================================
 
-  const limit = Math.min(Math.max(input.limit || 70, 1), 70);
-  const categories = [...input.categories, ...(input.topicFilters || [])];
-  const categoryFilters = categories.length > 0 ? categories : null;
-  const difficulties = input.difficulties.length > 0 ? input.difficulties : null;
-
-  // ==== Fetch available questions for this session ====
-  let query = supabase
-    .from('questions')
-    .select('id')
-    .order('id', { ascending: true })
-    .limit(limit);
-
-  let mappedQuestionIds: number[] | null = null;
-  if (input.bankId && input.bankId !== 1) {
-    const { data: mappings } = await supabase
-      .from('question_bank_questions')
-      .select('question_id')
-      .eq('question_bank_id', input.bankId);
-    if (mappings && mappings.length > 0) {
-      mappedQuestionIds = mappings
-        .map((row: QuestionIdRow) => row.question_id)
-        .filter((questionId): questionId is number => typeof questionId === 'number');
-      query = query.in('id', mappedQuestionIds);
-    } else {
-      query = query.in('id', [-1]); // Empty bank
-    }
-  }
-
-  // Handle Categories & Topics
-  const fullCategoryFilters: string[] = [];
-  const topicFilters: Array<{ category: string; topic: string }> = [];
-
-  for (const filterValue of categories) {
-    const topicFilter = decodeTopicFilter(filterValue);
-    if (topicFilter) {
-      topicFilters.push(topicFilter);
-    } else {
-      fullCategoryFilters.push(filterValue);
-    }
-  }
-
-  if (topicFilters.length > 0 || fullCategoryFilters.length > 0) {
-    const orConditions = [];
-    if (fullCategoryFilters.length > 0) {
-      const catsStr = fullCategoryFilters.map(c => `"${c.replace(/"/g, '""')}"`).join(',');
-      orConditions.push(`category.in.(${catsStr})`);
-    }
-    if (topicFilters.length > 0) {
-      for (const tf of topicFilters) {
-        orConditions.push(`and(category.eq."${tf.category.replace(/"/g, '""')}",topic.eq."${tf.topic.replace(/"/g, '""')}")`);
-      }
-    }
-    if (orConditions.length > 0) {
-      query = query.or(orConditions.join(','));
-    }
-  }
-
-  if (difficulties && difficulties.length > 0) {
-    query = query.in('difficulty', difficulties);
-  }
-
-  // Handle "New Only" logic (exclude answered AND suspended)
-  if (input.questionSelection === 'new_only') {
-    const [{ data: answered }, { data: activeSessions }] = await Promise.all([
-      supabase.from('user_answers').select('question_id').eq('user_id', user.id),
-      supabase.from('test_sessions').select('id').eq('user_id', user.id).eq('is_completed', false),
-    ]);
-
-    const activeSessionIds = (activeSessions || [])
-      .map((session) => session.id)
-      .filter((sessionId): sessionId is string => typeof sessionId === 'string');
-
-    const { data: suspendedDirect } = activeSessionIds.length
-      ? await supabase
-          .from('test_session_questions')
-          .select('question_id')
-          .in('test_session_id', activeSessionIds)
-      : { data: [] as QuestionIdRow[] };
-
-    const excludedIds = new Set<number>();
-    (answered || []).forEach((answer: QuestionIdRow) => {
-      if (typeof answer.question_id === 'number') excludedIds.add(answer.question_id);
-    });
-    (suspendedDirect || []).forEach((lock: QuestionIdRow) => {
-      if (typeof lock.question_id === 'number') excludedIds.add(lock.question_id);
-    });
-
-    if (excludedIds.size > 0) {
-      const excludedArray = Array.from(excludedIds);
-      query = query.not('id', 'in', `(${excludedArray.join(',')})`);
-    }
-  } else if (input.questionSelection === 'incorrect_only') {
-    const { data: incorrect } = await supabase.from('user_answers').select('question_id').eq('user_id', user.id).eq('is_correct', false);
-    const incorrectIds = (incorrect || [])
-      .map((answer: QuestionIdRow) => answer.question_id)
-      .filter((questionId): questionId is number => typeof questionId === 'number');
-    if (incorrectIds.length > 0) {
-      query = query.in('id', incorrectIds);
-    } else {
-      query = query.in('id', [-1]);
-    }
-  } else if (input.questionSelection === 'flagged_only') {
-    const { data: flagged } = await supabase.from('user_answers').select('question_id').eq('user_id', user.id).eq('is_flagged', true);
-    const flaggedIds = (flagged || [])
-      .map((answer: QuestionIdRow) => answer.question_id)
-      .filter((questionId): questionId is number => typeof questionId === 'number');
-    if (flaggedIds.length > 0) {
-      query = query.in('id', flaggedIds);
-    } else {
-      query = query.in('id', [-1]);
-    }
-  } else if (input.questionSelection === 'suspended_only') {
-    // Only include questions that are locked in test_session_questions
-    const { data: suspendedDirect } = await supabase.from('test_session_questions').select('question_id');
-    const suspendedIds = (suspendedDirect || []).map(a => a.question_id).filter(Boolean);
-    if (suspendedIds.length > 0) {
-      query = query.in('id', suspendedIds);
-    } else {
-      query = query.in('id', [-1]);
-    }
-  }
-
-  const { data: matchedQuestions, error: fetchError } = await query;
-  if (fetchError) {
-    throw new Error(fetchError.message);
-  }
+  const parsedTopics: Array<{ category: string; topic: string }> = [];
+  const parsedCategories: string[] = [];
+  const combined = [...input.categories, ...(input.topicFilters || [])];
   
-  const finalLimit = Math.min(limit, matchedQuestions?.length || 0);
+  for (const filterValue of combined) {
+    const tf = decodeTopicFilter(filterValue);
+    if (tf) {
+      parsedTopics.push(tf);
+    } else {
+      parsedCategories.push(filterValue);
+    }
+  }
 
-  const { data, error } = await supabase
-    .from('test_sessions')
-    .insert({
-      user_id: user.id,
-      question_bank_id: input.bankId,
-      session_type: input.sessionType || 'standard',
-      categories: categoryFilters,
-      difficulty_filter: difficulties,
-      question_selection: input.questionSelection,
-      total_questions: finalLimit, // Use actual count
-    })
-    .select('id')
-    .single();
+  const limit = Math.min(Math.max(input.limit || 70, 1), 70);
+
+  const { data: sessionId, error } = await supabase.rpc('create_exam_session', {
+    p_user_id: user.id,
+    p_bank_id: input.bankId,
+    p_session_type: input.sessionType || 'standard',
+    p_limit: limit,
+    p_difficulties: input.difficulties,
+    p_categories: parsedCategories,
+    p_topics: parsedTopics,
+    p_question_selection: input.questionSelection
+  });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  // Lock the questions into test_session_questions
-  if (matchedQuestions && matchedQuestions.length > 0) {
-    const payload = matchedQuestions.slice(0, finalLimit).map((mq, index) => ({
-      test_session_id: data.id,
-      question_id: mq.id,
-      sort_order: index,
-    }));
-    const { error: lockError } = await supabase.from('test_session_questions').insert(payload);
-    if (lockError) {
-      console.error('Failed to lock questions:', lockError);
-    }
-  }
-
-  return data.id;
+  return sessionId;
 }
 
 export async function getExamSessionQuestions(sessionId: string): Promise<Question[]> {

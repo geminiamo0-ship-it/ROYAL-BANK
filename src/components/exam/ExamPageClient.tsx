@@ -243,8 +243,8 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
     if (!currentQ) return;
     const isAnswered = !!answers[currentQ.id];
     
-    // Lazy load explanation when question is answered
-    if (isAnswered && !explanations[currentQ.id] && !isFetchingExplanation) {
+    // EAGER PREFETCH: Fetch explanation for the current question immediately
+    if (!explanations[currentQ.id] && !isFetchingExplanation) {
       setIsFetchingExplanation(true);
       getQuestionExplanation(currentQ.id).then((html) => {
         if (html) {
@@ -255,10 +255,10 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
       });
     }
 
-    // Prefetch next question's explanation quietly if this one is already answered
-    if (isAnswered && currentIndex + 1 < questions.length) {
+    // Prefetch next question's explanation quietly
+    if (currentIndex + 1 < questions.length) {
       const nextQ = questions[currentIndex + 1];
-      if (answers[nextQ.id] && !explanations[nextQ.id]) {
+      if (!explanations[nextQ.id]) {
         getQuestionExplanation(nextQ.id).then((html) => {
           if (html) {
             setExplanations((prev) => ({ ...prev, [nextQ.id]: html }));
