@@ -7,6 +7,7 @@ import { Ban, X } from 'lucide-react';
 
 interface AnswerOptionListProps {
   isAnswered: boolean;
+  isTimedMode?: boolean;
   pendingSelectionId: number | null;
   question: Question;
   struckOutOptionIds: Set<number>;
@@ -17,6 +18,7 @@ interface AnswerOptionListProps {
 
 export function AnswerOptionList({
   isAnswered,
+  isTimedMode,
   pendingSelectionId,
   question,
   struckOutOptionIds,
@@ -45,7 +47,7 @@ export function AnswerOptionList({
         let rowClassName = 'bg-transparent';
         let barClassName = 'bg-[#6a7076]';
 
-        if (isAnswered) {
+        if (isAnswered && !isTimedMode) {
           if (option.is_correct) {
             rowClassName = 'bg-[#248f57]';
             barClassName = 'bg-[#248f57]';
@@ -81,7 +83,7 @@ export function AnswerOptionList({
                     isSelected ? 'border-white' : 'border-[#d8d8d8]'
                   }`}
                 >
-                  {isSelected && !isAnswered ? (
+                  {isSelected && (!isAnswered || isTimedMode) ? (
                     <span className="h-[8px] w-[8px] rounded-full bg-white" />
                   ) : null}
                 </span>

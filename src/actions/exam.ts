@@ -444,3 +444,35 @@ export async function getExamSession(sessionId: string) {
   const { data } = await supabase.from('test_sessions').select('*').eq('id', sessionId).single();
   return data;
 }
+
+export async function completeExamSession(sessionId: string): Promise<void> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect('/login');
+  }
+
+  await supabase.from('test_sessions').update({ is_completed: true }).eq('id', sessionId).eq('user_id', user.id);
+
+  const { data: sessionQuestions } = await supabase.from('test_session_questions').select('question_id').eq('test_session_id', sessionId);
+  if (!sessionQuestions || sessionQuestions.length === 0) return;
+  const sessionQuestionIds = sessionQuestions.map(sq => sq.question_id);
+
+  const { data: answeredQuestions } = await supabase.from('user_answers').select('question_id').eq('test_session_id', sessionId).eq('user_id', user.id);
+  const answeredIds = new Set((answeredQuestions || []).map(aq => aq.question_id));
+
+  const unansweredIds = sessionQuestionIds.filter(id => !answeredIds.has(id));
+  if (unansweredIds.length > 0) {
+    const payload = unansweredIds.map(qId => ({
+      test_session_id: sessionId,
+      user_id: user.id,
+      question_id: qId,
+      selected_option_id: null,
+      is_correct: false,
+      is_flagged: false,
+      time_spent_seconds: 0,
+    }));
+    await supabase.from('user_answers').insert(payload);
+  }
+}

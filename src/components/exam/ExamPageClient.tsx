@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { removeSavedConcept, saveConceptVote, saveUserAnswer, getQuestionExplanation } from '@/actions/exam';
+import { removeSavedConcept, saveConceptVote, saveUserAnswer, getQuestionExplanation, completeExamSession } from '@/actions/exam';
 import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamHeader } from '@/components/exam/ExamHeader';
 import { ExamSidebarWidgets } from '@/components/exam/ExamSidebarWidgets';
@@ -15,7 +15,7 @@ interface ExamPageClientProps {
   initialQuestions: Question[];
   sessionId: string;
   initialAnswers?: Record<number, UserExamAnswer>;
-  session: any;
+  session: Record<string, unknown> | null;
 }
 
 function htmlToPlainText(html: string) {
@@ -126,19 +126,32 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
     });
   }, []);
 
-  const handleExit = useCallback(() => {
-    if (window.confirm('Are you sure you want to end this test session?')) {
-      router.push('/bank/1/question-bank');
+  const isTimedMode = session?.session_type === 'fixed_timed';
+  const timeLimitSeconds = (session?.time_limit_minutes || 0) * 60;
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleExit = useCallback(async (forceSubmit = false) => {
+    if (forceSubmit || window.confirm('Are you sure you want to end this test session?')) {
+      setIsSubmitting(true);
+      await completeExamSession(sessionId);
+      router.push(`/bank/${session?.question_bank_id || 1}/performance`);
     }
-  }, [router]);
+  }, [router, sessionId, session?.question_bank_id]);
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
-      setElapsedSeconds((value) => value + 1);
+      setElapsedSeconds((value) => {
+        const nextValue = value + 1;
+        if (isTimedMode && timeLimitSeconds > 0 && nextValue >= timeLimitSeconds && !isSubmitting) {
+          window.clearInterval(timerId);
+          handleExit(true); // Auto submit
+        }
+        return nextValue;
+      });
     }, 1000);
 
     return () => window.clearInterval(timerId);
-  }, []);
+  }, [isTimedMode, timeLimitSeconds, handleExit, isSubmitting]);
 
   useEffect(() => {
     const pendingAnswers = Object.values(answers).filter((answer) => {
@@ -380,7 +393,7 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
     <div className="min-h-screen bg-[#282828] text-white">
       <ExamHeader
         currentIndex={currentIndex}
-        elapsedSeconds={elapsedSeconds}
+        elapsedSeconds={isTimedMode && timeLimitSeconds > 0 ? Math.max(0, timeLimitSeconds - elapsedSeconds) : elapsedSeconds}
         isFlagged={flaggedQuestionIds.has(currentQ.id)}
         questionCount={questions.length}
         showClues={showClues}
