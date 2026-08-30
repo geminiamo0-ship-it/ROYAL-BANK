@@ -127,7 +127,7 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
   }, []);
 
   const isTimedMode = session?.session_type === 'fixed_timed';
-  const timeLimitSeconds = (session?.time_limit_minutes || 0) * 60;
+  const timeLimitSeconds = ((session?.time_limit_minutes as number) || 0) * 60;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleExit = useCallback(async (forceSubmit = false) => {
@@ -439,7 +439,7 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
             </div>
           ) : null}
 
-          {isAnswered ? (
+          {isAnswered && !isTimedMode ? (
             <div className="space-y-6 pt-6">
               <div className="pm-explanation-container text-[16px] leading-[1.7] text-white" onClick={handleExplanationClick}>
                 {currentQ.topic ? (
@@ -471,7 +471,7 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
           marks={marks}
           question={currentQ}
           questions={questions}
-          sidebarHtml={isAnswered ? explanationPanels.sidebarHtml : null}
+          sidebarHtml={isAnswered && !isTimedMode ? explanationPanels.sidebarHtml : null}
         />
       </main>
     </div>
