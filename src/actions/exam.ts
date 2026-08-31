@@ -476,3 +476,36 @@ export async function completeExamSession(sessionId: string): Promise<void> {
     await supabase.from('user_answers').insert(payload);
   }
 }
+
+
+export async function getFullExamSession(sessionId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect('/login');
+  }
+
+  const { data, error } = await supabase
+    .from('test_sessions')
+    .select("*, test_session_questions(sort_order, questions(id, text_html, category, topic, difficulty, options(*))), user_answers(question_id, selected_option_id, is_correct, time_spent_seconds)")
+    .eq('id', sessionId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  let initialQuestions: Question[] = [];
+  if (data.test_session_questions && data.test_session_questions.length > 0) {
+    const sortedTsq = (data.test_session_questions as any[]).sort((a, b) => a.sort_order - b.sort_order);
+    initialQuestions = sortedTsq.map(row => Array.isArray(row.questions) ? row.questions[0] : row.questions).filter(Boolean) as Question[];
+  }
+
+  return {
+    session: data,
+    initialQuestions,
+    rawAnswers: data.user_answers || []
+  };
+}

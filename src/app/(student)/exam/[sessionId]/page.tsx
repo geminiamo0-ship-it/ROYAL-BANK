@@ -1,4 +1,4 @@
-import { getExamSessionQuestions, getExamSessionAnswers, getExamSession } from '@/actions/exam';
+import { getFullExamSession } from '@/actions/exam';
 import { ExamPageClient } from '@/components/exam/ExamPageClient';
 import type { UserExamAnswer } from '@/stores/examStore';
 import { notFound } from 'next/navigation';
@@ -19,15 +19,13 @@ interface ExamPageProps {
 export default async function ExamPage({ params }: ExamPageProps) {
   const { sessionId } = await params;
   
-  const [initialQuestions, rawAnswers, session] = await Promise.all([
-    getExamSessionQuestions(sessionId),
-    getExamSessionAnswers(sessionId),
-    getExamSession(sessionId),
-  ]);
+  const fullData = await getFullExamSession(sessionId);
   
-  if (!session) {
+  if (!fullData) {
     notFound();
   }
+
+  const { initialQuestions, rawAnswers, session } = fullData;
 
   const initialAnswers: Record<number, UserExamAnswer> = {};
   rawAnswers.forEach((ans: RawExamAnswer) => {
