@@ -26,10 +26,10 @@ const getCachedBankQuestionRows = unstable_cache(
 
     return data as BankQuestionRow[];
   },
-  ['bank-question-rows-rpc-v2'],
+  ['bank-question-rows-rpc-v3'],
   {
     revalidate: 3600, // 1 hour
-    tags: ['bank-question-rows-rpc-v2'],
+    tags: ['bank-question-rows-rpc-v3'],
   }
 );
 
