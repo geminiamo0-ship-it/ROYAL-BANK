@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import React, { useMemo, useState, useTransition } from 'react';
+import React, { useMemo, useState, useTransition, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { startExamSession } from '@/actions/exam';
@@ -149,17 +149,24 @@ export function QuestionBankPageClient({
           }, 0)
         );
       }, 0),
-    [categories, questionSelection, selectedCategoryIds, selectedTopicKeys]
+    [categories, questionSelection, selectedCategoryIds, selectedTopicKeys, selectedDifficulties]
   );
 
   const selectedAttempted = useMemo(
     () =>
       categories.reduce(
-        (sum, category) =>
-          sum + (selectedCategoryIds.includes(category.id) ? category.attempted : 0),
+        (sum, category) => {
+          if (selectedCategoryIds.includes(category.id)) {
+            return sum + selectedDifficulties.reduce((a, d) => a + (category.attemptedByDiff[d] || 0), 0);
+          }
+          return sum + category.topics.reduce((tSum, topic) => {
+            const key = topicSelectionKey(category.id, topic.id);
+            return tSum + (selectedTopicKeys.includes(key) ? selectedDifficulties.reduce((a, d) => a + (topic.attemptedByDiff[d] || 0), 0) : 0);
+          }, 0);
+        },
         0
       ),
-    [categories, selectedCategoryIds]
+    [categories, selectedCategoryIds, selectedTopicKeys, selectedDifficulties]
   );
 
   const selectedTopicFilters = useMemo(
@@ -213,6 +220,12 @@ export function QuestionBankPageClient({
       }
     });
   };
+
+  useEffect(() => {
+    if (questionCount > selectedQuestions && selectedQuestions > 0) {
+      setQuestionCount(Math.min(70, selectedQuestions));
+    }
+  }, [selectedQuestions, questionCount]);
 
   const toggleCategory = (categoryId: string) => {
     setSelectedCategoryIds((current) => {
@@ -355,7 +368,7 @@ export function QuestionBankPageClient({
                       title={category.name}
                       meta={
                         questionSelection === 'all'
-                          ? `${category.attempted} of ${category.total.toLocaleString()}`
+                          ? `${selectedDifficulties.reduce((a, d) => a + (category.attemptedByDiff[d] || 0), 0)} of ${getCountForSelection(category, 'all', selectedDifficulties).toLocaleString()}`
                           : `${getCountForSelection(category, questionSelection, selectedDifficulties).toLocaleString()} ${selectionLabel}`
                       }
                       onToggle={() => toggleCategory(category.id)}
@@ -576,5 +589,7 @@ function CategoryRow({
     </div>
   );
 }
+
+
 
 
