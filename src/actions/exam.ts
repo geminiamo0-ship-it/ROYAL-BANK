@@ -111,6 +111,19 @@ export async function startExamSession(input: StartExamInput): Promise<string> {
     throw new Error(error.message);
   }
 
+  // Check if any questions were actually added to the session
+  const { data: sessionData } = await supabase
+    .from('test_sessions')
+    .select('total_questions')
+    .eq('id', sessionId)
+    .single();
+
+  if (sessionData && sessionData.total_questions === 0) {
+    // Delete the empty session
+    await supabase.from('test_sessions').delete().eq('id', sessionId);
+    throw new Error("No questions found matching your selected criteria (e.g., no suspended questions).");
+  }
+
   return sessionId;
 }
 
