@@ -1,3 +1,5 @@
+export type DifficultyCounts = { '1': number; '2': number; '3': number; [key: string]: number };
+
 export interface TopicSummary {
   id: string;
   name: string;
@@ -7,6 +9,12 @@ export interface TopicSummary {
   incorrectCount: number;
   flaggedCount: number;
   suspendedCount: number;
+  // Breakdowns
+  totalByDiff: DifficultyCounts;
+  attemptedByDiff: DifficultyCounts;
+  incorrectByDiff: DifficultyCounts;
+  flaggedByDiff: DifficultyCounts;
+  suspendedByDiff: DifficultyCounts;
 }
 
 export interface CategoryWithTopics {
@@ -18,5 +26,11 @@ export interface CategoryWithTopics {
   incorrectCount: number;
   flaggedCount: number;
   suspendedCount: number;
+  // Breakdowns
+  totalByDiff: DifficultyCounts;
+  attemptedByDiff: DifficultyCounts;
+  incorrectByDiff: DifficultyCounts;
+  flaggedByDiff: DifficultyCounts;
+  suspendedByDiff: DifficultyCounts;
   topics: TopicSummary[];
 }

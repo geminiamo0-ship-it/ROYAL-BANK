@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 export interface BankQuestionRow {
   category: string;
   topic: string | null;
+  difficulty: string;
   total_questions: number;
 }
 

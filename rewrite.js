@@ -1,8 +1,9 @@
-﻿import 'server-only';
+﻿const fs = require('fs');
+
+const code = import 'server-only';
 import { createClient } from '@/lib/supabase/server';
 import { getBankQuestionRows, type BankQuestionRow } from '@/lib/bank-question-rows';
-import { CategoryWithTopics, DifficultyCounts } from '@/types/question-bank';
-import { CategorySummary } from '@/actions/exam';
+import { CategorySummary, CategoryWithTopics, DifficultyCounts } from '@/types/question-bank';
 
 export const DEFAULT_CATEGORIES = [
   { id: 'Cardiology', name: 'Cardiology', total: 604, attempted: 0 },
@@ -37,7 +38,7 @@ async function getUserQuestionStateMap() {
   const stateMap = new Map<string, UserStateCounts>();
 
   const getOrCreate = (cat: string, top: string | null) => {
-    const key = top ? cat + '|||' + top : cat;
+    const key = top ? \\\\|||\\\\ : cat;
     if (!stateMap.has(key)) {
       stateMap.set(key, { 
         attempted: createEmptyCounts(), 
@@ -152,8 +153,8 @@ function buildQuestionBankOutline(
     .map(([category, summary]) => {
       const catState = userStateMap.get(category) || { attempted: createEmptyCounts(), incorrect: createEmptyCounts(), flagged: createEmptyCounts(), suspended: createEmptyCounts() };
       
-      const topics = (Array.from(summary.topics.entries()) as [string, any][]).map(([topic, topicSummary]) => {
-        const topicState = userStateMap.get(category + '|||' + topic) || { attempted: createEmptyCounts(), incorrect: createEmptyCounts(), flagged: createEmptyCounts(), suspended: createEmptyCounts() };
+      const topics = Array.from(summary.topics.entries()).map(([topic, topicSummary]: [string, any]) => {
+        const topicState = userStateMap.get(\\|||\\) || { attempted: createEmptyCounts(), incorrect: createEmptyCounts(), flagged: createEmptyCounts(), suspended: createEmptyCounts() };
         
         return {
           id: topic,
@@ -243,4 +244,5 @@ export async function getLiveQuestionBankCategories(bankId: number): Promise<Cat
     attempted: category.attempted,
   }));
 }
-
+;
+fs.writeFileSync('src/lib/question-bank.ts', code);

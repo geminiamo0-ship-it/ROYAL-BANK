@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { startExamSession } from '@/actions/exam';
 import { encodeTopicFilter } from '@/lib/topic-filters';
 import type { CategoryWithTopics, TopicSummary } from '@/types/question-bank';
-import { ChevronRight, Minus, Plus, Search } from 'lucide-react';
+import { ChevronRight, Minus, Plus, Search, Hammer } from 'lucide-react';
 import type { QuestionSelection } from '@/types/database';
 
 const RECENT_SESSIONS = [
@@ -32,21 +32,24 @@ const QUESTION_ORDER_OPTIONS = [
 ];
 
 function getCountForSelection(
-  item: Pick<CategoryWithTopics, 'total' | 'newCount' | 'incorrectCount' | 'flaggedCount' | 'suspendedCount'>,
-  selection: QuestionSelection
+  item: Pick<CategoryWithTopics, 'totalByDiff' | 'attemptedByDiff' | 'incorrectByDiff' | 'flaggedByDiff' | 'suspendedByDiff'>,
+  selection: QuestionSelection,
+  difficulties: string[]
 ) {
+  const sum = (counts: Record<string, number>) => difficulties.reduce((acc, d) => acc + (counts[d] || 0), 0);
+
   switch (selection) {
     case 'new_only':
-      return item.newCount;
+      return Math.max(sum(item.totalByDiff) - sum(item.attemptedByDiff), 0);
     case 'incorrect_only':
-      return item.incorrectCount;
+      return sum(item.incorrectByDiff);
     case 'flagged_only':
-      return item.flaggedCount;
+      return sum(item.flaggedByDiff);
     case 'suspended_only':
-      return item.suspendedCount;
+      return sum(item.suspendedByDiff);
     case 'all':
     default:
-      return item.total;
+      return sum(item.totalByDiff);
   }
 }
 
@@ -135,14 +138,14 @@ export function QuestionBankPageClient({
     () =>
       categories.reduce((sum, category) => {
         if (selectedCategoryIds.includes(category.id)) {
-          return sum + getCountForSelection(category, questionSelection);
+          return sum + getCountForSelection(category, questionSelection, selectedDifficulties);
         }
 
         return (
           sum +
           category.topics.reduce((topicSum, topic) => {
             const key = topicSelectionKey(category.id, topic.id);
-            return topicSum + (selectedTopicKeys.includes(key) ? getCountForSelection(topic, questionSelection) : 0);
+            return topicSum + (selectedTopicKeys.includes(key) ? getCountForSelection(topic, questionSelection, selectedDifficulties) : 0);
           }, 0)
         );
       }, 0),
@@ -353,7 +356,7 @@ export function QuestionBankPageClient({
                       meta={
                         questionSelection === 'all'
                           ? `${category.attempted} of ${category.total.toLocaleString()}`
-                          : `${getCountForSelection(category, questionSelection).toLocaleString()} ${selectionLabel}`
+                          : `${getCountForSelection(category, questionSelection, selectedDifficulties).toLocaleString()} ${selectionLabel}`
                       }
                       onToggle={() => toggleCategory(category.id)}
                       canExpand={category.topics.length > 0}
@@ -379,7 +382,7 @@ export function QuestionBankPageClient({
                                 />
                                 <span className="min-w-0 flex-1 truncate">{topic.name}</span>
                                 <span className="rounded-full border border-[#d9a8a8] px-2 py-[1px] text-[10px] font-semibold text-[#ffd7d7]">
-                                  {getCountForSelection(topic, questionSelection)}
+                                  {getCountForSelection(topic, questionSelection, selectedDifficulties)}
                                 </span>
                               </label>
                             );
@@ -465,18 +468,22 @@ export function QuestionBankPageClient({
             <PanelHeader title="Difficulty" />
             <div className="flex flex-wrap gap-8 px-[12px] py-[14px]">
               {[
-                { value: '1', label: '1' },
-                { value: '2', label: '2' },
-                { value: '3', label: '3' },
+                { value: '1', hammers: 1 },
+                { value: '2', hammers: 2 },
+                { value: '3', hammers: 3 },
               ].map((difficulty) => (
-                <label key={difficulty.value} className="inline-flex items-center gap-2 text-[13px] text-white">
+                <label key={difficulty.value} className="inline-flex items-center gap-2 text-[13px] text-white cursor-pointer">
                   <input
                     type="checkbox"
                     checked={selectedDifficulties.includes(difficulty.value)}
                     onChange={() => toggleDifficulty(difficulty.value)}
-                    className="h-[12px] w-[12px] rounded-[2px] accent-[#3e73ff]"
+                    className="h-[14px] w-[14px] rounded-[2px] accent-[#3e73ff] cursor-pointer"
                   />
-                  <span>{difficulty.label}</span>
+                  <span className="flex items-center gap-[2px]">
+                    {Array.from({ length: difficulty.hammers }).map((_, i) => (
+                      <Hammer key={i} size={15} className={selectedDifficulties.includes(difficulty.value) ? 'text-[#ff9500]' : 'text-[#5a646c]'} strokeWidth={2.5} />
+                    ))}
+                  </span>
                 </label>
               ))}
             </div>
@@ -569,3 +576,5 @@ function CategoryRow({
     </div>
   );
 }
+
+
