@@ -4,7 +4,17 @@ on:
   push:
     branches:
       - audit/core-hardening
+    paths-ignore:
+      - 'supabase/**'
+      - '.github/workflows/verify-db.yml'
   pull_request:
+    paths-ignore:
+      - 'supabase/**'
+      - '.github/workflows/verify-db.yml'
+
+concurrency:
+  group: verify-app-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
