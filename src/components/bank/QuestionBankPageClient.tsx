@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useMemo, useState, useTransition, useEffect } from 'react';
 import Link from 'next/link';
@@ -7,15 +7,7 @@ import { startExamSession } from '@/actions/exam';
 import { encodeTopicFilter } from '@/lib/topic-filters';
 import type { CategoryWithTopics, TopicSummary } from '@/types/question-bank';
 import { ChevronRight, Minus, Plus, Search, Hammer } from 'lucide-react';
-import type { QuestionSelection } from '@/types/database';
-
-const RECENT_SESSIONS = [
-  { id: 'all-1', label: 'Standard', title: 'All categories', age: '1 day ago', tag: '' },
-  { id: 'cardiology-1', label: 'Standard', title: 'Cardiology', age: '1 day ago', tag: '' },
-  { id: 'all-2', label: 'Standard', title: 'All categories', age: '5 days ago', tag: '' },
-  { id: 'incorrect-1', label: 'Standard', title: 'All categories', age: '6 days ago', tag: 'Previously incorrect' },
-  { id: 'all-3', label: 'Standard', title: 'All categories', age: '6 days ago', tag: '' },
-];
+import type { QuestionSelection, SessionType } from '@/types/database';
 
 const QUESTION_SELECTION_OPTIONS: Array<{ value: QuestionSelection; label: string }> = [
   { value: 'new_only', label: 'Show me new questions only' },
@@ -23,12 +15,6 @@ const QUESTION_SELECTION_OPTIONS: Array<{ value: QuestionSelection; label: strin
   { value: 'incorrect_only', label: 'Only previously incorrect questions' },
   { value: 'flagged_only', label: 'Only flagged questions' },
   { value: 'suspended_only', label: 'Suspended / incomplete questions' },
-];
-
-const QUESTION_ORDER_OPTIONS = [
-  { value: 'balanced', label: 'Balanced order' },
-  { value: 'sequential', label: 'Sequential order' },
-  { value: 'adaptive', label: 'Adaptive focus' },
 ];
 
 function getCountForSelection(
@@ -40,7 +26,10 @@ function getCountForSelection(
 
   switch (selection) {
     case 'new_only':
-      return Math.max(sum(item.totalByDiff) - sum(item.attemptedByDiff), 0);
+      return Math.max(
+        sum(item.totalByDiff) - sum(item.attemptedByDiff) - sum(item.suspendedByDiff),
+        0
+      );
     case 'incorrect_only':
       return sum(item.incorrectByDiff);
     case 'flagged_only':
@@ -93,9 +82,8 @@ export function QuestionBankPageClient({
   const [search, setSearch] = useState('');
   const [selectedDifficulties, setSelectedDifficulties] = useState<string[]>(['1', '2', '3']);
   const [questionSelection, setQuestionSelection] = useState<QuestionSelection>('new_only');
-  const [sessionMode, setSessionMode] = useState<'standard' | 'fixed_timed'>('standard');
+  const [sessionMode, setSessionMode] = useState<Extract<SessionType, 'tutor' | 'timed'>>('tutor');
   const [questionCount, setQuestionCount] = useState<number>(40);
-  const [questionOrderMode, setQuestionOrderMode] = useState('balanced');
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -131,6 +119,11 @@ export function QuestionBankPageClient({
 
   const totalAttempted = useMemo(
     () => categories.reduce((sum, category) => sum + category.attempted, 0),
+    [categories]
+  );
+
+  const totalIncorrect = useMemo(
+    () => categories.reduce((sum, category) => sum + category.incorrectCount, 0),
     [categories]
   );
 
@@ -185,7 +178,9 @@ export function QuestionBankPageClient({
     selectedTopicKeys.length === 0;
 
   const averageScore =
-    totalAttempted > 0 ? Math.round((selectedAttempted / totalAttempted) * 100) : 0;
+    totalAttempted > 0
+      ? Math.round(((totalAttempted - totalIncorrect) / totalAttempted) * 100)
+      : 0;
 
   const selectionLabel = getSelectionLabel(questionSelection);
 
@@ -195,6 +190,15 @@ export function QuestionBankPageClient({
       : `${selectedQuestions.toLocaleString()} ${selectionLabel}`;
 
   const launchQuestions = (categoryIds: string[], topicFilters: string[]) => {
+    if (selectedDifficulties.length === 0) {
+      setError('Select at least one difficulty.');
+      return;
+    }
+    if (selectedQuestions <= 0) {
+      setError('No questions match the selected filters.');
+      return;
+    }
+
     const nextTopicFilters = [...topicFilters];
     const nextCategoryIds =
       nextTopicFilters.length === 0 && categoryIds.length === categories.length
@@ -334,7 +338,7 @@ export function QuestionBankPageClient({
           <button
             type="button"
             onClick={() => launchQuestions(selectedCategoryIds, selectedTopicFilters)}
-            disabled={isPending}
+            disabled={isPending || selectedQuestions <= 0 || selectedDifficulties.length === 0}
             className="inline-flex h-[30px] items-center justify-center gap-2 rounded-[4px] bg-[#d5e4ff] px-4 text-[12px] font-medium text-[#1d3152] hover:bg-[#e3ebff] disabled:opacity-60"
           >
             <span>{isPending ? 'Starting...' : 'Start the questions'}</span>
@@ -417,9 +421,9 @@ export function QuestionBankPageClient({
               <div className="mb-4 grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setSessionMode('standard')}
+                  onClick={() => setSessionMode('tutor')}
                   className={`flex flex-col items-start justify-center rounded-[4px] border p-3 text-left transition-colors ${
-                    sessionMode === 'standard'
+                    sessionMode === 'tutor'
                       ? 'border-[#3e73ff] bg-[#2c3d5e] text-[#f4f4f4]'
                       : 'border-[#4a545d] bg-[#2c3237] text-[#c6cdd3] hover:border-[#80868b]'
                   }`}
@@ -429,9 +433,9 @@ export function QuestionBankPageClient({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSessionMode('fixed_timed')}
+                  onClick={() => setSessionMode('timed')}
                   className={`flex flex-col items-start justify-center rounded-[4px] border p-3 text-left transition-colors ${
-                    sessionMode === 'fixed_timed'
+                    sessionMode === 'timed'
                       ? 'border-[#3e73ff] bg-[#2c3d5e] text-[#f4f4f4]'
                       : 'border-[#4a545d] bg-[#2c3237] text-[#c6cdd3] hover:border-[#80868b]'
                   }`}
@@ -589,7 +593,3 @@ function CategoryRow({
     </div>
   );
 }
-
-
-
-
