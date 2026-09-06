@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   completeExamSession,
-  getQuestionExplanation,
+  getExamQuestionFeedback,
   removeSavedConcept,
   saveConceptVote,
   saveUserAnswer,
@@ -14,16 +14,21 @@ import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamHeader } from '@/components/exam/ExamHeader';
 import { ExamSidebarWidgets } from '@/components/exam/ExamSidebarWidgets';
 import { extractExplanationPanels } from '@/lib/explanation-panels';
-import type { UserExamAnswer } from '@/stores/examStore';
-import type { Option, Question } from '@/types/database';
+import type {
+  ExamClientAnswer,
+  ExamClientOption,
+  ExamClientQuestion,
+  ExamClientSession,
+  ExamQuestionFeedback,
+} from '@/types/exam';
 import { ChevronRight } from 'lucide-react';
 
 interface ExamPageClientProps {
-  initialQuestions: Question[];
+  initialQuestions: ExamClientQuestion[];
   sessionId: string;
-  initialAnswers?: Record<number, UserExamAnswer>;
+  initialAnswers?: Record<number, ExamClientAnswer>;
   initialFlaggedQuestionIds?: number[];
-  session: Record<string, unknown> | null;
+  session: ExamClientSession | null;
 }
 
 function htmlToPlainText(html: string) {
@@ -44,14 +49,14 @@ export function ExamPageClient({
   session,
 }: ExamPageClientProps) {
   const router = useRouter();
-  const [questions] = useState<Question[]>(initialQuestions);
+  const [questions] = useState<ExamClientQuestion[]>(initialQuestions);
   const sessionType = String(session?.session_type || 'standard');
   const isTimedMode = sessionType === 'timed' || sessionType === 'fixed_timed';
   const bankId = Number(session?.question_bank_id || 0);
 
   const firstUnansweredIndex = questions.findIndex((question) => !initialAnswers[question.id]);
   const [currentIndex, setCurrentIndex] = useState(firstUnansweredIndex >= 0 ? firstUnansweredIndex : 0);
-  const [answers, setAnswers] = useState<Record<number, UserExamAnswer>>(initialAnswers);
+  const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>(initialAnswers);
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(
     () => new Set(initialFlaggedQuestionIds)
@@ -64,9 +69,11 @@ export function ExamPageClient({
   const [savingQuestionIds, setSavingQuestionIds] = useState<Set<number>>(new Set());
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedbackByQuestionId, setFeedbackByQuestionId] = useState<Record<number, ExamQuestionFeedback>>({});
 
   const answerSaveChains = React.useRef<Record<number, Promise<void>>>({});
   const flagSaveChains = React.useRef<Record<number, Promise<void>>>({});
+  const feedbackFetchingIds = React.useRef(new Set<number>());
   const persistedSelectionRef = React.useRef<Record<number, number | null>>(
     Object.fromEntries(
       Object.values(initialAnswers).map((answer) => [answer.questionId, answer.selectedOptionId])
@@ -84,7 +91,7 @@ export function ExamPageClient({
     setCurrentIndex((value) => Math.max(value - 1, 0));
   }, []);
 
-  const queueTimedAnswerSave = useCallback((answer: UserExamAnswer) => {
+  const queueTimedAnswerSave = useCallback((answer: ExamClientAnswer) => {
     const questionId = answer.questionId;
     const previous = answerSaveChains.current[questionId] || Promise.resolve();
 
@@ -107,7 +114,7 @@ export function ExamPageClient({
     answerSaveChains.current[questionId] = next;
   }, [sessionId]);
 
-  const selectOption = useCallback((questionId: number, option: Option) => {
+  const selectOption = useCallback((questionId: number, option: ExamClientOption) => {
     if (!isTimedMode && answers[questionId]) return;
 
     setPendingSelections((previous) => ({
@@ -117,10 +124,11 @@ export function ExamPageClient({
 
     if (!isTimedMode) return;
 
-    const answer: UserExamAnswer = {
+    const answer: ExamClientAnswer = {
       questionId,
       selectedOptionId: option.id,
-      isCorrect: option.is_correct,
+      isCorrect: null,
+      correctOptionId: null,
       timeSpentSeconds: elapsedSeconds,
     };
 
@@ -145,7 +153,7 @@ export function ExamPageClient({
     setPersistenceError(null);
 
     try {
-      await saveUserAnswer({
+      const persistedAnswer = await saveUserAnswer({
         sessionId,
         questionId,
         selectedOptionId: option.id,
@@ -155,12 +163,7 @@ export function ExamPageClient({
       persistedSelectionRef.current[questionId] = option.id;
       setAnswers((previous) => ({
         ...previous,
-        [questionId]: {
-          questionId,
-          selectedOptionId: option.id,
-          isCorrect: option.is_correct,
-          timeSpentSeconds: elapsedSeconds,
-        },
+        [questionId]: persistedAnswer,
       }));
     } catch (error) {
       setPersistenceError(error instanceof Error ? error.message : 'Unable to submit the answer.');
@@ -316,50 +319,51 @@ export function ExamPageClient({
   );
 
   const marks = useMemo(
-    () => questions.filter((item) => answers[item.id]?.isCorrect).length,
+    () => questions.filter((item) => answers[item.id]?.isCorrect === true).length,
     [answers, questions]
   );
+
+  useEffect(() => {
+    if (!currentQ || isTimedMode || !answers[currentQ.id]) return;
+    if (feedbackByQuestionId[currentQ.id] || feedbackFetchingIds.current.has(currentQ.id)) return;
+
+    feedbackFetchingIds.current.add(currentQ.id);
+    getExamQuestionFeedback(sessionId, currentQ.id)
+      .then((feedback) => {
+        setFeedbackByQuestionId((previous) => ({
+          ...previous,
+          [currentQ.id]: feedback,
+        }));
+        setAnswers((previous) => {
+          const answer = previous[currentQ.id];
+          if (!answer) return previous;
+          return {
+            ...previous,
+            [currentQ.id]: {
+              ...answer,
+              isCorrect: feedback.isCorrect,
+              correctOptionId: feedback.correctOptionId,
+            },
+          };
+        });
+        setPersistenceError(null);
+      })
+      .catch((error) => {
+        setPersistenceError(error instanceof Error ? error.message : 'Unable to load answer feedback.');
+      })
+      .finally(() => {
+        feedbackFetchingIds.current.delete(currentQ.id);
+      });
+  }, [answers, currentQ, feedbackByQuestionId, isTimedMode, sessionId]);
 
   const currentConceptKey = currentQ?.concept_id || (currentQ ? String(currentQ.id) : '');
   const isCurrentConceptBookmarked = currentConceptKey
     ? bookmarkedConceptKeys.has(currentConceptKey)
     : false;
-
-  const [explanations, setExplanations] = useState<Record<number, string>>({});
-  const fetchingIds = React.useRef(new Set<number>());
-
-  useEffect(() => {
-    if (!currentQ) return;
-
-    if (!explanations[currentQ.id] && !fetchingIds.current.has(currentQ.id)) {
-      fetchingIds.current.add(currentQ.id);
-      getQuestionExplanation(currentQ.id)
-        .then((html) => {
-          if (html) setExplanations((previous) => ({ ...previous, [currentQ.id]: html }));
-        })
-        .finally(() => {
-          fetchingIds.current.delete(currentQ.id);
-        });
-    }
-
-    if (currentIndex + 1 < questions.length) {
-      const nextQuestion = questions[currentIndex + 1];
-      if (!explanations[nextQuestion.id] && !fetchingIds.current.has(nextQuestion.id)) {
-        fetchingIds.current.add(nextQuestion.id);
-        getQuestionExplanation(nextQuestion.id)
-          .then((html) => {
-            if (html) setExplanations((previous) => ({ ...previous, [nextQuestion.id]: html }));
-          })
-          .finally(() => {
-            fetchingIds.current.delete(nextQuestion.id);
-          });
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQ?.id, currentIndex, questions.length]);
+  const currentFeedback = feedbackByQuestionId[currentQ?.id || 0];
 
   const explanationPanels = useMemo(() => {
-    const rawExplanation = explanations[currentQ?.id || 0] || '';
+    const rawExplanation = currentFeedback?.explanationHtml || '';
     const isAnsweredLocal = Boolean(answers[currentQ?.id || 0]);
 
     if (!rawExplanation && isAnsweredLocal && !isTimedMode) {
@@ -377,7 +381,7 @@ export function ExamPageClient({
       `$1${mediaUrl}/`
     );
     return extractExplanationPanels(updatedExplanation, isCurrentConceptBookmarked);
-  }, [answers, currentQ?.id, explanations, isCurrentConceptBookmarked, isTimedMode]);
+  }, [answers, currentFeedback?.explanationHtml, currentQ?.id, isCurrentConceptBookmarked, isTimedMode]);
 
   if (!currentQ) {
     return (
@@ -390,6 +394,8 @@ export function ExamPageClient({
   const currentAnswer = answers[currentQ.id];
   const isAnswered = Boolean(currentAnswer);
   const selectedOptionId = currentAnswer?.selectedOptionId ?? pendingSelections[currentQ.id] ?? null;
+  const correctOptionId = currentFeedback?.correctOptionId ?? currentAnswer?.correctOptionId ?? null;
+  const optionPercentages = currentFeedback?.optionPercentages || {};
   const mediaUrl = process.env.NEXT_PUBLIC_R2_MEDIA_URL || 'offline_media';
 
   const currentHtml = currentQ.text_html
@@ -406,12 +412,7 @@ export function ExamPageClient({
         /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
         `$1${mediaUrl}/`
       )
-    : currentQ.concept
-      ? currentQ.concept.replace(
-          /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
-          `$1${mediaUrl}/`
-        )
-      : null;
+    : null;
 
   const conceptKey = currentConceptKey;
   const isConceptBookmarked = isCurrentConceptBookmarked;
@@ -513,6 +514,8 @@ export function ExamPageClient({
             question={currentQ}
             struckOutOptionIds={struckOutOptionIds}
             submittedAnswer={currentAnswer}
+            correctOptionId={correctOptionId}
+            optionPercentages={optionPercentages}
             onSelectOption={selectOption}
             onToggleStrikeOut={toggleStrikeOut}
           />
