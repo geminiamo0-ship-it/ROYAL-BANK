@@ -1,7 +1,7 @@
 import { getFullExamSession } from '@/actions/exam';
 import { ExamPageClient } from '@/components/exam/ExamPageClient';
 import type { UserExamAnswer } from '@/stores/examStore';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 
 interface RawExamAnswer {
   question_id: number;
@@ -22,6 +22,14 @@ export default async function ExamPage({ params }: ExamPageProps) {
 
   if (!fullData) {
     notFound();
+  }
+
+  if (fullData.status === 'completed') {
+    if (!Number.isInteger(fullData.bankId) || fullData.bankId <= 0) {
+      notFound();
+    }
+
+    redirect(`/bank/${fullData.bankId}/fixed-sets`);
   }
 
   const { initialQuestions, rawAnswers, session, flaggedQuestionIds } = fullData;
