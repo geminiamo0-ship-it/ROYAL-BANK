@@ -89,7 +89,7 @@ BEGIN
         RETURN result;
     END IF;
 
-    IF result.session_type = 'timed' THEN
+    IF result.session_type IN ('timed', 'fixed_timed') THEN
         PERFORM set_config('app.timed_finalization', 'on', true);
 
         INSERT INTO public.user_answers (
