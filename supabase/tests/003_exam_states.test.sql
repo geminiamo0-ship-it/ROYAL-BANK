@@ -26,15 +26,22 @@ SELECT extensions.is((SELECT count(*)::bigint FROM public.get_user_question_stat
 -- Timed mode must update the same answer row until End Block.
 SELECT public.submit_exam_answer((SELECT id FROM exam_session),9321,94212,3);
 SELECT public.submit_exam_answer((SELECT id FROM exam_session),9321,94211,5);
+
+-- Direct answer-table SELECT is intentionally unavailable to authenticated users.
+-- Switch back to the test owner only for internal persistence assertions.
+RESET ROLE;
 SELECT extensions.is((SELECT count(*)::bigint FROM public.user_answers WHERE test_session_id=(SELECT id FROM exam_session) AND question_id=9321),1::bigint,'timed edits keep one answer row');
 SELECT extensions.is((SELECT selected_option_id FROM public.user_answers WHERE test_session_id=(SELECT id FROM exam_session) AND question_id=9321),94211::bigint,'latest timed option wins');
 SELECT extensions.ok((SELECT is_correct FROM public.user_answers WHERE test_session_id=(SELECT id FROM exam_session) AND question_id=9321),'correctness is derived from latest option');
+SET LOCAL ROLE authenticated;
 
 SELECT public.set_question_flag(9321,TRUE);
 SELECT extensions.ok((SELECT is_flagged FROM public.get_user_question_states(9220) WHERE question_id=9321),'flag is persistent and independent');
 SELECT extensions.is((SELECT count(*)::bigint FROM public.get_user_question_states(9220) WHERE is_suspended),1::bigint,'answering one question leaves only the unanswered question Suspended');
 
 SELECT public.complete_exam_session((SELECT id FROM exam_session));
+
+RESET ROLE;
 SELECT extensions.ok((SELECT is_completed FROM public.test_sessions WHERE id=(SELECT id FROM exam_session)),'End Block completes the session');
 SELECT extensions.ok((SELECT selected_option_id IS NULL AND is_correct=FALSE FROM public.user_answers WHERE test_session_id=(SELECT id FROM exam_session) AND question_id=9322),'timed unanswered question is finalized Incorrect');
 
