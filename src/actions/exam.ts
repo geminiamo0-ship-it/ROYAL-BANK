@@ -55,9 +55,10 @@ export async function getExamSessionQuestions(sessionId: string): Promise<Questi
     .select('id')
     .eq('id', sessionId)
     .eq('user_id', user.id)
+    .eq('is_completed', false)
     .single();
 
-  if (sessionError || !session) throw new Error(sessionError?.message || 'Session not found');
+  if (sessionError || !session) throw new Error(sessionError?.message || 'Active session not found');
 
   const { data: lockedQuestions, error } = await supabase
     .from('test_session_questions')
@@ -235,6 +236,13 @@ export async function getFullExamSession(sessionId: string) {
 
   if (error || !data) return null;
 
+  if (data.is_completed) {
+    return {
+      status: 'completed' as const,
+      bankId: Number(data.question_bank_id),
+    };
+  }
+
   const rows = (data.test_session_questions || []) as Array<{
     sort_order: number;
     questions: Question | Question[] | null;
@@ -259,6 +267,7 @@ export async function getFullExamSession(sessionId: string) {
   }
 
   return {
+    status: 'active' as const,
     session: data,
     initialQuestions,
     rawAnswers: data.user_answers || [],
