@@ -16,3 +16,45 @@ export interface StartExamInput {
   sessionType?: SessionType;
   limit?: number;
 }
+
+export interface ExamClientOption {
+  id: number;
+  question_id: number;
+  text_html: string;
+  option_order: number;
+}
+
+export interface ExamClientQuestion {
+  id: number;
+  text_html: string;
+  category: string;
+  topic: string | null;
+  difficulty: string;
+  notes_id: string | null;
+  concept_id: string | null;
+  options?: ExamClientOption[];
+}
+
+export interface ExamClientAnswer {
+  questionId: number;
+  selectedOptionId: number | null;
+  isCorrect: boolean | null;
+  correctOptionId: number | null;
+  timeSpentSeconds: number;
+}
+
+export interface ExamQuestionFeedback {
+  questionId: number;
+  selectedOptionId: number | null;
+  isCorrect: boolean;
+  correctOptionId: number | null;
+  explanationHtml: string;
+  optionPercentages: Record<number, number>;
+}
+
+export interface ExamClientSession {
+  id: string;
+  question_bank_id: number;
+  session_type: SessionType;
+  time_limit_minutes: number | null;
+}
