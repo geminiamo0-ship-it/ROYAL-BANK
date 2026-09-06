@@ -5,10 +5,48 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { decodeTopicFilter } from '@/lib/topic-filters';
 import { getLiveQuestionBankCategories } from '@/lib/question-bank';
-import type { Question } from '@/types/database';
-import type { CategorySummary, StartExamInput } from '@/types/exam';
+import type {
+  CategorySummary,
+  ExamClientAnswer,
+  ExamClientQuestion,
+  ExamClientSession,
+  ExamQuestionFeedback,
+  StartExamInput,
+} from '@/types/exam';
 
 export type { CategorySummary, StartExamInput } from '@/types/exam';
+
+type RawSubmitResult = {
+  question_id: number;
+  selected_option_id: number | null;
+  is_correct: boolean | null;
+  time_spent_seconds: number | null;
+};
+
+type RawSessionAnswer = RawSubmitResult & {
+  correct_option_id: number | null;
+};
+
+type RawQuestionFeedback = {
+  question_id: number;
+  selected_option_id: number | null;
+  is_correct: boolean;
+  correct_option_id: number | null;
+  explanation_html: string | null;
+  option_percentages: Record<string, number> | null;
+};
+
+function toClientAnswer(row: RawSessionAnswer | RawSubmitResult): ExamClientAnswer {
+  return {
+    questionId: Number(row.question_id),
+    selectedOptionId: row.selected_option_id == null ? null : Number(row.selected_option_id),
+    isCorrect: typeof row.is_correct === 'boolean' ? row.is_correct : null,
+    correctOptionId: 'correct_option_id' in row && row.correct_option_id != null
+      ? Number(row.correct_option_id)
+      : null,
+    timeSpentSeconds: Math.max(0, Number(row.time_spent_seconds || 0)),
+  };
+}
 
 export async function getQuestionBankCategories(bankId: number): Promise<CategorySummary[]> {
   return getLiveQuestionBankCategories(bankId);
@@ -45,7 +83,7 @@ export async function startExamSession(input: StartExamInput): Promise<string> {
   return sessionId as string;
 }
 
-export async function getExamSessionQuestions(sessionId: string): Promise<Question[]> {
+export async function getExamSessionQuestions(sessionId: string): Promise<ExamClientQuestion[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
@@ -62,7 +100,7 @@ export async function getExamSessionQuestions(sessionId: string): Promise<Questi
 
   const { data: lockedQuestions, error } = await supabase
     .from('test_session_questions')
-    .select('sort_order, questions(id, text_html, category, topic, difficulty, options(*))')
+    .select('sort_order, questions(id, text_html, category, topic, difficulty, notes_id, concept_id, options(id, question_id, text_html, option_order))')
     .eq('test_session_id', sessionId)
     .order('sort_order', { ascending: true });
 
@@ -70,8 +108,8 @@ export async function getExamSessionQuestions(sessionId: string): Promise<Questi
   if (!lockedQuestions?.length) throw new Error('Exam session has no locked questions.');
 
   return (lockedQuestions as Array<{ questions: unknown }>)
-    .map((row) => (Array.isArray(row.questions) ? row.questions[0] : row.questions) as Question | null)
-    .filter((question): question is Question => Boolean(question));
+    .map((row) => (Array.isArray(row.questions) ? row.questions[0] : row.questions) as ExamClientQuestion | null)
+    .filter((question): question is ExamClientQuestion => Boolean(question));
 }
 
 export async function saveUserAnswer(input: {
@@ -79,13 +117,13 @@ export async function saveUserAnswer(input: {
   questionId: number;
   selectedOptionId: number | null;
   timeSpentSeconds?: number;
-}): Promise<void> {
+}): Promise<ExamClientAnswer> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
   if (input.selectedOptionId == null) throw new Error('An answer option is required.');
 
-  const { error } = await supabase.rpc('submit_exam_answer', {
+  const { data, error } = await supabase.rpc('submit_exam_answer', {
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,
@@ -93,6 +131,8 @@ export async function saveUserAnswer(input: {
   });
 
   if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'object') throw new Error('Answer submission returned no result.');
+  return toClientAnswer(data as RawSubmitResult);
 }
 
 export async function setQuestionFlag(questionId: number, flagged: boolean): Promise<void> {
@@ -175,27 +215,42 @@ export async function getExamSessionAnswers(sessionId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data, error } = await supabase
-    .from('user_answers')
-    .select('*')
-    .eq('test_session_id', sessionId)
-    .eq('user_id', user.id);
+  const { data, error } = await supabase.rpc('get_exam_session_answers', {
+    p_session_id: sessionId,
+  });
   if (error) throw new Error(error.message);
-  return data || [];
+  return (data || []) as RawSessionAnswer[];
 }
 
-export async function getQuestionExplanation(questionId: number): Promise<string | null> {
+export async function getExamQuestionFeedback(
+  sessionId: string,
+  questionId: number,
+): Promise<ExamQuestionFeedback> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  const { data, error } = await supabase
-    .from('questions')
-    .select('explanation_html')
-    .eq('id', questionId)
-    .single();
+  const { data, error } = await supabase.rpc('get_exam_question_feedback', {
+    p_session_id: sessionId,
+    p_question_id: questionId,
+  });
   if (error) throw new Error(error.message);
-  return data?.explanation_html || null;
+  if (!data || typeof data !== 'object') throw new Error('Question feedback was not returned.');
+
+  const raw = data as RawQuestionFeedback;
+  const optionPercentages: Record<number, number> = {};
+  for (const [optionId, percentage] of Object.entries(raw.option_percentages || {})) {
+    optionPercentages[Number(optionId)] = Number(percentage || 0);
+  }
+
+  return {
+    questionId: Number(raw.question_id),
+    selectedOptionId: raw.selected_option_id == null ? null : Number(raw.selected_option_id),
+    isCorrect: Boolean(raw.is_correct),
+    correctOptionId: raw.correct_option_id == null ? null : Number(raw.correct_option_id),
+    explanationHtml: raw.explanation_html || '',
+    optionPercentages,
+  };
 }
 
 export async function getExamSession(sessionId: string) {
@@ -229,28 +284,36 @@ export async function getFullExamSession(sessionId: string) {
 
   const { data, error } = await supabase
     .from('test_sessions')
-    .select('*, test_session_questions(sort_order, questions(id, text_html, category, topic, difficulty, options(*))), user_answers(question_id, selected_option_id, is_correct, time_spent_seconds)')
+    .select('id, question_bank_id, session_type, time_limit_minutes, is_completed, test_session_questions(sort_order, questions(id, text_html, category, topic, difficulty, notes_id, concept_id, options(id, question_id, text_html, option_order)))')
     .eq('id', sessionId)
     .eq('user_id', user.id)
     .single();
 
   if (error || !data) return null;
 
+  const bankId = Number(data.question_bank_id);
+  if (!Number.isInteger(bankId) || bankId <= 0) return null;
+
   if (data.is_completed) {
     return {
       status: 'completed' as const,
-      bankId: Number(data.question_bank_id),
+      bankId,
     };
   }
 
   const rows = (data.test_session_questions || []) as Array<{
     sort_order: number;
-    questions: Question | Question[] | null;
+    questions: ExamClientQuestion | ExamClientQuestion[] | null;
   }>;
   const initialQuestions = rows
     .sort((a, b) => a.sort_order - b.sort_order)
     .map((row) => Array.isArray(row.questions) ? row.questions[0] : row.questions)
-    .filter((question): question is Question => Boolean(question));
+    .filter((question): question is ExamClientQuestion => Boolean(question));
+
+  const { data: answerRows, error: answerError } = await supabase.rpc('get_exam_session_answers', {
+    p_session_id: sessionId,
+  });
+  if (answerError) throw new Error(answerError.message);
 
   const questionIds = initialQuestions.map((question) => question.id);
   let flaggedQuestionIds: number[] = [];
@@ -266,11 +329,18 @@ export async function getFullExamSession(sessionId: string) {
     flaggedQuestionIds = (flags || []).map((row) => Number(row.question_id));
   }
 
+  const safeSession: ExamClientSession = {
+    id: String(data.id),
+    question_bank_id: bankId,
+    session_type: data.session_type as ExamClientSession['session_type'],
+    time_limit_minutes: data.time_limit_minutes == null ? null : Number(data.time_limit_minutes),
+  };
+
   return {
     status: 'active' as const,
-    session: data,
+    session: safeSession,
     initialQuestions,
-    rawAnswers: data.user_answers || [],
+    rawAnswers: (answerRows || []) as RawSessionAnswer[],
     flaggedQuestionIds,
   };
 }
