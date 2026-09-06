@@ -29,8 +29,8 @@ jobs:
         with:
           version: latest
 
-      - name: Start local Supabase
-        run: supabase start
+      - name: Start local database
+        run: supabase db start
 
       - name: Rebuild database from migrations
         run: supabase db reset
