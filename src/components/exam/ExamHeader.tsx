@@ -10,7 +10,8 @@ interface ExamHeaderProps {
   isFlagged: boolean;
   questionCount: number;
   showClues: boolean;
-  onExit: () => void;
+  onSuspend: () => void;
+  onEndBlock: () => void;
   onNext: () => void;
   onPrev: () => void;
   onToggleClues: () => void;
@@ -23,13 +24,13 @@ export function ExamHeader({
   isFlagged,
   questionCount,
   showClues,
-  onExit,
+  onSuspend,
+  onEndBlock,
   onNext,
   onPrev,
   onToggleClues,
   onToggleFlag,
 }: ExamHeaderProps) {
-
   return (
     <header className="border-b border-[#3f4348] px-4 pb-3 pt-2 text-white">
       <div className="mx-auto flex max-w-[1240px] items-center justify-between">
@@ -46,8 +47,11 @@ export function ExamHeader({
           <button type="button" className="hidden hover:text-white md:block">
             Reference ranges
           </button>
-          <button type="button" onClick={onExit} className="hover:text-white">
-            End and review
+          <button type="button" onClick={onSuspend} className="hover:text-white">
+            Suspend
+          </button>
+          <button type="button" onClick={onEndBlock} className="hover:text-white">
+            End block
           </button>
         </div>
       </div>
@@ -70,9 +74,9 @@ export function ExamHeader({
 
           <button
             type="button"
-            onClick={onExit}
+            onClick={onSuspend}
             className="flex h-[32px] w-[32px] items-center justify-center text-[#ff2f3e]"
-            title="End session"
+            title="Suspend and exit"
           >
             <X className="h-4 w-4" />
           </button>
@@ -92,7 +96,7 @@ export function ExamHeader({
             type="button"
             onClick={onNext}
             disabled={currentIndex >= questionCount - 1}
-            className="justify-self-end flex h-[32px] w-[32px] items-center justify-center rounded-full bg-[#2f80ff] text-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-[32px] w-[32px] items-center justify-center justify-self-end rounded-full bg-[#2f80ff] text-white disabled:cursor-not-allowed disabled:opacity-40"
             title="Next Question"
           >
             <ArrowRight className="h-4 w-4" />
