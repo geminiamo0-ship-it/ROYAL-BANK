@@ -10,6 +10,8 @@ GRANT SELECT (
     text_html,
     category,
     topic,
+    concept_id,
+    notes_id,
     difficulty,
     source,
     pm_question_id,
