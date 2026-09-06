@@ -1,6 +1,7 @@
 export type UserRole = 'student' | 'admin' | 'support';
 export type SubscriptionTier = 'free_trial' | 'premium_individual' | 'premium_full';
 export type AccessType = 'free_trial' | 'premium';
+export type AccessScope = 'global' | 'pathway' | 'bank';
 export type SessionType = 'standard' | 'tutor' | 'timed' | 'fixed_timed' | 'mock_exam' | 'review' | 'quick_champion';
 export type QuestionSelection = 'new_only' | 'incorrect_only' | 'all' | 'flagged_only' | 'suspended_only';
 
@@ -96,6 +97,18 @@ export interface UserPathwayAccess {
   granted_by: string | null;
   granted_at: string;
   expires_at: string | null;
+}
+
+export interface UserAccessGrant {
+  id: number;
+  user_id: string;
+  scope_type: AccessScope;
+  pathway_id: number | null;
+  question_bank_id: number | null;
+  starts_at: string;
+  expires_at: string | null;
+  granted_by: string | null;
+  created_at: string;
 }
 
 export interface TestSession {
