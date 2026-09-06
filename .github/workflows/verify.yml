@@ -28,4 +28,15 @@ jobs:
         run: npm ci
 
       - name: Verify
-        run: npm run verify
+        run: |
+          set -o pipefail
+          npm run verify 2>&1 | tee verify.log
+
+      - name: Upload verification log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-log
+          path: verify.log
+          if-no-files-found: warn
+          retention-days: 3
