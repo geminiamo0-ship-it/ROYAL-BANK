@@ -2,16 +2,16 @@
 
 ## Question state
 
-- New: no finalized answer and no unanswered lock in an unfinished session.
+- New: no surviving finalized answer and no unanswered lock in an unfinished session.
 - Suspended: unanswered question locked in an unfinished session.
 - Suspended questions are excluded from New.
 - A question is counted as Suspended once even if legacy data places it in multiple unfinished sessions.
-- Correct/Incorrect is determined by the latest finalized answer. Incorrect -> later Correct becomes Correct.
+- Correct/Incorrect is determined by the latest finalized answer from surviving session data. Incorrect -> later Correct becomes Correct.
 - Flagged is persistent per user/question and independent of Correct/Incorrect; it remains until manual unflag.
 
 ## Session deletion
 
-Deleting an unfinished session releases its unanswered locked questions. They become New when no finalized answer exists elsewhere. Deleting a session does not refund a consumed free-trial block.
+Deleting an unfinished session deletes the session, its session-scoped answers, and its locked questions. With no separate surviving answer/lock for the same question, every question from that deleted session returns to New. Deleting a session does not refund a consumed free-trial block.
 
 ## Answer editing
 
@@ -24,7 +24,8 @@ Deleting an unfinished session releases its unanswered locked questions. They be
 
 - Banks are configured individually as free-trial or premium-only.
 - A pathway may contain any mix of free-trial and premium banks.
-- Premium pathway access unlocks its banks until the grant expires.
+- Premium access may be granted globally, to a pathway (including future banks in that pathway), or to selected banks.
+- Access starts at `starts_at`; `expires_at = NULL` means lifetime access.
 - A free-trial bank has a configurable lifetime block quota per user.
 - Quota enforcement is database-side and serialized against concurrent requests.
 - Bank metadata may be visible while question content remains locked.
