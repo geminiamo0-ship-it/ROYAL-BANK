@@ -35,6 +35,9 @@ jobs:
       - name: Rebuild database from migrations
         run: supabase db reset
 
+      - name: Run database behavior tests
+        run: supabase test db
+
       - name: Show local status
         if: always()
         run: supabase status || true
