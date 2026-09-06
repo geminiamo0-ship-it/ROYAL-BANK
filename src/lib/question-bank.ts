@@ -11,6 +11,7 @@ type UserStateCounts = {
   incorrect: DifficultyCounts;
   flagged: DifficultyCounts;
   suspended: DifficultyCounts;
+  newQuestions: DifficultyCounts;
 };
 
 type OutlineSummary = {
@@ -34,6 +35,7 @@ const emptyUserState = (): UserStateCounts => ({
   incorrect: createEmptyCounts(),
   flagged: createEmptyCounts(),
   suspended: createEmptyCounts(),
+  newQuestions: createEmptyCounts(),
 });
 
 async function getUserQuestionStateMap(bankId: number) {
@@ -81,6 +83,7 @@ async function getUserQuestionStateMap(bankId: number) {
       if (row.answer_state === 'incorrect') state.incorrect[difficulty] += 1;
       if (row.is_flagged) state.flagged[difficulty] += 1;
       if (row.is_suspended) state.suspended[difficulty] += 1;
+      if (row.is_new) state.newQuestions[difficulty] += 1;
     };
 
     apply(getOrCreate(question.category, question.topic));
@@ -139,7 +142,7 @@ function buildQuestionBankOutline(
             name: topic,
             total,
             attempted: answered,
-            newCount: Math.max(total - answered - suspended, 0),
+            newCount: sumCounts(topicState.newQuestions),
             incorrectCount: sumCounts(topicState.incorrect),
             flaggedCount: sumCounts(topicState.flagged),
             suspendedCount: suspended,
@@ -157,7 +160,7 @@ function buildQuestionBankOutline(
         name: summary.name,
         total: categoryTotal,
         attempted: categoryAnswered,
-        newCount: Math.max(categoryTotal - categoryAnswered - categorySuspended, 0),
+        newCount: sumCounts(categoryState.newQuestions),
         incorrectCount: sumCounts(categoryState.incorrect),
         flaggedCount: sumCounts(categoryState.flagged),
         suspendedCount: categorySuspended,
