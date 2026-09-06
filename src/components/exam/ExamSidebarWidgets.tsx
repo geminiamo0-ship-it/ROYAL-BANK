@@ -8,20 +8,16 @@ import type { Question } from '@/types/database';
 interface ExamSidebarWidgetsProps {
   answers: Record<number, UserExamAnswer>;
   answeredCount: number;
+  bankId: number;
   currentIndex: number;
+  isTimedMode: boolean;
   marks: number;
   question: Question;
   questions: Question[];
   sidebarHtml: string | null;
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="overflow-hidden rounded-[4px] bg-[#394046] shadow-[0_1px_2px_rgba(0,0,0,0.2)]">
       {title ? (
@@ -37,7 +33,9 @@ function Section({
 export function ExamSidebarWidgets({
   answers,
   answeredCount,
+  bankId,
   currentIndex,
+  isTimedMode,
   marks,
   question,
   questions,
@@ -58,7 +56,7 @@ export function ExamSidebarWidgets({
           <Section title="Textbooks">
             <div className="space-y-4">
               <Link
-                href={`/bank/1/textbook/high-yield?note=${question.notes_id || ''}`}
+                href={`/bank/${bankId}/textbook/high-yield?note=${question.notes_id || ''}`}
                 target="_blank"
                 className="inline-flex rounded-[4px] bg-[#ffd7ea] px-3 py-[7px] text-[12px] text-[#561035] hover:bg-[#ffe2f0]"
               >
@@ -66,7 +64,7 @@ export function ExamSidebarWidgets({
               </Link>
               <div>
                 <Link
-                  href={`/bank/1/textbook/extended?note=${question.notes_id || ''}`}
+                  href={`/bank/${bankId}/textbook/extended?note=${question.notes_id || ''}`}
                   target="_blank"
                   className="inline-flex rounded-[4px] bg-[#ffe6d2] px-3 py-[7px] text-[12px] text-[#5d2b0e] hover:bg-[#fff0e2]"
                 >
@@ -110,18 +108,29 @@ export function ExamSidebarWidgets({
 
         <Section title="">
           <div className="text-center text-[13px] leading-6 text-[#d4d4d4]">
-            <p>
-              Score: <span className="font-semibold text-white">{scorePercent}%</span>
-            </p>
-            <p>
-              Marks: <span className="font-semibold text-white">{marks} / {answeredCount}</span>
-            </p>
-            <p>
-              Benchmark: {benchmarkMarks} / {answeredCount}{' '}
-              <span className={benchmarkDelta >= 0 ? 'text-[#67e08d]' : 'text-[#ff5a68]'}>
-                ({benchmarkDelta >= 0 ? `+${benchmarkDelta}` : benchmarkDelta})
-              </span>
-            </p>
+            {isTimedMode ? (
+              <>
+                <p>
+                  Answered: <span className="font-semibold text-white">{answeredCount} / {questions.length}</span>
+                </p>
+                <p className="text-[11px] text-[#a8adb2]">Score is hidden until End Block.</p>
+              </>
+            ) : (
+              <>
+                <p>
+                  Score: <span className="font-semibold text-white">{scorePercent}%</span>
+                </p>
+                <p>
+                  Marks: <span className="font-semibold text-white">{marks} / {answeredCount}</span>
+                </p>
+                <p>
+                  Benchmark: {benchmarkMarks} / {answeredCount}{' '}
+                  <span className={benchmarkDelta >= 0 ? 'text-[#67e08d]' : 'text-[#ff5a68]'}>
+                    ({benchmarkDelta >= 0 ? `+${benchmarkDelta}` : benchmarkDelta})
+                  </span>
+                </p>
+              </>
+            )}
 
             <div className="mt-4 border-t border-[#30363b] pt-4">
               <div className="mx-auto w-[72px] space-y-2 text-left">
@@ -132,9 +141,15 @@ export function ExamSidebarWidgets({
                       <span className={index === currentIndex ? 'font-semibold text-[#b993ff]' : 'font-semibold text-[#a8adb2]'}>
                         {index + 1}
                       </span>
-                      <span className={!answer ? 'text-[#8a8f95]' : answer.isCorrect ? 'text-[#42c86e]' : 'text-[#ff253c]'}>
-                        {!answer ? '-' : answer.isCorrect ? 'OK' : 'X'}
-                      </span>
+                      {isTimedMode ? (
+                        <span className={answer ? 'text-[#7fc5ff]' : 'text-[#8a8f95]'}>
+                          {answer ? '•' : '-'}
+                        </span>
+                      ) : (
+                        <span className={!answer ? 'text-[#8a8f95]' : answer.isCorrect ? 'text-[#42c86e]' : 'text-[#ff253c]'}>
+                          {!answer ? '-' : answer.isCorrect ? 'OK' : 'X'}
+                        </span>
+                      )}
                     </div>
                   );
                 })}
