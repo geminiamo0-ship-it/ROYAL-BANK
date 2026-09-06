@@ -1,0 +1,3 @@
+-- Deliberately leave DELETE authorization based on ownership + active account only,
+-- not current bank access. Users can clean up stale sessions after a subscription
+-- expires without regaining access to question content.
