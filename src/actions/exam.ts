@@ -77,8 +77,6 @@ export async function saveUserAnswer(input: {
   sessionId: string;
   questionId: number;
   selectedOptionId: number | null;
-  isCorrect?: boolean;
-  isFlagged?: boolean;
   timeSpentSeconds?: number;
 }): Promise<void> {
   const supabase = await createClient();
@@ -94,14 +92,6 @@ export async function saveUserAnswer(input: {
   });
 
   if (error) throw new Error(error.message);
-
-  if (typeof input.isFlagged === 'boolean') {
-    const { error: flagError } = await supabase.rpc('set_question_flag', {
-      p_question_id: input.questionId,
-      p_flagged: input.isFlagged,
-    });
-    if (flagError) throw new Error(flagError.message);
-  }
 }
 
 export async function setQuestionFlag(questionId: number, flagged: boolean): Promise<void> {
@@ -245,11 +235,33 @@ export async function getFullExamSession(sessionId: string) {
 
   if (error || !data) return null;
 
-  const rows = (data.test_session_questions || []) as Array<{ sort_order: number; questions: Question | Question[] | null }>;
+  const rows = (data.test_session_questions || []) as Array<{
+    sort_order: number;
+    questions: Question | Question[] | null;
+  }>;
   const initialQuestions = rows
     .sort((a, b) => a.sort_order - b.sort_order)
     .map((row) => Array.isArray(row.questions) ? row.questions[0] : row.questions)
     .filter((question): question is Question => Boolean(question));
 
-  return { session: data, initialQuestions, rawAnswers: data.user_answers || [] };
+  const questionIds = initialQuestions.map((question) => question.id);
+  let flaggedQuestionIds: number[] = [];
+
+  if (questionIds.length > 0) {
+    const { data: flags, error: flagError } = await supabase
+      .from('user_question_flags')
+      .select('question_id')
+      .eq('user_id', user.id)
+      .in('question_id', questionIds);
+
+    if (flagError) throw new Error(flagError.message);
+    flaggedQuestionIds = (flags || []).map((row) => Number(row.question_id));
+  }
+
+  return {
+    session: data,
+    initialQuestions,
+    rawAnswers: data.user_answers || [],
+    flaggedQuestionIds,
+  };
 }
