@@ -1,0 +1,36 @@
+name: Verify DB
+
+on:
+  push:
+    branches:
+      - audit/core-hardening
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/verify-db.yml'
+  pull_request:
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/verify-db.yml'
+
+jobs:
+  verify-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Rebuild database from migrations
+        run: supabase db reset
+
+      - name: Show local status
+        if: always()
+        run: supabase status || true
