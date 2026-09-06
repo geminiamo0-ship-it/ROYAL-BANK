@@ -19,6 +19,16 @@ type OutlineSummary = {
   topics: Map<string, { totalByDiff: DifficultyCounts }>;
 };
 
+type QuestionMeta = { id: number; category: string; topic: string | null; difficulty: string };
+
+type CanonicalStateRow = {
+  question_id: number;
+  answer_state: string | null;
+  is_suspended: boolean;
+  is_flagged: boolean;
+  is_new: boolean;
+};
+
 const emptyUserState = (): UserStateCounts => ({
   attempted: createEmptyCounts(),
   incorrect: createEmptyCounts(),
@@ -26,11 +36,10 @@ const emptyUserState = (): UserStateCounts => ({
   suspended: createEmptyCounts(),
 });
 
-async function getUserQuestionStateMap() {
+async function getUserQuestionStateMap(bankId: number) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const stateMap = new Map<string, UserStateCounts>();
-
   if (!user) return stateMap;
 
   const getOrCreate = (category: string, topic: string | null) => {
@@ -42,25 +51,40 @@ async function getUserQuestionStateMap() {
     return created;
   };
 
-  const { data: rows, error } = await supabase.rpc('get_user_question_state');
-  if (error) throw new Error(error.message);
+  const { data: stateRows, error: stateError } = await supabase.rpc('get_user_question_states', {
+    p_bank_id: bankId,
+  });
+  if (stateError) throw new Error(stateError.message);
 
-  for (const row of rows || []) {
-    const category = row.category as string | null;
-    if (!category) continue;
-    const topic = (row.topic as string | null) || null;
-    const difficulty = String(row.difficulty || '1');
+  const states = (stateRows || []) as CanonicalStateRow[];
+  const questionIds = states.map((row) => row.question_id);
+  if (questionIds.length === 0) return stateMap;
+
+  const { data: questionRows, error: questionError } = await supabase
+    .from('questions')
+    .select('id, category, topic, difficulty')
+    .in('id', questionIds);
+  if (questionError) throw new Error(questionError.message);
+
+  const metadata = new Map<number, QuestionMeta>(
+    ((questionRows || []) as QuestionMeta[]).map((question) => [question.id, question]),
+  );
+
+  for (const row of states) {
+    const question = metadata.get(row.question_id);
+    if (!question?.category) continue;
+    const difficulty = String(question.difficulty || '1');
     if (!(difficulty in createEmptyCounts())) continue;
 
     const apply = (state: UserStateCounts) => {
-      if (row.is_answered) state.attempted[difficulty] += 1;
-      if (row.is_incorrect) state.incorrect[difficulty] += 1;
+      if (row.answer_state !== null) state.attempted[difficulty] += 1;
+      if (row.answer_state === 'incorrect') state.incorrect[difficulty] += 1;
       if (row.is_flagged) state.flagged[difficulty] += 1;
       if (row.is_suspended) state.suspended[difficulty] += 1;
     };
 
-    apply(getOrCreate(category, topic));
-    if (topic) apply(getOrCreate(category, null));
+    apply(getOrCreate(question.category, question.topic));
+    if (question.topic) apply(getOrCreate(question.category, null));
   }
 
   return stateMap;
@@ -85,7 +109,6 @@ function buildQuestionBankOutline(
       summary = { name: row.category, totalByDiff: createEmptyCounts(), topics: new Map() };
       categoryMap.set(row.category, summary);
     }
-
     summary.totalByDiff[difficulty] += Number(row.total_questions) || 0;
 
     if (row.topic) {
@@ -111,7 +134,6 @@ function buildQuestionBankOutline(
           const total = sumCounts(topicSummary.totalByDiff);
           const answered = sumCounts(topicState.attempted);
           const suspended = sumCounts(topicState.suspended);
-
           return {
             id: topic,
             name: topic,
@@ -153,9 +175,8 @@ function buildQuestionBankOutline(
 export async function getLiveQuestionBankOutline(bankId: number): Promise<CategoryWithTopics[]> {
   const [rows, userStateMap] = await Promise.all([
     getBankQuestionRows(bankId),
-    getUserQuestionStateMap(),
+    getUserQuestionStateMap(bankId),
   ]);
-
   return buildQuestionBankOutline(rows, userStateMap);
 }
 
