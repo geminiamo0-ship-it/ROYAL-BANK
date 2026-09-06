@@ -2,18 +2,17 @@
 
 import React from 'react';
 import Link from 'next/link';
-import type { UserExamAnswer } from '@/stores/examStore';
-import type { Question } from '@/types/database';
+import type { ExamClientAnswer, ExamClientQuestion } from '@/types/exam';
 
 interface ExamSidebarWidgetsProps {
-  answers: Record<number, UserExamAnswer>;
+  answers: Record<number, ExamClientAnswer>;
   answeredCount: number;
   bankId: number;
   currentIndex: number;
   isTimedMode: boolean;
   marks: number;
-  question: Question;
-  questions: Question[];
+  question: ExamClientQuestion;
+  questions: ExamClientQuestion[];
   sidebarHtml: string | null;
 }
 
@@ -136,6 +135,13 @@ export function ExamSidebarWidgets({
               <div className="mx-auto w-[72px] space-y-2 text-left">
                 {statusQuestions.map((item, index) => {
                   const answer = answers[item.id];
+                  const standardStatus = !answer
+                    ? '-'
+                    : answer.isCorrect === true
+                      ? 'OK'
+                      : answer.isCorrect === false
+                        ? 'X'
+                        : '…';
                   return (
                     <div key={item.id} className="grid grid-cols-[20px_1fr] items-center gap-5 text-[13px]">
                       <span className={index === currentIndex ? 'font-semibold text-[#b993ff]' : 'font-semibold text-[#a8adb2]'}>
@@ -146,8 +152,16 @@ export function ExamSidebarWidgets({
                           {answer ? '•' : '-'}
                         </span>
                       ) : (
-                        <span className={!answer ? 'text-[#8a8f95]' : answer.isCorrect ? 'text-[#42c86e]' : 'text-[#ff253c]'}>
-                          {!answer ? '-' : answer.isCorrect ? 'OK' : 'X'}
+                        <span className={
+                          !answer
+                            ? 'text-[#8a8f95]'
+                            : answer.isCorrect === true
+                              ? 'text-[#42c86e]'
+                              : answer.isCorrect === false
+                                ? 'text-[#ff253c]'
+                                : 'text-[#a8adb2]'
+                        }>
+                          {standardStatus}
                         </span>
                       )}
                     </div>
