@@ -1,7 +1,7 @@
 export type UserRole = 'student' | 'admin' | 'support';
 export type SubscriptionTier = 'free_trial' | 'premium_individual' | 'premium_full';
 export type AccessType = 'free_trial' | 'premium';
-export type SessionType = 'standard' | 'fixed_timed' | 'mock_exam' | 'review' | 'quick_champion';
+export type SessionType = 'standard' | 'tutor' | 'timed' | 'fixed_timed' | 'mock_exam' | 'review' | 'quick_champion';
 export type QuestionSelection = 'new_only' | 'incorrect_only' | 'all' | 'flagged_only' | 'suspended_only';
 
 export interface Profile {
@@ -35,6 +35,9 @@ export interface QuestionBank {
   name: string;
   description: string | null;
   display_order: number;
+  is_free_trial: boolean;
+  free_trial_block_limit: number | null;
+  free_trial_question_limit: number;
   created_at: string;
 }
 
@@ -102,6 +105,7 @@ export interface TestSession {
   session_type: SessionType;
   categories: string[] | null;
   difficulty_filter: string[] | null;
+  topic_filters: Array<{ category: string; topic: string }>;
   question_selection: QuestionSelection;
   total_questions: number;
   time_limit_minutes: number | null;
