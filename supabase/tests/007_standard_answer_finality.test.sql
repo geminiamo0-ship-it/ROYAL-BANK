@@ -28,8 +28,11 @@ SELECT public.create_exam_session(
 );
 
 SELECT public.submit_exam_answer((SELECT id FROM standard_session),9370,94702,3);
+
+RESET ROLE;
 SELECT extensions.is((SELECT selected_option_id FROM public.user_answers WHERE test_session_id=(SELECT id FROM standard_session) AND question_id=9370),94702::bigint,'first Standard submission is stored');
 SELECT extensions.ok(NOT (SELECT is_correct FROM public.user_answers WHERE test_session_id=(SELECT id FROM standard_session) AND question_id=9370),'server derives first Standard answer as incorrect');
+SET LOCAL ROLE authenticated;
 
 CREATE TEMP TABLE second_submit(blocked boolean);
 DO $$
@@ -44,6 +47,8 @@ END;
 $$;
 
 SELECT extensions.ok((SELECT blocked FROM second_submit),'second Standard submission is rejected');
+
+RESET ROLE;
 SELECT extensions.is((SELECT selected_option_id FROM public.user_answers WHERE test_session_id=(SELECT id FROM standard_session) AND question_id=9370),94702::bigint,'rejected resubmission cannot change the stored answer');
 
 SELECT * FROM extensions.finish();
