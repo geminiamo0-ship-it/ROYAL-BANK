@@ -18,30 +18,32 @@ interface ExamPageProps {
 
 export default async function ExamPage({ params }: ExamPageProps) {
   const { sessionId } = await params;
-  
   const fullData = await getFullExamSession(sessionId);
-  
+
   if (!fullData) {
     notFound();
   }
 
-  const { initialQuestions, rawAnswers, session } = fullData;
-
+  const { initialQuestions, rawAnswers, session, flaggedQuestionIds } = fullData;
   const initialAnswers: Record<number, UserExamAnswer> = {};
-  rawAnswers.forEach((ans: RawExamAnswer) => {
-    initialAnswers[ans.question_id] = {
-      questionId: ans.question_id,
-      selectedOptionId: ans.selected_option_id,
-      isCorrect: ans.is_correct,
-      timeSpentSeconds: ans.time_spent_seconds || 0,
+
+  rawAnswers.forEach((answer: RawExamAnswer) => {
+    if (answer.selected_option_id == null) return;
+
+    initialAnswers[answer.question_id] = {
+      questionId: answer.question_id,
+      selectedOptionId: answer.selected_option_id,
+      isCorrect: answer.is_correct,
+      timeSpentSeconds: answer.time_spent_seconds || 0,
     };
   });
 
   return (
-    <ExamPageClient 
+    <ExamPageClient
       initialQuestions={initialQuestions}
-      sessionId={sessionId} 
+      sessionId={sessionId}
       initialAnswers={initialAnswers}
+      initialFlaggedQuestionIds={flaggedQuestionIds}
       session={session}
     />
   );
