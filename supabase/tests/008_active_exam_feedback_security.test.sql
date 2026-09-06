@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(19);
+SELECT extensions.plan(20);
 
 SELECT extensions.ok(
     NOT has_column_privilege('authenticated', 'public.options', 'is_correct', 'SELECT'),
@@ -33,6 +33,10 @@ SELECT extensions.ok(
 SELECT extensions.ok(
     NOT has_column_privilege('authenticated', 'public.user_answers', 'is_correct', 'SELECT'),
     'authenticated cannot select stored correctness directly'
+);
+SELECT extensions.ok(
+    NOT has_table_privilege('authenticated', 'public.user_latest_answer_state', 'SELECT'),
+    'authenticated cannot query the raw latest-answer view'
 );
 
 INSERT INTO auth.users (instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
