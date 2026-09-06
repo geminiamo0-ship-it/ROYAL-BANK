@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(17);
+SELECT extensions.plan(19);
 
 SELECT extensions.ok(
     NOT has_column_privilege('authenticated', 'public.options', 'is_correct', 'SELECT'),
@@ -21,6 +21,14 @@ SELECT extensions.ok(
 SELECT extensions.ok(
     has_column_privilege('authenticated', 'public.questions', 'text_html', 'SELECT'),
     'authenticated can select safe question stem'
+);
+SELECT extensions.ok(
+    has_column_privilege('authenticated', 'public.questions', 'notes_id', 'SELECT'),
+    'authenticated can select safe textbook metadata'
+);
+SELECT extensions.ok(
+    has_column_privilege('authenticated', 'public.questions', 'concept_id', 'SELECT'),
+    'authenticated can select safe concept metadata'
 );
 SELECT extensions.ok(
     NOT has_column_privilege('authenticated', 'public.user_answers', 'is_correct', 'SELECT'),
