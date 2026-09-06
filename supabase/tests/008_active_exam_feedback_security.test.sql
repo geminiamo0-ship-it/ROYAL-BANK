@@ -60,7 +60,7 @@ INSERT INTO timed_submit
 SELECT public.submit_exam_answer((SELECT id FROM secure_timed_session),9381,94811,5);
 
 SELECT extensions.ok(
-    (SELECT payload->'is_correct' IS NULL FROM timed_submit),
+    (SELECT payload->>'is_correct' IS NULL FROM timed_submit),
     'active Timed submit result masks correctness'
 );
 SELECT extensions.ok(
