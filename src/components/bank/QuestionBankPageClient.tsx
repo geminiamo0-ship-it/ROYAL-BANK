@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useTransition, useEffect } from 'react';
+import React, { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { startExamSession } from '@/actions/exam';
@@ -100,17 +100,10 @@ export function QuestionBankPageClient({
         topic.name.toLowerCase().includes(normalizedSearch)
       );
 
-      if (categoryMatches) {
-        return [category];
-      }
+      if (categoryMatches) return [category];
 
       if (matchingTopics.length > 0) {
-        return [
-          {
-            ...category,
-            topics: matchingTopics,
-          },
-        ];
+        return [{ ...category, topics: matchingTopics }];
       }
 
       return [];
@@ -134,31 +127,34 @@ export function QuestionBankPageClient({
           return sum + getCountForSelection(category, questionSelection, selectedDifficulties);
         }
 
-        return (
-          sum +
-          category.topics.reduce((topicSum, topic) => {
-            const key = topicSelectionKey(category.id, topic.id);
-            return topicSum + (selectedTopicKeys.includes(key) ? getCountForSelection(topic, questionSelection, selectedDifficulties) : 0);
-          }, 0)
-        );
+        return sum + category.topics.reduce((topicSum, topic) => {
+          const key = topicSelectionKey(category.id, topic.id);
+          return topicSum + (
+            selectedTopicKeys.includes(key)
+              ? getCountForSelection(topic, questionSelection, selectedDifficulties)
+              : 0
+          );
+        }, 0);
       }, 0),
     [categories, questionSelection, selectedCategoryIds, selectedTopicKeys, selectedDifficulties]
   );
 
   const selectedAttempted = useMemo(
     () =>
-      categories.reduce(
-        (sum, category) => {
-          if (selectedCategoryIds.includes(category.id)) {
-            return sum + selectedDifficulties.reduce((a, d) => a + (category.attemptedByDiff[d] || 0), 0);
-          }
-          return sum + category.topics.reduce((tSum, topic) => {
-            const key = topicSelectionKey(category.id, topic.id);
-            return tSum + (selectedTopicKeys.includes(key) ? selectedDifficulties.reduce((a, d) => a + (topic.attemptedByDiff[d] || 0), 0) : 0);
-          }, 0);
-        },
-        0
-      ),
+      categories.reduce((sum, category) => {
+        if (selectedCategoryIds.includes(category.id)) {
+          return sum + selectedDifficulties.reduce((a, d) => a + (category.attemptedByDiff[d] || 0), 0);
+        }
+
+        return sum + category.topics.reduce((topicSum, topic) => {
+          const key = topicSelectionKey(category.id, topic.id);
+          return topicSum + (
+            selectedTopicKeys.includes(key)
+              ? selectedDifficulties.reduce((a, d) => a + (topic.attemptedByDiff[d] || 0), 0)
+              : 0
+          );
+        }, 0);
+      }, 0),
     [categories, selectedCategoryIds, selectedTopicKeys, selectedDifficulties]
   );
 
@@ -183,6 +179,8 @@ export function QuestionBankPageClient({
       : 0;
 
   const selectionLabel = getSelectionLabel(questionSelection);
+  const boundedQuestionCount =
+    selectedQuestions > 0 ? Math.min(70, selectedQuestions, questionCount) : 1;
 
   const summaryMeta =
     questionSelection === 'all'
@@ -216,7 +214,7 @@ export function QuestionBankPageClient({
           difficulties: selectedDifficulties,
           questionSelection,
           sessionType: sessionMode,
-          limit: questionCount,
+          limit: boundedQuestionCount,
         });
         router.push(`/exam/${sessionId}`);
       } catch (err) {
@@ -224,12 +222,6 @@ export function QuestionBankPageClient({
       }
     });
   };
-
-  useEffect(() => {
-    if (questionCount > selectedQuestions && selectedQuestions > 0) {
-      setQuestionCount(Math.min(70, selectedQuestions));
-    }
-  }, [selectedQuestions, questionCount]);
 
   const toggleCategory = (categoryId: string) => {
     setSelectedCategoryIds((current) => {
@@ -450,7 +442,7 @@ export function QuestionBankPageClient({
                 <div className="flex items-center rounded-[4px] border border-[#4a545d] bg-[#22272b]">
                   <button
                     type="button"
-                    onClick={() => setQuestionCount(Math.max(1, questionCount - 1))}
+                    onClick={() => setQuestionCount(Math.max(1, boundedQuestionCount - 1))}
                     className="flex h-7 w-7 items-center justify-center text-[#c6cdd3] hover:text-white"
                   >
                     -
@@ -459,7 +451,7 @@ export function QuestionBankPageClient({
                     type="number"
                     min={1}
                     max={Math.min(70, Math.max(1, selectedQuestions))}
-                    value={questionCount}
+                    value={boundedQuestionCount}
                     onChange={(e) => {
                       const val = parseInt(e.target.value);
                       if (!isNaN(val)) {
@@ -470,7 +462,7 @@ export function QuestionBankPageClient({
                   />
                   <button
                     type="button"
-                    onClick={() => setQuestionCount(Math.min(Math.min(70, Math.max(1, selectedQuestions)), questionCount + 1))}
+                    onClick={() => setQuestionCount(Math.min(Math.min(70, Math.max(1, selectedQuestions)), boundedQuestionCount + 1))}
                     className="flex h-7 w-7 items-center justify-center text-[#c6cdd3] hover:text-white"
                   >
                     +
