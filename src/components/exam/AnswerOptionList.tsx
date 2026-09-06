@@ -18,7 +18,7 @@ interface AnswerOptionListProps {
 
 export function AnswerOptionList({
   isAnswered,
-  isTimedMode,
+  isTimedMode = false,
   pendingSelectionId,
   question,
   struckOutOptionIds,
@@ -28,6 +28,8 @@ export function AnswerOptionList({
 }: AnswerOptionListProps) {
   const selectedOptionId = submittedAnswer?.selectedOptionId ?? pendingSelectionId ?? null;
   const options = question.options || [];
+  const canEdit = !isAnswered || isTimedMode;
+  const showFeedback = isAnswered && !isTimedMode;
 
   if (options.length === 0) {
     return (
@@ -47,7 +49,7 @@ export function AnswerOptionList({
         let rowClassName = 'bg-transparent';
         let barClassName = 'bg-[#6a7076]';
 
-        if (isAnswered && !isTimedMode) {
+        if (showFeedback) {
           if (option.is_correct) {
             rowClassName = 'bg-[#248f57]';
             barClassName = 'bg-[#248f57]';
@@ -64,7 +66,7 @@ export function AnswerOptionList({
             key={option.id}
             className={`group relative overflow-hidden ${index > 0 ? 'border-t border-[#8a8e93]' : ''} ${isStruck ? 'opacity-45' : ''}`}
           >
-            {isAnswered ? (
+            {showFeedback ? (
               <div
                 className={`absolute inset-y-0 left-0 transition-all duration-500 ${barClassName}`}
                 style={{ width: `${percentage}%` }}
@@ -74,8 +76,8 @@ export function AnswerOptionList({
             <div className={`relative z-10 flex min-h-[44px] items-center gap-3 px-3 py-[10px] text-[14px] ${rowClassName}`}>
               <button
                 type="button"
-                onClick={() => !isAnswered && onSelectOption(question.id, option)}
-                disabled={isAnswered}
+                onClick={() => canEdit && onSelectOption(question.id, option)}
+                disabled={!canEdit}
                 className="flex min-w-0 flex-1 items-center gap-4 text-left text-white disabled:cursor-default"
               >
                 <span
@@ -83,7 +85,7 @@ export function AnswerOptionList({
                     isSelected ? 'border-white' : 'border-[#d8d8d8]'
                   }`}
                 >
-                  {isSelected && (!isAnswered || isTimedMode) ? (
+                  {isSelected && (!showFeedback || isTimedMode) ? (
                     <span className="h-[8px] w-[8px] rounded-full bg-white" />
                   ) : null}
                 </span>
@@ -94,7 +96,7 @@ export function AnswerOptionList({
                 />
               </button>
 
-              {isAnswered ? (
+              {showFeedback ? (
                 <span className="rounded-full bg-[#7f8790] px-2 py-[2px] text-[11px] font-semibold text-white">
                   {percentage}%
                 </span>
