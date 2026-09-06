@@ -1,7 +1,7 @@
 import React from 'react';
 import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
-import { OldBlocksClient, OldBlockSession } from '@/components/bank/OldBlocksClient';
+import { notFound, redirect } from 'next/navigation';
+import { OldBlocksClient, type OldBlockSession } from '@/components/bank/OldBlocksClient';
 
 interface TestSessionRow {
   id: string;
@@ -20,15 +20,19 @@ export default async function FixedSetsPage({
   params: Promise<{ bankId: string }>;
 }) {
   const { bankId } = await params;
-  const parsedBankId = Number(bankId || 1);
+  const parsedBankId = Number(bankId);
+
+  if (!Number.isInteger(parsedBankId) || parsedBankId <= 0) {
+    notFound();
+  }
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect('/login');
+    redirect(`/login?redirect=/bank/${parsedBankId}/fixed-sets`);
   }
 
-  // Fetch test sessions for this user and bank
   const { data: sessions, error } = await supabase
     .from('test_sessions')
     .select(`
@@ -40,7 +44,7 @@ export default async function FixedSetsPage({
     .order('started_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching sessions:', error);
+    throw new Error(error.message);
   }
 
   const mappedSessions: OldBlockSession[] = ((sessions || []) as TestSessionRow[]).map((session) => ({
@@ -57,7 +61,7 @@ export default async function FixedSetsPage({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-[#111827]">Old Blocks</h1>
+        <h1 className="text-xl font-bold text-[#111827]">Previous Sessions</h1>
       </div>
       <OldBlocksClient sessions={mappedSessions} bankId={parsedBankId} />
     </div>
