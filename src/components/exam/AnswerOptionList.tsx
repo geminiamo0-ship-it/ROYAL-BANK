@@ -1,18 +1,19 @@
 'use client';
 
 import React from 'react';
-import type { UserExamAnswer } from '@/stores/examStore';
-import type { Option, Question } from '@/types/database';
+import type { ExamClientAnswer, ExamClientOption, ExamClientQuestion } from '@/types/exam';
 import { Ban, X } from 'lucide-react';
 
 interface AnswerOptionListProps {
   isAnswered: boolean;
   isTimedMode?: boolean;
   pendingSelectionId: number | null;
-  question: Question;
+  question: ExamClientQuestion;
   struckOutOptionIds: Set<number>;
-  submittedAnswer?: UserExamAnswer;
-  onSelectOption: (questionId: number, option: Option) => void;
+  submittedAnswer?: ExamClientAnswer;
+  correctOptionId: number | null;
+  optionPercentages: Record<number, number>;
+  onSelectOption: (questionId: number, option: ExamClientOption) => void;
   onToggleStrikeOut: (optionId: number) => void;
 }
 
@@ -23,13 +24,15 @@ export function AnswerOptionList({
   question,
   struckOutOptionIds,
   submittedAnswer,
+  correctOptionId,
+  optionPercentages,
   onSelectOption,
   onToggleStrikeOut,
 }: AnswerOptionListProps) {
   const selectedOptionId = submittedAnswer?.selectedOptionId ?? pendingSelectionId ?? null;
   const options = question.options || [];
   const canEdit = !isAnswered || isTimedMode;
-  const showFeedback = isAnswered && !isTimedMode;
+  const showFeedback = isAnswered && !isTimedMode && correctOptionId != null;
 
   if (options.length === 0) {
     return (
@@ -43,14 +46,15 @@ export function AnswerOptionList({
     <div className="mt-6 space-y-0 border border-[#8a8e93]">
       {options.map((option, index) => {
         const isSelected = selectedOptionId === option.id;
+        const isCorrectOption = correctOptionId === option.id;
         const isStruck = struckOutOptionIds.has(option.id);
-        const percentage = Math.round(option.percentage || 0);
+        const percentage = Math.round(optionPercentages[option.id] ?? 0);
 
         let rowClassName = 'bg-transparent';
         let barClassName = 'bg-[#6a7076]';
 
         if (showFeedback) {
-          if (option.is_correct) {
+          if (isCorrectOption) {
             rowClassName = 'bg-[#248f57]';
             barClassName = 'bg-[#248f57]';
           } else if (isSelected) {
