@@ -4,10 +4,16 @@ import { createClient } from '@/lib/supabase/server';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { redirect } from 'next/navigation';
 
+function safeInternalRedirect(value: FormDataEntryValue | null): string {
+  if (typeof value !== 'string') return '/dashboard';
+  if (!value.startsWith('/') || value.startsWith('//')) return '/dashboard';
+  return value;
+}
+
 export async function login(formData: FormData) {
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
-  const redirectPath = (formData.get('redirect') as string) || '/dashboard';
+  const redirectPath = safeInternalRedirect(formData.get('redirect'));
 
   if (!email || !password) {
     return { error: 'Please provide both email and password.' };
@@ -19,10 +25,7 @@ export async function login(formData: FormData) {
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
     return { error: error.message };
@@ -56,7 +59,6 @@ export async function register(formData: FormData) {
     options: {
       data: {
         full_name: fullName || splitEmail(email),
-        role: 'student',
       },
     },
   });

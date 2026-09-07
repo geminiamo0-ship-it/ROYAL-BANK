@@ -1,0 +1,2 @@
+-- Audit tables intentionally have SELECT-only authenticated policies; INSERTs are
+-- produced by trusted database triggers under SECURITY DEFINER context.

@@ -1,0 +1,3 @@
+-- Disabling is_free_trial revokes non-premium content access immediately, including
+-- existing unfinished sessions. This is intentional for authorization safety; use
+-- admin configuration carefully when rotating the trial bank.

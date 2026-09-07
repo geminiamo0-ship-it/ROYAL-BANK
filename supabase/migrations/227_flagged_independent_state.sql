@@ -1,0 +1,2 @@
+-- Flagged is orthogonal to answer state: a question may be Correct+Flagged,
+-- Incorrect+Flagged, Suspended+Flagged, or New+Flagged until manual unflag.

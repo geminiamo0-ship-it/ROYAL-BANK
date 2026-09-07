@@ -1,7 +1,8 @@
 """
 Royal Bank - Resilient Supabase Ingestion Engine
 ================================================
-Completes uploading all remaining question chunks with retry logic and rate limit backoff.
+Completes uploading remaining question chunks with retry logic and rate-limit backoff.
+Credentials and the local data directory come from environment variables.
 """
 
 import os
@@ -10,12 +11,25 @@ import time
 import urllib.request
 import urllib.error
 
-SUPABASE_URL = "https://trnvsgenmzhyuayxxdoq.supabase.co"
-SERVICE_ROLE_KEY = "sb_secret_LfKxUzMNK1tuajaRE0KW3g_hXKjuQdF"
-PROCESSED_DATA_DIR = r"C:\Users\Administrator\.gemini\antigravity\scratch\processed_data"
+
+def require_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
 
 
-def post_batch_with_retry(table_name: str, records: list, on_conflict: str = None, max_retries: int = 5) -> bool:
+SUPABASE_URL = require_env("SUPABASE_URL").rstrip("/")
+SERVICE_ROLE_KEY = require_env("SUPABASE_SERVICE_ROLE_KEY")
+PROCESSED_DATA_DIR = require_env("PROCESSED_DATA_DIR")
+
+
+def post_batch_with_retry(
+    table_name: str,
+    records: list,
+    on_conflict: str | None = None,
+    max_retries: int = 5,
+) -> bool:
     url = f"{SUPABASE_URL}/rest/v1/{table_name}"
     if on_conflict:
         url += f"?on_conflict={on_conflict}"
@@ -24,7 +38,7 @@ def post_batch_with_retry(table_name: str, records: list, on_conflict: str = Non
         "apikey": SERVICE_ROLE_KEY,
         "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates"
+        "Prefer": "resolution=merge-duplicates",
     }
 
     data_bytes = json.dumps(records).encode("utf-8")
@@ -35,8 +49,8 @@ def post_batch_with_retry(table_name: str, records: list, on_conflict: str = Non
             with urllib.request.urlopen(req, timeout=30) as resp:
                 if resp.status in (200, 201):
                     return True
-        except urllib.error.HTTPError as e:
-            if e.code == 429 or e.code >= 500:
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 or exc.code >= 500:
                 time.sleep(2 ** attempt)
                 continue
             return False
@@ -48,7 +62,10 @@ def post_batch_with_retry(table_name: str, records: list, on_conflict: str = Non
 
 
 def run_full_ingestion():
-    chunk_files = sorted([f for f in os.listdir(PROCESSED_DATA_DIR) if f.startswith("questions_chunk_")])
+    chunk_files = sorted(
+        filename for filename in os.listdir(PROCESSED_DATA_DIR)
+        if filename.startswith("questions_chunk_")
+    )
     print(f"Ingesting {len(chunk_files)} question chunks...")
 
     total_q = 0
@@ -56,32 +73,27 @@ def run_full_ingestion():
 
     for chunk_file in chunk_files:
         path = os.path.join(PROCESSED_DATA_DIR, chunk_file)
-        with open(path, "r", encoding="utf-8") as f:
-            q_list = json.load(f)
+        with open(path, "r", encoding="utf-8") as handle:
+            q_list = json.load(handle)
 
         questions_payload = []
         options_payload = []
-        for q in q_list:
-            q_copy = dict(q)
-            opts = q_copy.pop("options", [])
-            questions_payload.append(q_copy)
-            for opt in opts:
-                options_payload.append(opt)
+        for question in q_list:
+            question_copy = dict(question)
+            options = question_copy.pop("options", [])
+            questions_payload.append(question_copy)
+            options_payload.extend(options)
 
-        # Upload questions in sub-batches of 25
-        q_batch_size = 25
-        for i in range(0, len(questions_payload), q_batch_size):
-            q_batch = questions_payload[i:i + q_batch_size]
-            if post_batch_with_retry("questions", q_batch, on_conflict="id"):
-                total_q += len(q_batch)
+        for i in range(0, len(questions_payload), 25):
+            batch = questions_payload[i:i + 25]
+            if post_batch_with_retry("questions", batch, on_conflict="id"):
+                total_q += len(batch)
             time.sleep(0.1)
 
-        # Upload options in sub-batches of 50
-        opt_batch_size = 50
-        for i in range(0, len(options_payload), opt_batch_size):
-            opt_batch = options_payload[i:i + opt_batch_size]
-            if post_batch_with_retry("options", opt_batch, on_conflict="id"):
-                total_opt += len(opt_batch)
+        for i in range(0, len(options_payload), 50):
+            batch = options_payload[i:i + 50]
+            if post_batch_with_retry("options", batch, on_conflict="id"):
+                total_opt += len(batch)
             time.sleep(0.05)
 
         print(f"Chunk {chunk_file} uploaded. Total Questions: {total_q}, Options: {total_opt}")

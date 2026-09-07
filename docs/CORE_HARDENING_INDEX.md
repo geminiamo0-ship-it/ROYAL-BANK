@@ -1,0 +1,14 @@
+# Core Hardening Documentation Index
+
+Start with:
+
+- `CORE_SCOPE.md` / `WIP_SCOPE.md`
+- `BUSINESS_RULES.md`
+- `QUESTION_STATE_MODEL.md`
+- `ANSWER_FINALIZATION.md`
+- `ACCESS_MODEL.md` / `TRIAL_MODEL.md`
+- `AUDIT_FINDINGS.md` / `RISK_REGISTER.md`
+- `CORE_TEST_MATRIX.md`
+- `MERGE_GATES.md`
+- `MIGRATION_SQUASH_REQUIRED.md`
+- `NEXT_PASS_FOCUS.md`

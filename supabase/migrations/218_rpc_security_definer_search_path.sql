@@ -1,0 +1,2 @@
+-- Security baseline rule: every SECURITY DEFINER function added by this hardening
+-- pass pins search_path to public, pg_temp and performs explicit authorization.

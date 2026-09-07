@@ -1,0 +1,3 @@
+-- Answer state is user+question global. If the same question is mapped to multiple
+-- banks, its latest Correct/Incorrect state follows the question across those banks;
+-- Suspended remains scoped to the requested bank/session locks.

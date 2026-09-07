@@ -1,0 +1,36 @@
+-- Access helper reads authorization configuration under SECURITY DEFINER so its
+-- result is not accidentally changed by caller-visible RLS rows.
+
+CREATE OR REPLACE FUNCTION public.can_access_question_bank(p_bank_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET row_security = off
+AS $$
+    SELECT
+        auth.uid() IS NOT NULL
+        AND (
+            public.is_support_or_admin()
+            OR EXISTS (
+                SELECT 1
+                FROM public.blocks b
+                WHERE b.question_bank_id = p_bank_id
+                  AND b.is_free = TRUE
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM public.question_banks qb
+                JOIN public.user_pathway_access upa
+                  ON upa.pathway_id = qb.pathway_id
+                WHERE qb.id = p_bank_id
+                  AND upa.user_id = auth.uid()
+                  AND upa.access_type = 'premium'
+                  AND (upa.expires_at IS NULL OR upa.expires_at > now())
+            )
+        );
+$$;
+
+REVOKE ALL ON FUNCTION public.can_access_question_bank(BIGINT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.can_access_question_bank(BIGINT) TO authenticated;
