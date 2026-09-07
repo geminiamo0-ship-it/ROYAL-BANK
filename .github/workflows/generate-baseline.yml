@@ -52,15 +52,32 @@ jobs:
             ORDER BY n.nspname, c.relname, t.tgname;
           " | sed -E 's/EXECUTE FUNCTION ([A-Za-z_][A-Za-z0-9_]*)\(/EXECUTE FUNCTION public.\1(/g' > /tmp/cross-triggers-before.sql
 
-          if [ -s /tmp/cross-triggers-before.sql ]; then
-            {
+          DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)"
+          test -n "$DB_CONTAINER"
+          docker exec "$DB_CONTAINER" pg_dump \
+            --username postgres \
+            --dbname postgres \
+            --schema=public \
+            --schema-only \
+            --no-owner \
+            --no-comments \
+            | grep -E '^(GRANT|REVOKE|ALTER DEFAULT PRIVILEGES)' \
+            | LC_ALL=C sort > /tmp/privileges-before.sql
+
+          {
+            if [ -s /tmp/cross-triggers-before.sql ]; then
               printf '\n-- Cross-schema triggers owned by ROYAL-BANK public functions.\n'
               cat /tmp/cross-triggers-before.sql
-            } >> baseline/001_core_baseline.sql
-          fi
+            fi
+            if [ -s /tmp/privileges-before.sql ]; then
+              printf '\n-- Explicit privileges omitted by supabase db dump.\n'
+              cat /tmp/privileges-before.sql
+            fi
+          } >> baseline/001_core_baseline.sql
 
           sha256sum baseline/001_core_baseline.sql
           wc -l baseline/001_core_baseline.sql
+          wc -l /tmp/privileges-before.sql
 
       - name: Rebuild using baseline only
         shell: bash
@@ -94,6 +111,19 @@ jobs:
             ORDER BY n.nspname, c.relname, t.tgname;
           " | sed -E 's/EXECUTE FUNCTION ([A-Za-z_][A-Za-z0-9_]*)\(/EXECUTE FUNCTION public.\1(/g' > /tmp/cross-triggers-after.sql
           cmp /tmp/cross-triggers-before.sql /tmp/cross-triggers-after.sql
+
+          DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)"
+          test -n "$DB_CONTAINER"
+          docker exec "$DB_CONTAINER" pg_dump \
+            --username postgres \
+            --dbname postgres \
+            --schema=public \
+            --schema-only \
+            --no-owner \
+            --no-comments \
+            | grep -E '^(GRANT|REVOKE|ALTER DEFAULT PRIVILEGES)' \
+            | LC_ALL=C sort > /tmp/privileges-after.sql
+          cmp /tmp/privileges-before.sql /tmp/privileges-after.sql
 
       - name: Upload validated baseline
         uses: actions/upload-artifact@v4
