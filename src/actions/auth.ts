@@ -6,8 +6,18 @@ import { redirect } from 'next/navigation';
 
 function safeInternalRedirect(value: FormDataEntryValue | null): string {
   if (typeof value !== 'string') return '/dashboard';
-  if (!value.startsWith('/') || value.startsWith('//')) return '/dashboard';
-  return value;
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
+    return '/dashboard';
+  }
+
+  try {
+    const base = new URL('https://royalbank.local');
+    const target = new URL(value, base);
+    if (target.origin !== base.origin) return '/dashboard';
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return '/dashboard';
+  }
 }
 
 export async function login(formData: FormData) {
