@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   baseline:
@@ -50,7 +50,7 @@ jobs:
               AND n.nspname <> 'public'
               AND fn.nspname = 'public'
             ORDER BY n.nspname, c.relname, t.tgname;
-          " > /tmp/cross-triggers-before.sql
+          " | sed -E 's/EXECUTE FUNCTION ([A-Za-z_][A-Za-z0-9_]*)\(/EXECUTE FUNCTION public.\1(/g' > /tmp/cross-triggers-before.sql
 
           if [ -s /tmp/cross-triggers-before.sql ]; then
             {
@@ -92,7 +92,7 @@ jobs:
               AND n.nspname <> 'public'
               AND fn.nspname = 'public'
             ORDER BY n.nspname, c.relname, t.tgname;
-          " > /tmp/cross-triggers-after.sql
+          " | sed -E 's/EXECUTE FUNCTION ([A-Za-z_][A-Za-z0-9_]*)\(/EXECUTE FUNCTION public.\1(/g' > /tmp/cross-triggers-after.sql
           cmp /tmp/cross-triggers-before.sql /tmp/cross-triggers-after.sql
 
       - name: Upload validated baseline
@@ -102,3 +102,15 @@ jobs:
           path: baseline/001_core_baseline.sql
           if-no-files-found: error
           retention-days: 3
+
+      - name: Publish validated candidate branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B audit/core-baseline-generated
+          git rm .github/workflows/generate-baseline.yml
+          git add -A supabase/migrations
+          git commit -m 'chore: materialize validated core baseline'
+          git push --force origin audit/core-baseline-generated
