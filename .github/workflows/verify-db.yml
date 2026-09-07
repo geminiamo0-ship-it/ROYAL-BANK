@@ -33,7 +33,7 @@ jobs:
       - name: Start local database
         run: supabase db start
 
-      - name: Rebuild database from migrations
+      - name: Rebuild current migration baseline from scratch
         run: supabase db reset
 
       - name: Run database behavior tests
