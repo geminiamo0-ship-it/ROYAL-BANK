@@ -133,6 +133,7 @@ SELECT extensions.ok(
     'create bootstrap no longer performs the read-after-write bootstrap reload'
 );
 
+RESET ROLE;
 SELECT extensions.ok(
     regexp_count(
         pg_get_functiondef(
@@ -143,6 +144,7 @@ SELECT extensions.ok(
     'private inline create core preserves both fresh post-insert bank-access checks from bootstrap + window'
 );
 
+SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','e0000000-0000-0000-0000-000000000002',true);
 CREATE TEMP TABLE inline_trial_payload(payload jsonb);
 SELECT extensions.lives_ok(
