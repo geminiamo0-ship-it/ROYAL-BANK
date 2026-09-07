@@ -1,21 +1,13 @@
-﻿'use client';
+'use client';
 
-import React, { useMemo, useState, useTransition, useEffect } from 'react';
+import React, { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { startExamSession } from '@/actions/exam';
 import { encodeTopicFilter } from '@/lib/topic-filters';
 import type { CategoryWithTopics, TopicSummary } from '@/types/question-bank';
 import { ChevronRight, Minus, Plus, Search, Hammer } from 'lucide-react';
-import type { QuestionSelection } from '@/types/database';
-
-const RECENT_SESSIONS = [
-  { id: 'all-1', label: 'Standard', title: 'All categories', age: '1 day ago', tag: '' },
-  { id: 'cardiology-1', label: 'Standard', title: 'Cardiology', age: '1 day ago', tag: '' },
-  { id: 'all-2', label: 'Standard', title: 'All categories', age: '5 days ago', tag: '' },
-  { id: 'incorrect-1', label: 'Standard', title: 'All categories', age: '6 days ago', tag: 'Previously incorrect' },
-  { id: 'all-3', label: 'Standard', title: 'All categories', age: '6 days ago', tag: '' },
-];
+import type { QuestionSelection, SessionType } from '@/types/database';
 
 const QUESTION_SELECTION_OPTIONS: Array<{ value: QuestionSelection; label: string }> = [
   { value: 'new_only', label: 'Show me new questions only' },
@@ -23,12 +15,6 @@ const QUESTION_SELECTION_OPTIONS: Array<{ value: QuestionSelection; label: strin
   { value: 'incorrect_only', label: 'Only previously incorrect questions' },
   { value: 'flagged_only', label: 'Only flagged questions' },
   { value: 'suspended_only', label: 'Suspended / incomplete questions' },
-];
-
-const QUESTION_ORDER_OPTIONS = [
-  { value: 'balanced', label: 'Balanced order' },
-  { value: 'sequential', label: 'Sequential order' },
-  { value: 'adaptive', label: 'Adaptive focus' },
 ];
 
 function getCountForSelection(
@@ -40,7 +26,10 @@ function getCountForSelection(
 
   switch (selection) {
     case 'new_only':
-      return Math.max(sum(item.totalByDiff) - sum(item.attemptedByDiff), 0);
+      return Math.max(
+        sum(item.totalByDiff) - sum(item.attemptedByDiff) - sum(item.suspendedByDiff),
+        0
+      );
     case 'incorrect_only':
       return sum(item.incorrectByDiff);
     case 'flagged_only':
@@ -93,9 +82,8 @@ export function QuestionBankPageClient({
   const [search, setSearch] = useState('');
   const [selectedDifficulties, setSelectedDifficulties] = useState<string[]>(['1', '2', '3']);
   const [questionSelection, setQuestionSelection] = useState<QuestionSelection>('new_only');
-  const [sessionMode, setSessionMode] = useState<'standard' | 'fixed_timed'>('standard');
+  const [sessionMode, setSessionMode] = useState<Extract<SessionType, 'tutor' | 'timed'>>('tutor');
   const [questionCount, setQuestionCount] = useState<number>(40);
-  const [questionOrderMode, setQuestionOrderMode] = useState('balanced');
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -112,17 +100,10 @@ export function QuestionBankPageClient({
         topic.name.toLowerCase().includes(normalizedSearch)
       );
 
-      if (categoryMatches) {
-        return [category];
-      }
+      if (categoryMatches) return [category];
 
       if (matchingTopics.length > 0) {
-        return [
-          {
-            ...category,
-            topics: matchingTopics,
-          },
-        ];
+        return [{ ...category, topics: matchingTopics }];
       }
 
       return [];
@@ -134,6 +115,11 @@ export function QuestionBankPageClient({
     [categories]
   );
 
+  const totalIncorrect = useMemo(
+    () => categories.reduce((sum, category) => sum + category.incorrectCount, 0),
+    [categories]
+  );
+
   const selectedQuestions = useMemo(
     () =>
       categories.reduce((sum, category) => {
@@ -141,31 +127,34 @@ export function QuestionBankPageClient({
           return sum + getCountForSelection(category, questionSelection, selectedDifficulties);
         }
 
-        return (
-          sum +
-          category.topics.reduce((topicSum, topic) => {
-            const key = topicSelectionKey(category.id, topic.id);
-            return topicSum + (selectedTopicKeys.includes(key) ? getCountForSelection(topic, questionSelection, selectedDifficulties) : 0);
-          }, 0)
-        );
+        return sum + category.topics.reduce((topicSum, topic) => {
+          const key = topicSelectionKey(category.id, topic.id);
+          return topicSum + (
+            selectedTopicKeys.includes(key)
+              ? getCountForSelection(topic, questionSelection, selectedDifficulties)
+              : 0
+          );
+        }, 0);
       }, 0),
     [categories, questionSelection, selectedCategoryIds, selectedTopicKeys, selectedDifficulties]
   );
 
   const selectedAttempted = useMemo(
     () =>
-      categories.reduce(
-        (sum, category) => {
-          if (selectedCategoryIds.includes(category.id)) {
-            return sum + selectedDifficulties.reduce((a, d) => a + (category.attemptedByDiff[d] || 0), 0);
-          }
-          return sum + category.topics.reduce((tSum, topic) => {
-            const key = topicSelectionKey(category.id, topic.id);
-            return tSum + (selectedTopicKeys.includes(key) ? selectedDifficulties.reduce((a, d) => a + (topic.attemptedByDiff[d] || 0), 0) : 0);
-          }, 0);
-        },
-        0
-      ),
+      categories.reduce((sum, category) => {
+        if (selectedCategoryIds.includes(category.id)) {
+          return sum + selectedDifficulties.reduce((a, d) => a + (category.attemptedByDiff[d] || 0), 0);
+        }
+
+        return sum + category.topics.reduce((topicSum, topic) => {
+          const key = topicSelectionKey(category.id, topic.id);
+          return topicSum + (
+            selectedTopicKeys.includes(key)
+              ? selectedDifficulties.reduce((a, d) => a + (topic.attemptedByDiff[d] || 0), 0)
+              : 0
+          );
+        }, 0);
+      }, 0),
     [categories, selectedCategoryIds, selectedTopicKeys, selectedDifficulties]
   );
 
@@ -185,9 +174,13 @@ export function QuestionBankPageClient({
     selectedTopicKeys.length === 0;
 
   const averageScore =
-    totalAttempted > 0 ? Math.round((selectedAttempted / totalAttempted) * 100) : 0;
+    totalAttempted > 0
+      ? Math.round(((totalAttempted - totalIncorrect) / totalAttempted) * 100)
+      : 0;
 
   const selectionLabel = getSelectionLabel(questionSelection);
+  const boundedQuestionCount =
+    selectedQuestions > 0 ? Math.min(70, selectedQuestions, questionCount) : 1;
 
   const summaryMeta =
     questionSelection === 'all'
@@ -195,6 +188,15 @@ export function QuestionBankPageClient({
       : `${selectedQuestions.toLocaleString()} ${selectionLabel}`;
 
   const launchQuestions = (categoryIds: string[], topicFilters: string[]) => {
+    if (selectedDifficulties.length === 0) {
+      setError('Select at least one difficulty.');
+      return;
+    }
+    if (selectedQuestions <= 0) {
+      setError('No questions match the selected filters.');
+      return;
+    }
+
     const nextTopicFilters = [...topicFilters];
     const nextCategoryIds =
       nextTopicFilters.length === 0 && categoryIds.length === categories.length
@@ -212,7 +214,7 @@ export function QuestionBankPageClient({
           difficulties: selectedDifficulties,
           questionSelection,
           sessionType: sessionMode,
-          limit: questionCount,
+          limit: boundedQuestionCount,
         });
         router.push(`/exam/${sessionId}`);
       } catch (err) {
@@ -220,12 +222,6 @@ export function QuestionBankPageClient({
       }
     });
   };
-
-  useEffect(() => {
-    if (questionCount > selectedQuestions && selectedQuestions > 0) {
-      setQuestionCount(Math.min(70, selectedQuestions));
-    }
-  }, [selectedQuestions, questionCount]);
 
   const toggleCategory = (categoryId: string) => {
     setSelectedCategoryIds((current) => {
@@ -334,7 +330,7 @@ export function QuestionBankPageClient({
           <button
             type="button"
             onClick={() => launchQuestions(selectedCategoryIds, selectedTopicFilters)}
-            disabled={isPending}
+            disabled={isPending || selectedQuestions <= 0 || selectedDifficulties.length === 0}
             className="inline-flex h-[30px] items-center justify-center gap-2 rounded-[4px] bg-[#d5e4ff] px-4 text-[12px] font-medium text-[#1d3152] hover:bg-[#e3ebff] disabled:opacity-60"
           >
             <span>{isPending ? 'Starting...' : 'Start the questions'}</span>
@@ -417,9 +413,9 @@ export function QuestionBankPageClient({
               <div className="mb-4 grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setSessionMode('standard')}
+                  onClick={() => setSessionMode('tutor')}
                   className={`flex flex-col items-start justify-center rounded-[4px] border p-3 text-left transition-colors ${
-                    sessionMode === 'standard'
+                    sessionMode === 'tutor'
                       ? 'border-[#3e73ff] bg-[#2c3d5e] text-[#f4f4f4]'
                       : 'border-[#4a545d] bg-[#2c3237] text-[#c6cdd3] hover:border-[#80868b]'
                   }`}
@@ -429,9 +425,9 @@ export function QuestionBankPageClient({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSessionMode('fixed_timed')}
+                  onClick={() => setSessionMode('timed')}
                   className={`flex flex-col items-start justify-center rounded-[4px] border p-3 text-left transition-colors ${
-                    sessionMode === 'fixed_timed'
+                    sessionMode === 'timed'
                       ? 'border-[#3e73ff] bg-[#2c3d5e] text-[#f4f4f4]'
                       : 'border-[#4a545d] bg-[#2c3237] text-[#c6cdd3] hover:border-[#80868b]'
                   }`}
@@ -446,7 +442,7 @@ export function QuestionBankPageClient({
                 <div className="flex items-center rounded-[4px] border border-[#4a545d] bg-[#22272b]">
                   <button
                     type="button"
-                    onClick={() => setQuestionCount(Math.max(1, questionCount - 1))}
+                    onClick={() => setQuestionCount(Math.max(1, boundedQuestionCount - 1))}
                     className="flex h-7 w-7 items-center justify-center text-[#c6cdd3] hover:text-white"
                   >
                     -
@@ -455,7 +451,7 @@ export function QuestionBankPageClient({
                     type="number"
                     min={1}
                     max={Math.min(70, Math.max(1, selectedQuestions))}
-                    value={questionCount}
+                    value={boundedQuestionCount}
                     onChange={(e) => {
                       const val = parseInt(e.target.value);
                       if (!isNaN(val)) {
@@ -466,7 +462,7 @@ export function QuestionBankPageClient({
                   />
                   <button
                     type="button"
-                    onClick={() => setQuestionCount(Math.min(Math.min(70, Math.max(1, selectedQuestions)), questionCount + 1))}
+                    onClick={() => setQuestionCount(Math.min(Math.min(70, Math.max(1, selectedQuestions)), boundedQuestionCount + 1))}
                     className="flex h-7 w-7 items-center justify-center text-[#c6cdd3] hover:text-white"
                   >
                     +
@@ -589,7 +585,3 @@ function CategoryRow({
     </div>
   );
 }
-
-
-
-

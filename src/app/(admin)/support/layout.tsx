@@ -1,9 +1,8 @@
 import React from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import AdminShell from './AdminShell';
 
-export default async function AdminLayout({
+export default async function SupportLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -14,7 +13,7 @@ export default async function AdminLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect('/login?redirect=/admin');
+    redirect('/login?redirect=/support');
   }
 
   const { data: profile } = await supabase
@@ -23,9 +22,9 @@ export default async function AdminLayout({
     .eq('id', user.id)
     .single();
 
-  if (!profile?.is_active || profile.role !== 'admin') {
+  if (!profile?.is_active || !['admin', 'support'].includes(profile.role)) {
     redirect('/dashboard');
   }
 
-  return <AdminShell>{children}</AdminShell>;
+  return children;
 }

@@ -4,10 +4,26 @@ import { createClient } from '@/lib/supabase/server';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { redirect } from 'next/navigation';
 
+function safeInternalRedirect(value: FormDataEntryValue | null): string {
+  if (typeof value !== 'string') return '/dashboard';
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
+    return '/dashboard';
+  }
+
+  try {
+    const base = new URL('https://royalbank.local');
+    const target = new URL(value, base);
+    if (target.origin !== base.origin) return '/dashboard';
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return '/dashboard';
+  }
+}
+
 export async function login(formData: FormData) {
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
-  const redirectPath = (formData.get('redirect') as string) || '/dashboard';
+  const redirectPath = safeInternalRedirect(formData.get('redirect'));
 
   if (!email || !password) {
     return { error: 'Please provide both email and password.' };
@@ -19,10 +35,7 @@ export async function login(formData: FormData) {
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
     return { error: error.message };
@@ -50,19 +63,24 @@ export async function register(formData: FormData) {
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: {
         full_name: fullName || splitEmail(email),
-        role: 'student',
       },
     },
   });
 
   if (error) {
     return { error: error.message };
+  }
+
+  // Supabase returns no session when email confirmation is required. Do not
+  // pretend the new user is authenticated; send them to a clear verification state.
+  if (!data.session) {
+    redirect('/login?registered=check-email');
   }
 
   redirect('/dashboard');
@@ -80,7 +98,9 @@ export async function getCurrentUser() {
   }
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) return null;
 

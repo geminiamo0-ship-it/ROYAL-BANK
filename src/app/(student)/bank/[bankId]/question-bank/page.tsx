@@ -1,4 +1,6 @@
+import { notFound, redirect } from 'next/navigation';
 import { QuestionBankPageClient } from '@/components/bank/QuestionBankPageClient';
+import { getBankDetails } from '@/actions/pathways';
 import { getLiveQuestionBankOutline } from '@/lib/question-bank';
 
 interface QuestionBankPageProps {
@@ -9,7 +11,21 @@ interface QuestionBankPageProps {
 
 export default async function QuestionBankPage({ params }: QuestionBankPageProps) {
   const { bankId } = await params;
-  const parsedBankId = Number(bankId || 1);
+  const parsedBankId = Number(bankId);
+
+  if (!Number.isInteger(parsedBankId) || parsedBankId <= 0) {
+    notFound();
+  }
+
+  const bank = await getBankDetails(parsedBankId);
+  if (!bank) {
+    notFound();
+  }
+
+  if (!bank.isUnlocked) {
+    redirect('/dashboard?upgrade=true');
+  }
+
   const initialCategories = await getLiveQuestionBankOutline(parsedBankId);
 
   return (

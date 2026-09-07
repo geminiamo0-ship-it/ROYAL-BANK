@@ -2,20 +2,33 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { removeSavedConcept, saveConceptVote, saveUserAnswer, getQuestionExplanation, completeExamSession } from '@/actions/exam';
+import {
+  completeExamSession,
+  getExamQuestionFeedback,
+  removeSavedConcept,
+  saveConceptVote,
+  saveUserAnswer,
+  setQuestionFlag,
+} from '@/actions/exam';
 import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamHeader } from '@/components/exam/ExamHeader';
 import { ExamSidebarWidgets } from '@/components/exam/ExamSidebarWidgets';
 import { extractExplanationPanels } from '@/lib/explanation-panels';
-import type { UserExamAnswer } from '@/stores/examStore';
-import type { Option, Question } from '@/types/database';
+import type {
+  ExamClientAnswer,
+  ExamClientOption,
+  ExamClientQuestion,
+  ExamClientSession,
+  ExamQuestionFeedback,
+} from '@/types/exam';
 import { ChevronRight } from 'lucide-react';
 
 interface ExamPageClientProps {
-  initialQuestions: Question[];
+  initialQuestions: ExamClientQuestion[];
   sessionId: string;
-  initialAnswers?: Record<number, UserExamAnswer>;
-  session: Record<string, unknown> | null;
+  initialAnswers?: Record<number, ExamClientAnswer>;
+  initialFlaggedQuestionIds?: number[];
+  session: ExamClientSession | null;
 }
 
 function htmlToPlainText(html: string) {
@@ -28,31 +41,47 @@ function htmlToPlainText(html: string) {
   return element.textContent?.replace(/\s+/g, ' ').trim() || html;
 }
 
-export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {}, session }: ExamPageClientProps) {
+export function ExamPageClient({
+  initialQuestions,
+  sessionId,
+  initialAnswers = {},
+  initialFlaggedQuestionIds = [],
+  session,
+}: ExamPageClientProps) {
   const router = useRouter();
-  const [questions] = useState<Question[]>(initialQuestions);
+  const [questions] = useState<ExamClientQuestion[]>(initialQuestions);
+  const sessionType = String(session?.session_type || 'standard');
+  const isTimedMode = sessionType === 'timed' || sessionType === 'fixed_timed';
+  const bankId = Number(session?.question_bank_id || 0);
 
-  const firstUnansweredIndex = questions.findIndex(q => !initialAnswers[q.id]);
+  const firstUnansweredIndex = questions.findIndex((question) => !initialAnswers[question.id]);
   const [currentIndex, setCurrentIndex] = useState(firstUnansweredIndex >= 0 ? firstUnansweredIndex : 0);
-  
-  const [answers, setAnswers] = useState<Record<number, UserExamAnswer>>(initialAnswers);
+  const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>(initialAnswers);
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
-  const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(new Set());
+  const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(
+    () => new Set(initialFlaggedQuestionIds)
+  );
   const [struckOutOptionIds, setStruckOutOptionIds] = useState<Set<number>>(new Set());
   const [showClues, setShowClues] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [bookmarkedConceptKeys, setBookmarkedConceptKeys] = useState<Set<string>>(new Set());
   const [pendingConceptKey, setPendingConceptKey] = useState<string | null>(null);
-  
-  const [persistedAnswerKeys, setPersistedAnswerKeys] = useState<Set<string>>(() => {
-    const keys = new Set<string>();
-    Object.values(initialAnswers).forEach(ans => {
-      keys.add(`${sessionId}:${ans.questionId}:${ans.selectedOptionId}`);
-    });
-    return keys;
-  });
+  const [savingQuestionIds, setSavingQuestionIds] = useState<Set<number>>(new Set());
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedbackByQuestionId, setFeedbackByQuestionId] = useState<Record<number, ExamQuestionFeedback>>({});
+
+  const answerSaveChains = React.useRef<Record<number, Promise<void>>>({});
+  const flagSaveChains = React.useRef<Record<number, Promise<void>>>({});
+  const feedbackFetchingIds = React.useRef(new Set<number>());
+  const persistedSelectionRef = React.useRef<Record<number, number | null>>(
+    Object.fromEntries(
+      Object.values(initialAnswers).map((answer) => [answer.questionId, answer.selectedOptionId])
+    )
+  );
 
   const currentQ = questions[currentIndex];
+  const timeLimitSeconds = Number(session?.time_limit_minutes || 0) * 60;
 
   const goNext = useCallback(() => {
     setCurrentIndex((value) => Math.min(value + 1, questions.length - 1));
@@ -62,234 +91,282 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
     setCurrentIndex((value) => Math.max(value - 1, 0));
   }, []);
 
-  const selectOption = useCallback((questionId: number, option: Option) => {
-    if (answers[questionId]) {
+  const queueTimedAnswerSave = useCallback((answer: ExamClientAnswer) => {
+    const questionId = answer.questionId;
+    const previous = answerSaveChains.current[questionId] || Promise.resolve();
+
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await saveUserAnswer({
+          sessionId,
+          questionId,
+          selectedOptionId: answer.selectedOptionId,
+          timeSpentSeconds: answer.timeSpentSeconds,
+        });
+        persistedSelectionRef.current[questionId] = answer.selectedOptionId;
+        setPersistenceError(null);
+      })
+      .catch((error) => {
+        setPersistenceError(error instanceof Error ? error.message : 'Unable to save the timed answer.');
+      });
+
+    answerSaveChains.current[questionId] = next;
+  }, [sessionId]);
+
+  const selectOption = useCallback((questionId: number, option: ExamClientOption) => {
+    if (!isTimedMode && answers[questionId]) return;
+
+    setPendingSelections((previous) => ({
+      ...previous,
+      [questionId]: option.id,
+    }));
+
+    if (!isTimedMode) return;
+
+    const answer: ExamClientAnswer = {
+      questionId,
+      selectedOptionId: option.id,
+      isCorrect: null,
+      correctOptionId: null,
+      timeSpentSeconds: elapsedSeconds,
+    };
+
+    setAnswers((previous) => ({
+      ...previous,
+      [questionId]: answer,
+    }));
+    queueTimedAnswerSave(answer);
+  }, [answers, elapsedSeconds, isTimedMode, queueTimedAnswerSave]);
+
+  const submitAnswer = useCallback(async (questionId: number) => {
+    if (isTimedMode || answers[questionId] || savingQuestionIds.has(questionId)) return;
+
+    const selectedOptionId = pendingSelections[questionId];
+    if (!selectedOptionId) return;
+
+    const question = questions.find((item) => item.id === questionId);
+    const option = question?.options?.find((item) => item.id === selectedOptionId);
+    if (!option) return;
+
+    setSavingQuestionIds((previous) => new Set(previous).add(questionId));
+    setPersistenceError(null);
+
+    try {
+      const persistedAnswer = await saveUserAnswer({
+        sessionId,
+        questionId,
+        selectedOptionId: option.id,
+        timeSpentSeconds: elapsedSeconds,
+      });
+
+      persistedSelectionRef.current[questionId] = option.id;
+      setAnswers((previous) => ({
+        ...previous,
+        [questionId]: persistedAnswer,
+      }));
+    } catch (error) {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to submit the answer.');
+    } finally {
+      setSavingQuestionIds((previous) => {
+        const next = new Set(previous);
+        next.delete(questionId);
+        return next;
+      });
+    }
+  }, [answers, elapsedSeconds, isTimedMode, pendingSelections, questions, savingQuestionIds, sessionId]);
+
+  const toggleFlag = useCallback((questionId: number) => {
+    const nextFlagged = !flaggedQuestionIds.has(questionId);
+
+    setFlaggedQuestionIds((previous) => {
+      const next = new Set(previous);
+      if (nextFlagged) next.add(questionId);
+      else next.delete(questionId);
+      return next;
+    });
+
+    const previousSave = flagSaveChains.current[questionId] || Promise.resolve();
+    const nextSave = previousSave
+      .catch(() => undefined)
+      .then(() => setQuestionFlag(questionId, nextFlagged))
+      .then(() => setPersistenceError(null))
+      .catch((error) => {
+        setPersistenceError(error instanceof Error ? error.message : 'Unable to update the question flag.');
+      });
+
+    flagSaveChains.current[questionId] = nextSave;
+  }, [flaggedQuestionIds]);
+
+  const toggleStrikeOut = useCallback((optionId: number) => {
+    setStruckOutOptionIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(optionId)) next.delete(optionId);
+      else next.add(optionId);
+      return next;
+    });
+  }, []);
+
+  const flushTimedAnswers = useCallback(async () => {
+    if (!isTimedMode) return;
+
+    await Promise.all(Object.values(answerSaveChains.current));
+
+    for (const answer of Object.values(answers)) {
+      if (answer.selectedOptionId == null) continue;
+      if (persistedSelectionRef.current[answer.questionId] === answer.selectedOptionId) continue;
+
+      await saveUserAnswer({
+        sessionId,
+        questionId: answer.questionId,
+        selectedOptionId: answer.selectedOptionId,
+        timeSpentSeconds: answer.timeSpentSeconds,
+      });
+      persistedSelectionRef.current[answer.questionId] = answer.selectedOptionId;
+    }
+  }, [answers, isTimedMode, sessionId]);
+
+  const handleSuspend = useCallback(async () => {
+    if (!window.confirm('Suspend this block and return later?')) return;
+
+    setIsSubmitting(true);
+    setPersistenceError(null);
+
+    try {
+      await flushTimedAnswers();
+      await Promise.all(Object.values(flagSaveChains.current));
+      router.push(bankId > 0 ? `/bank/${bankId}/question-bank` : '/dashboard');
+    } catch (error) {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to suspend the block safely.');
+      setIsSubmitting(false);
+    }
+  }, [bankId, flushTimedAnswers, router]);
+
+  const handleEndBlock = useCallback(async (forceSubmit = false) => {
+    if (!forceSubmit && !window.confirm('End this block? Unanswered timed questions will be marked incorrect.')) {
       return;
     }
 
-    setPendingSelections((prev) => ({
-      ...prev,
-      [questionId]: option.id,
-    }));
-  }, [answers]);
+    setIsSubmitting(true);
+    setPersistenceError(null);
 
-  const submitAnswer = useCallback((questionId: number) => {
-    setAnswers((currentAnswers) => {
-      if (currentAnswers[questionId]) {
-        return currentAnswers;
-      }
-
-      const selectedOptionId = pendingSelections[questionId];
-      if (!selectedOptionId) {
-        return currentAnswers;
-      }
-
-      const question = questions.find((item) => item.id === questionId);
-      const option = question?.options?.find((item) => item.id === selectedOptionId);
-      if (!option) {
-        return currentAnswers;
-      }
-
-      return {
-        ...currentAnswers,
-        [questionId]: {
-          questionId,
-          selectedOptionId: option.id,
-          isCorrect: option.is_correct,
-          timeSpentSeconds: elapsedSeconds,
-        },
-      };
-    });
-  }, [elapsedSeconds, pendingSelections, questions]);
-
-  const toggleFlag = useCallback((questionId: number) => {
-    setFlaggedQuestionIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(questionId)) {
-        next.delete(questionId);
-      } else {
-        next.add(questionId);
-      }
-      return next;
-    });
-  }, []);
-
-  const toggleStrikeOut = useCallback((optionId: number) => {
-    setStruckOutOptionIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(optionId)) {
-        next.delete(optionId);
-      } else {
-        next.add(optionId);
-      }
-      return next;
-    });
-  }, []);
-
-  const isTimedMode = session?.session_type === 'fixed_timed';
-  const timeLimitSeconds = ((session?.time_limit_minutes as number) || 0) * 60;
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleExit = useCallback(async (forceSubmit = false) => {
-    if (forceSubmit || window.confirm('Are you sure you want to end this test session?')) {
-      setIsSubmitting(true);
+    try {
+      await flushTimedAnswers();
+      await Promise.all(Object.values(flagSaveChains.current));
       await completeExamSession(sessionId);
-      router.push(`/bank/${session?.question_bank_id || 1}/performance`);
+      router.push(bankId > 0 ? `/bank/${bankId}/performance` : '/dashboard');
+    } catch (error) {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to complete the block.');
+      setIsSubmitting(false);
     }
-  }, [router, sessionId, session?.question_bank_id]);
+  }, [bankId, flushTimedAnswers, router, sessionId]);
 
   useEffect(() => {
     const timerId = window.setInterval(() => {
       setElapsedSeconds((value) => {
         const nextValue = value + 1;
-        if (isTimedMode && timeLimitSeconds > 0 && nextValue >= timeLimitSeconds && !isSubmitting) {
+        if (
+          isTimedMode &&
+          timeLimitSeconds > 0 &&
+          nextValue >= timeLimitSeconds &&
+          !isSubmitting
+        ) {
           window.clearInterval(timerId);
-          handleExit(true); // Auto submit
+          void handleEndBlock(true);
         }
         return nextValue;
       });
     }, 1000);
 
     return () => window.clearInterval(timerId);
-  }, [isTimedMode, timeLimitSeconds, handleExit, isSubmitting]);
-
-  useEffect(() => {
-    const pendingAnswers = Object.values(answers).filter((answer) => {
-      const key = `${sessionId}:${answer.questionId}:${answer.selectedOptionId}`;
-      return !persistedAnswerKeys.has(key);
-    });
-
-    if (pendingAnswers.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-
-    async function persist() {
-      for (const answer of pendingAnswers) {
-        const key = `${sessionId}:${answer.questionId}:${answer.selectedOptionId}`;
-        try {
-          await saveUserAnswer({
-            sessionId,
-            questionId: answer.questionId,
-            selectedOptionId: answer.selectedOptionId,
-            isCorrect: answer.isCorrect,
-            isFlagged: flaggedQuestionIds.has(answer.questionId),
-            timeSpentSeconds: answer.timeSpentSeconds,
-          });
-
-          if (!cancelled) {
-            setPersistedAnswerKeys((prev) => new Set(prev).add(key));
-          }
-        } catch {
-          // Keep the local answer visible and retry on a later interaction.
-        }
-      }
-    }
-
-    persist();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [answers, flaggedQuestionIds, persistedAnswerKeys, sessionId]);
+  }, [handleEndBlock, isSubmitting, isTimedMode, timeLimitSeconds]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((event.target as HTMLElement).tagName)) {
-        return;
-      }
-
-      if (!currentQ) {
-        return;
-      }
+      if (['INPUT', 'TEXTAREA'].includes((event.target as HTMLElement).tagName)) return;
+      if (!currentQ || isSubmitting) return;
 
       if (event.key === 'ArrowRight') {
         goNext();
         return;
       }
-
       if (event.key === 'ArrowLeft') {
         goPrev();
         return;
       }
-
       if (event.key.toLowerCase() === 'f') {
         toggleFlag(currentQ.id);
         return;
       }
-
       if (['1', '2', '3', '4', '5'].includes(event.key)) {
         const optionIndex = Number(event.key) - 1;
         const option = currentQ.options?.[optionIndex];
-        if (option) {
-          selectOption(currentQ.id, option);
-        }
+        if (option) selectOption(currentQ.id, option);
         return;
       }
-
-      if (event.key === 'Enter') {
-        submitAnswer(currentQ.id);
+      if (event.key === 'Enter' && !isTimedMode) {
+        void submitAnswer(currentQ.id);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentQ, goNext, goPrev, selectOption, submitAnswer, toggleFlag]);
+  }, [currentQ, goNext, goPrev, isSubmitting, isTimedMode, selectOption, submitAnswer, toggleFlag]);
 
   const answeredCount = useMemo(
-    () => questions.slice(0, currentIndex + 1).filter((item) => answers[item.id]).length,
-    [answers, currentIndex, questions]
+    () => questions.filter((item) => answers[item.id]).length,
+    [answers, questions]
   );
 
   const marks = useMemo(
-    () => questions.slice(0, currentIndex + 1).filter((item) => answers[item.id]?.isCorrect).length,
-    [answers, currentIndex, questions]
+    () => questions.filter((item) => answers[item.id]?.isCorrect === true).length,
+    [answers, questions]
   );
 
-  const currentConceptKey = currentQ?.concept_id || (currentQ ? String(currentQ.id) : '');
-  const isCurrentConceptBookmarked = currentConceptKey ? bookmarkedConceptKeys.has(currentConceptKey) : false;
-
-  const [explanations, setExplanations] = useState<Record<number, string>>({});
-  const fetchingIds = React.useRef(new Set<number>());
-
   useEffect(() => {
-    if (!currentQ) return;
-    
-    // EAGER PREFETCH: Fetch explanation for the current question immediately
-    if (!explanations[currentQ.id] && !fetchingIds.current.has(currentQ.id)) {
-      fetchingIds.current.add(currentQ.id);
-      getQuestionExplanation(currentQ.id).then((html) => {
-        if (html) {
-          setExplanations((prev) => ({ ...prev, [currentQ.id]: html }));
-        }
-      }).finally(() => {
-        fetchingIds.current.delete(currentQ.id);
-      });
-    }
+    if (!currentQ || isTimedMode || !answers[currentQ.id]) return;
+    if (feedbackByQuestionId[currentQ.id] || feedbackFetchingIds.current.has(currentQ.id)) return;
 
-    // Prefetch next question's explanation quietly
-    if (currentIndex + 1 < questions.length) {
-      const nextQ = questions[currentIndex + 1];
-      if (!explanations[nextQ.id] && !fetchingIds.current.has(nextQ.id)) {
-        fetchingIds.current.add(nextQ.id);
-        getQuestionExplanation(nextQ.id).then((html) => {
-          if (html) {
-            setExplanations((prev) => ({ ...prev, [nextQ.id]: html }));
-          }
-        }).finally(() => {
-          fetchingIds.current.delete(nextQ.id);
+    feedbackFetchingIds.current.add(currentQ.id);
+    getExamQuestionFeedback(sessionId, currentQ.id)
+      .then((feedback) => {
+        setFeedbackByQuestionId((previous) => ({
+          ...previous,
+          [currentQ.id]: feedback,
+        }));
+        setAnswers((previous) => {
+          const answer = previous[currentQ.id];
+          if (!answer) return previous;
+          return {
+            ...previous,
+            [currentQ.id]: {
+              ...answer,
+              isCorrect: feedback.isCorrect,
+              correctOptionId: feedback.correctOptionId,
+            },
+          };
         });
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQ?.id, currentIndex, questions.length]);
+        setPersistenceError(null);
+      })
+      .catch((error) => {
+        setPersistenceError(error instanceof Error ? error.message : 'Unable to load answer feedback.');
+      })
+      .finally(() => {
+        feedbackFetchingIds.current.delete(currentQ.id);
+      });
+  }, [answers, currentQ, feedbackByQuestionId, isTimedMode, sessionId]);
+
+  const currentConceptKey = currentQ?.concept_id || (currentQ ? String(currentQ.id) : '');
+  const isCurrentConceptBookmarked = currentConceptKey
+    ? bookmarkedConceptKeys.has(currentConceptKey)
+    : false;
+  const currentFeedback = feedbackByQuestionId[currentQ?.id || 0];
 
   const explanationPanels = useMemo(() => {
-    const rawExplanation = explanations[currentQ?.id || 0] || '';
-    const isAnsweredLocal = !!answers[currentQ?.id || 0];
+    const rawExplanation = currentFeedback?.explanationHtml || '';
+    const isAnsweredLocal = Boolean(answers[currentQ?.id || 0]);
 
-    if (!rawExplanation && isAnsweredLocal) {
+    if (!rawExplanation && isAnsweredLocal && !isTimedMode) {
       return {
         contentHtml: '<div class="text-[#80868b] animate-pulse py-4">Fetching explanation...</div>',
         sidebarHtml: null,
@@ -297,11 +374,14 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
         conceptImageHtml: null,
       };
     }
-    
+
     const mediaUrl = process.env.NEXT_PUBLIC_R2_MEDIA_URL || 'offline_media';
-    const updatedExplanation = rawExplanation.replace(/(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi, `$1${mediaUrl}/`);
+    const updatedExplanation = rawExplanation.replace(
+      /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
+      `$1${mediaUrl}/`
+    );
     return extractExplanationPanels(updatedExplanation, isCurrentConceptBookmarked);
-  }, [explanations, currentQ?.id, isCurrentConceptBookmarked, answers]);
+  }, [answers, currentFeedback?.explanationHtml, currentQ?.id, isCurrentConceptBookmarked, isTimedMode]);
 
   if (!currentQ) {
     return (
@@ -312,34 +392,39 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
   }
 
   const currentAnswer = answers[currentQ.id];
-  const isAnswered = !!currentAnswer;
+  const isAnswered = Boolean(currentAnswer);
   const selectedOptionId = currentAnswer?.selectedOptionId ?? pendingSelections[currentQ.id] ?? null;
-  
+  const correctOptionId = currentFeedback?.correctOptionId ?? currentAnswer?.correctOptionId ?? null;
+  const optionPercentages = currentFeedback?.optionPercentages || {};
   const mediaUrl = process.env.NEXT_PUBLIC_R2_MEDIA_URL || 'offline_media';
-  
+
   const currentHtml = currentQ.text_html
     ? currentQ.text_html
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi, `$1${mediaUrl}/`)
+        .replace(
+          /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
+          `$1${mediaUrl}/`
+        )
     : '';
-    
-  const conceptHtml = explanationPanels.conceptHtml 
-    ? explanationPanels.conceptHtml.replace(/(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi, `$1${mediaUrl}/`) 
-    : (currentQ.concept ? currentQ.concept.replace(/(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi, `$1${mediaUrl}/`) : null);
-    
+
+  const conceptHtml = explanationPanels.conceptHtml
+    ? explanationPanels.conceptHtml.replace(
+        /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
+        `$1${mediaUrl}/`
+      )
+    : null;
+
   const conceptKey = currentConceptKey;
   const isConceptBookmarked = isCurrentConceptBookmarked;
 
   const handleConceptBookmark = async () => {
-    if (!conceptHtml || pendingConceptKey) {
-      return;
-    }
+    if (!conceptHtml || pendingConceptKey) return;
 
     setPendingConceptKey(conceptKey);
 
     if (isConceptBookmarked) {
-      setBookmarkedConceptKeys((prev) => {
-        const next = new Set(prev);
+      setBookmarkedConceptKeys((previous) => {
+        const next = new Set(previous);
         next.delete(conceptKey);
         return next;
       });
@@ -347,14 +432,14 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
       try {
         await removeSavedConcept(currentQ.id);
       } catch {
-        setBookmarkedConceptKeys((prev) => new Set(prev).add(conceptKey));
+        setBookmarkedConceptKeys((previous) => new Set(previous).add(conceptKey));
       } finally {
         setPendingConceptKey(null);
       }
       return;
     }
 
-    setBookmarkedConceptKeys((prev) => new Set(prev).add(conceptKey));
+    setBookmarkedConceptKeys((previous) => new Set(previous).add(conceptKey));
 
     try {
       await saveConceptVote({
@@ -363,8 +448,8 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
         isImportant: true,
       });
     } catch {
-      setBookmarkedConceptKeys((prev) => {
-        const next = new Set(prev);
+      setBookmarkedConceptKeys((previous) => {
+        const next = new Set(previous);
         next.delete(conceptKey);
         return next;
       });
@@ -384,25 +469,34 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
       return;
     }
 
-    if (deepDiveButton) {
-      event.preventDefault();
-    }
+    if (deepDiveButton) event.preventDefault();
   };
 
   return (
     <div className="min-h-screen bg-[#282828] text-white">
       <ExamHeader
         currentIndex={currentIndex}
-        elapsedSeconds={isTimedMode && timeLimitSeconds > 0 ? Math.max(0, timeLimitSeconds - elapsedSeconds) : elapsedSeconds}
+        elapsedSeconds={
+          isTimedMode && timeLimitSeconds > 0
+            ? Math.max(0, timeLimitSeconds - elapsedSeconds)
+            : elapsedSeconds
+        }
         isFlagged={flaggedQuestionIds.has(currentQ.id)}
         questionCount={questions.length}
         showClues={showClues}
-        onExit={handleExit}
+        onSuspend={() => void handleSuspend()}
+        onEndBlock={() => void handleEndBlock()}
         onNext={goNext}
         onPrev={goPrev}
         onToggleClues={() => setShowClues((value) => !value)}
         onToggleFlag={() => toggleFlag(currentQ.id)}
       />
+
+      {persistenceError ? (
+        <div className="mx-auto mt-3 max-w-[1240px] rounded-[4px] border border-[#95413d] bg-[#3a2d2c] px-3 py-2 text-[12px] text-[#ffd4ce]">
+          {persistenceError}
+        </div>
+      ) : null}
 
       <main className="mx-auto grid max-w-[1240px] gap-6 px-4 pb-12 pt-4 lg:grid-cols-[minmax(0,1fr)_476px]">
         <section className="min-w-0">
@@ -415,23 +509,26 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
 
           <AnswerOptionList
             isAnswered={isAnswered}
+            isTimedMode={isTimedMode}
             pendingSelectionId={selectedOptionId}
             question={currentQ}
             struckOutOptionIds={struckOutOptionIds}
             submittedAnswer={currentAnswer}
+            correctOptionId={correctOptionId}
+            optionPercentages={optionPercentages}
             onSelectOption={selectOption}
             onToggleStrikeOut={toggleStrikeOut}
           />
 
-          {!isAnswered ? (
+          {!isTimedMode && !isAnswered ? (
             <div className="mt-6 flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => submitAnswer(currentQ.id)}
-                disabled={!selectedOptionId}
+                onClick={() => void submitAnswer(currentQ.id)}
+                disabled={!selectedOptionId || savingQuestionIds.has(currentQ.id) || isSubmitting}
                 className="inline-flex h-[34px] items-center rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff] disabled:cursor-not-allowed disabled:opacity-45"
               >
-                Submit answer
+                {savingQuestionIds.has(currentQ.id) ? 'Submitting...' : 'Submit answer'}
               </button>
               {!selectedOptionId ? (
                 <span className="text-[12px] text-[#a8aeb4]">Choose one option first.</span>
@@ -439,9 +536,18 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
             </div>
           ) : null}
 
+          {isTimedMode ? (
+            <p className="mt-3 text-[11px] text-[#a8aeb4]">
+              Timed selections are saved automatically and can be changed until End Block.
+            </p>
+          ) : null}
+
           {isAnswered && !isTimedMode ? (
             <div className="space-y-6 pt-6">
-              <div className="pm-explanation-container text-[16px] leading-[1.7] text-white" onClick={handleExplanationClick}>
+              <div
+                className="pm-explanation-container text-[16px] leading-[1.7] text-white"
+                onClick={handleExplanationClick}
+              >
                 {currentQ.topic ? (
                   <h2 className="mb-5 text-[16px] font-semibold text-[#23a7ff]">{currentQ.topic}</h2>
                 ) : null}
@@ -467,7 +573,9 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
         <ExamSidebarWidgets
           answers={answers}
           answeredCount={answeredCount}
+          bankId={bankId}
           currentIndex={currentIndex}
+          isTimedMode={isTimedMode}
           marks={marks}
           question={currentQ}
           questions={questions}
@@ -477,5 +585,3 @@ export function ExamPageClient({ initialQuestions, sessionId, initialAnswers = {
     </div>
   );
 }
-
-// force rebuild 1
