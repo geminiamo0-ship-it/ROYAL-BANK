@@ -41,6 +41,7 @@ SELECT public.create_exam_session(
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
 );
 
+SELECT public.get_exam_session_window((SELECT id FROM historical_session),0,1);
 SELECT public.submit_exam_answer((SELECT id FROM historical_session),9401,95011,5);
 SELECT public.complete_exam_session((SELECT id FROM historical_session));
 

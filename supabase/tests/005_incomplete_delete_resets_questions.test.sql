@@ -30,6 +30,7 @@ SELECT public.create_exam_session(
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
 );
 
+SELECT public.get_exam_session_window((SELECT id FROM delete_session),0,2);
 SELECT public.submit_exam_answer((SELECT id FROM delete_session),9351,94511,4);
 SELECT extensions.is((SELECT count(*)::bigint FROM public.user_answers WHERE test_session_id=(SELECT id FROM delete_session)),1::bigint,'one answer exists before deletion');
 SELECT extensions.is((SELECT count(*)::bigint FROM public.get_user_question_states(9250) WHERE answer_state='correct'),1::bigint,'answered question is Correct before deletion');

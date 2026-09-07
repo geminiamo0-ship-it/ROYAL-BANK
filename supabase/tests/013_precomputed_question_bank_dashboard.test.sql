@@ -64,6 +64,7 @@ SELECT public.create_exam_session(
     'd0000000-0000-0000-0000-000000000001',10301,'standard',1,
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
 );
+SELECT public.get_exam_session_window((SELECT id FROM dashboard_session),0,1);
 SELECT public.submit_exam_answer((SELECT id FROM dashboard_session),10401,105012,3);
 
 CREATE TEMP TABLE second_dashboard(payload jsonb);
