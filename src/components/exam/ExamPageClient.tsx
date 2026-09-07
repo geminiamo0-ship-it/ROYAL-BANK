@@ -10,6 +10,7 @@ import {
   saveUserAnswer,
   setQuestionFlag,
 } from '@/actions/exam';
+import { saveUserAnswerWithFeedback } from '@/actions/exam-feedback';
 import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamHeader } from '@/components/exam/ExamHeader';
 import { ExamSidebarWidgets } from '@/components/exam/ExamSidebarWidgets';
@@ -153,7 +154,7 @@ export function ExamPageClient({
     setPersistenceError(null);
 
     try {
-      const persistedAnswer = await saveUserAnswer({
+      const { answer: persistedAnswer, feedback } = await saveUserAnswerWithFeedback({
         sessionId,
         questionId,
         selectedOptionId: option.id,
@@ -164,6 +165,10 @@ export function ExamPageClient({
       setAnswers((previous) => ({
         ...previous,
         [questionId]: persistedAnswer,
+      }));
+      setFeedbackByQuestionId((previous) => ({
+        ...previous,
+        [questionId]: feedback,
       }));
     } catch (error) {
       setPersistenceError(error instanceof Error ? error.message : 'Unable to submit the answer.');
