@@ -40,7 +40,7 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
     category: 'Internal Medicine',
     description: 'Royal College of Physicians Examination Part 1. Choose from our specialized banks with full clinical explanations and isolated analytics.',
     totalQuestions: 13444,
-    isUnlocked: true,
+    isUnlocked: false,
     banks: [
       {
         id: 1,
@@ -60,7 +60,7 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Saved Concepts (Important / Less Important)'
         ],
         isFreeTrialAvailable: true,
-        isUnlocked: true,
+        isUnlocked: false,
         badge: 'Recommended'
       },
       {
@@ -80,7 +80,7 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Topic-Specific Revision Sets'
         ],
         isFreeTrialAvailable: false,
-        isUnlocked: true,
+        isUnlocked: false,
         badge: 'Popular'
       },
       {
@@ -99,7 +99,7 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Timed Benchmark Simulation Mode'
         ],
         isFreeTrialAvailable: false,
-        isUnlocked: true,
+        isUnlocked: false,
         badge: 'Advanced'
       },
     ],
@@ -196,33 +196,80 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
   },
 };
 
+async function resolveBankAccess(bankIds: number[]): Promise<Map<number, boolean>> {
+  const access = new Map<number, boolean>(bankIds.map((id) => [id, false]));
+  if (bankIds.length === 0) return access;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return access;
+
+  await Promise.all(
+    bankIds.map(async (bankId) => {
+      const { data, error } = await supabase.rpc('can_access_question_bank', {
+        p_bank_id: bankId,
+      });
+
+      if (!error) {
+        access.set(bankId, data === true);
+      }
+    })
+  );
+
+  return access;
+}
+
 export async function getPathwayDetails(slug: string): Promise<PathwayDetail | null> {
   const pathway = PATHWAYS_DATA[slug];
   if (!pathway) return null;
 
+  const banks = pathway.banks.map((bank) => ({ ...bank, features: [...bank.features] }));
+
   try {
-    const supabase = await createClient();
-    const { data: dbPathway } = await supabase
-      .from('pathways')
-      .select('*, question_banks(*)')
-      .eq('slug', slug)
-      .single();
+    const access = await resolveBankAccess(banks.map((bank) => bank.id));
+    const resolvedBanks = banks.map((bank) => ({
+      ...bank,
+      isUnlocked: access.get(bank.id) === true,
+    }));
 
-    if (dbPathway && dbPathway.question_banks && dbPathway.question_banks.length > 0) {
-      // Merge DB banks if available
-      return pathway;
-    }
+    return {
+      ...pathway,
+      isUnlocked: resolvedBanks.some((bank) => bank.isUnlocked),
+      banks: resolvedBanks,
+    };
   } catch {
-    // Fallback to static catalog
+    // Fail closed: catalog metadata can still render, but no bank is shown as unlocked
+    // if canonical authorization cannot be resolved.
+    return {
+      ...pathway,
+      isUnlocked: false,
+      banks: banks.map((bank) => ({ ...bank, isUnlocked: false })),
+    };
   }
-
-  return pathway;
 }
 
 export async function getBankDetails(bankId: number): Promise<QuestionBankItem | null> {
-  for (const pathway of Object.values(PATHWAYS_DATA)) {
-    const bank = pathway.banks.find((b) => b.id === bankId);
-    if (bank) return bank;
+  const bank = Object.values(PATHWAYS_DATA)
+    .flatMap((pathway) => pathway.banks)
+    .find((candidate) => candidate.id === bankId);
+
+  if (!bank) return null;
+
+  try {
+    const access = await resolveBankAccess([bankId]);
+    return {
+      ...bank,
+      features: [...bank.features],
+      isUnlocked: access.get(bankId) === true,
+    };
+  } catch {
+    return {
+      ...bank,
+      features: [...bank.features],
+      isUnlocked: false,
+    };
   }
-  return PATHWAYS_DATA['mrcp-part-1'].banks[0];
 }
