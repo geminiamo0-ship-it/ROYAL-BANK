@@ -5,6 +5,14 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    files: ["src/components/exam/WindowedExamPageClient.tsx"],
+    rules: {
+      // The first route render intentionally hydrates React state from the external
+      // in-memory launch cache populated by the previous client route.
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
