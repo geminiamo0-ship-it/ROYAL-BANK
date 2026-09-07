@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ROYAL-BANK
 
-## Getting Started
+ROYAL-BANK is a Next.js + Supabase medical question-bank application. The current core covers question-bank selection, exam sessions, previous sessions, scoped access, free-trial quotas, persistent flags, and server-enforced answer finalization.
 
-First, run the development server:
+## Local app setup
+
+Requirements:
+
+- Node.js 20+
+- npm
+- Supabase project credentials for app runtime
+
+Install and run:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Required application environment variables include:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Keep local environment files out of Git.
 
-## Learn More
+## App verification
 
-To learn more about Next.js, take a look at the following resources:
+Run the full application verification gate with:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run verify
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+This runs lint, TypeScript checking, and a production build.
 
-## Deploy on Vercel
+## Local database verification
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The repository includes Supabase CLI configuration, migrations, and database behavior tests.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+With Docker available:
+
+```bash
+supabase db start
+supabase db reset
+supabase test db
+```
+
+`db reset` rebuilds the local database from the migration history. `supabase test db` verifies the core access, trial, session, answer-state, deletion, and exam-finalization contracts.
+
+## Core architecture
+
+The preferred request path for sensitive exam operations is:
+
+```text
+Browser
+  -> Next.js server action
+  -> authentication / validation
+  -> Supabase RPC
+  -> Postgres constraints, triggers, and RLS
+```
+
+The browser must not be trusted with answer correctness or other privileged exam state before the relevant answer/block is finalized.
+
+## Durable project rules
+
+The maintained core documentation lives under `docs/`, especially:
+
+- `BUSINESS_RULES.md`
+- `ACCESS_MODEL.md`
+- `QUESTION_STATE_MODEL.md`
+- `DATABASE_BOUNDARIES.md`
+- `SECURITY_HARDENING.md`
+- `CORE_TEST_MATRIX.md`
+
+## Development status
+
+The core is being hardened before unfinished areas such as Progress, Performance, Results, MOOCs, and broader Admin Dashboard functionality are expanded. Avoid treating placeholder/WIP screens as completed product behavior.
