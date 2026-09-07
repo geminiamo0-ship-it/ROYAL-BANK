@@ -1,7 +1,10 @@
 import { notFound, redirect } from 'next/navigation';
 import { QuestionBankPageClient } from '@/components/bank/QuestionBankPageClient';
-import { getBankDetails } from '@/actions/pathways';
-import { getLiveQuestionBankOutline } from '@/lib/question-bank';
+import {
+  getLiveQuestionBankOutline,
+  QuestionBankAccessError,
+  QuestionBankAuthenticationError,
+} from '@/lib/question-bank';
 
 interface QuestionBankPageProps {
   params: Promise<{
@@ -17,16 +20,20 @@ export default async function QuestionBankPage({ params }: QuestionBankPageProps
     notFound();
   }
 
-  const bank = await getBankDetails(parsedBankId);
-  if (!bank) {
-    notFound();
-  }
+  let initialCategories;
+  try {
+    initialCategories = await getLiveQuestionBankOutline(parsedBankId);
+  } catch (error) {
+    if (error instanceof QuestionBankAuthenticationError) {
+      redirect(`/login?redirect=/bank/${parsedBankId}/question-bank`);
+    }
 
-  if (!bank.isUnlocked) {
-    redirect('/dashboard?upgrade=true');
-  }
+    if (error instanceof QuestionBankAccessError) {
+      redirect('/dashboard?upgrade=true');
+    }
 
-  const initialCategories = await getLiveQuestionBankOutline(parsedBankId);
+    throw error;
+  }
 
   return (
     <QuestionBankPageClient
