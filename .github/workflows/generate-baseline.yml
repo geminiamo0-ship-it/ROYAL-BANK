@@ -61,7 +61,7 @@ jobs:
             --schema-only \
             --no-owner \
             --no-comments \
-            | grep -E '^(GRANT|REVOKE|ALTER DEFAULT PRIVILEGES)' \
+            | grep -E '^(GRANT|REVOKE)' \
             | LC_ALL=C sort > /tmp/privileges-before.sql
 
           {
@@ -70,7 +70,7 @@ jobs:
               cat /tmp/cross-triggers-before.sql
             fi
             if [ -s /tmp/privileges-before.sql ]; then
-              printf '\n-- Explicit privileges omitted by supabase db dump.\n'
+              printf '\n-- Explicit object privileges omitted by supabase db dump.\n'
               cat /tmp/privileges-before.sql
             fi
           } >> baseline/001_core_baseline.sql
@@ -121,7 +121,7 @@ jobs:
             --schema-only \
             --no-owner \
             --no-comments \
-            | grep -E '^(GRANT|REVOKE|ALTER DEFAULT PRIVILEGES)' \
+            | grep -E '^(GRANT|REVOKE)' \
             | LC_ALL=C sort > /tmp/privileges-after.sql
           cmp /tmp/privileges-before.sql /tmp/privileges-after.sql
 
