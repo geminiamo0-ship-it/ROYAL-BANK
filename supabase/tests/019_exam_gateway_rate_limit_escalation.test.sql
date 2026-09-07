@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(12);
+SELECT extensions.plan(13);
 
 SELECT extensions.is(
     (SELECT gateway_reject_threshold FROM private.exam_security_config WHERE singleton),
