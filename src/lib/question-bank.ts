@@ -31,7 +31,43 @@ type CanonicalStateRow = {
   is_new: boolean;
 };
 
+type PrecomputedDashboardRow = {
+  category: string;
+  topic: string | null;
+  difficulty: string;
+  total_questions: number;
+  attempted_count: number;
+  incorrect_count: number;
+  flagged_count: number;
+  suspended_count: number;
+  new_count: number;
+};
+
+type PrecomputedCounts = {
+  total: DifficultyCounts;
+  attempted: DifficultyCounts;
+  incorrect: DifficultyCounts;
+  flagged: DifficultyCounts;
+  suspended: DifficultyCounts;
+  newQuestions: DifficultyCounts;
+};
+
+type PrecomputedCategory = {
+  name: string;
+  counts: PrecomputedCounts;
+  topics: Map<string, PrecomputedCounts>;
+};
+
 const emptyUserState = (): UserStateCounts => ({
+  attempted: createEmptyCounts(),
+  incorrect: createEmptyCounts(),
+  flagged: createEmptyCounts(),
+  suspended: createEmptyCounts(),
+  newQuestions: createEmptyCounts(),
+});
+
+const emptyPrecomputedCounts = (): PrecomputedCounts => ({
+  total: createEmptyCounts(),
   attempted: createEmptyCounts(),
   incorrect: createEmptyCounts(),
   flagged: createEmptyCounts(),
@@ -56,6 +92,107 @@ async function requireQuestionBankAccess(bankId: number) {
   if (error || canAccess !== true) {
     throw new Error('Question bank access required');
   }
+
+  return supabase;
+}
+
+async function getPrecomputedDashboardRows(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  bankId: number,
+): Promise<PrecomputedDashboardRow[] | null> {
+  const { data, error } = await supabase.rpc('get_question_bank_dashboard', {
+    p_bank_id: bankId,
+  });
+
+  // Keep the previous path as a deployment/migration compatibility fallback.
+  // Once migration 004 is installed, this fast path is the normal path.
+  if (error || !Array.isArray(data)) {
+    if (error) console.warn('Precomputed question-bank dashboard unavailable:', error.message);
+    return null;
+  }
+
+  return data as PrecomputedDashboardRow[];
+}
+
+function addPrecomputedRow(
+  counts: PrecomputedCounts,
+  row: PrecomputedDashboardRow,
+  difficulty: string,
+) {
+  counts.total[difficulty] += Number(row.total_questions) || 0;
+  counts.attempted[difficulty] += Number(row.attempted_count) || 0;
+  counts.incorrect[difficulty] += Number(row.incorrect_count) || 0;
+  counts.flagged[difficulty] += Number(row.flagged_count) || 0;
+  counts.suspended[difficulty] += Number(row.suspended_count) || 0;
+  counts.newQuestions[difficulty] += Number(row.new_count) || 0;
+}
+
+function buildPrecomputedQuestionBankOutline(
+  rows: PrecomputedDashboardRow[],
+): CategoryWithTopics[] {
+  const categoryMap = new Map<string, PrecomputedCategory>();
+
+  for (const row of rows) {
+    const category = String(row.category || '').trim();
+    const difficulty = String(row.difficulty || '1');
+    if (!category || !(difficulty in createEmptyCounts())) continue;
+
+    let summary = categoryMap.get(category);
+    if (!summary) {
+      summary = {
+        name: category,
+        counts: emptyPrecomputedCounts(),
+        topics: new Map(),
+      };
+      categoryMap.set(category, summary);
+    }
+
+    addPrecomputedRow(summary.counts, row, difficulty);
+
+    if (row.topic) {
+      let topicCounts = summary.topics.get(row.topic);
+      if (!topicCounts) {
+        topicCounts = emptyPrecomputedCounts();
+        summary.topics.set(row.topic, topicCounts);
+      }
+      addPrecomputedRow(topicCounts, row, difficulty);
+    }
+  }
+
+  return Array.from(categoryMap.entries())
+    .map(([category, summary]) => ({
+      id: category,
+      name: summary.name,
+      total: sumCounts(summary.counts.total),
+      attempted: sumCounts(summary.counts.attempted),
+      newCount: sumCounts(summary.counts.newQuestions),
+      incorrectCount: sumCounts(summary.counts.incorrect),
+      flaggedCount: sumCounts(summary.counts.flagged),
+      suspendedCount: sumCounts(summary.counts.suspended),
+      totalByDiff: summary.counts.total,
+      attemptedByDiff: summary.counts.attempted,
+      incorrectByDiff: summary.counts.incorrect,
+      flaggedByDiff: summary.counts.flagged,
+      suspendedByDiff: summary.counts.suspended,
+      topics: Array.from(summary.topics.entries())
+        .map(([topic, counts]) => ({
+          id: topic,
+          name: topic,
+          total: sumCounts(counts.total),
+          attempted: sumCounts(counts.attempted),
+          newCount: sumCounts(counts.newQuestions),
+          incorrectCount: sumCounts(counts.incorrect),
+          flaggedCount: sumCounts(counts.flagged),
+          suspendedCount: sumCounts(counts.suspended),
+          totalByDiff: counts.total,
+          attemptedByDiff: counts.attempted,
+          incorrectByDiff: counts.incorrect,
+          flaggedByDiff: counts.flagged,
+          suspendedByDiff: counts.suspended,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function fetchQuestionMetadata(
@@ -64,9 +201,8 @@ async function fetchQuestionMetadata(
 ): Promise<QuestionMeta[]> {
   const rows: QuestionMeta[] = [];
 
-  // A full bank can contain thousands of questions. Sending every id in one
-  // PostgREST `.in()` produces an oversized request URL and can fail the Server
-  // Component in production. Keep each request comfortably bounded instead.
+  // Compatibility fallback only. The normal dashboard path returns a tiny
+  // precomputed payload and never sends thousands of ids through PostgREST.
   for (let offset = 0; offset < questionIds.length; offset += QUESTION_METADATA_BATCH_SIZE) {
     const batch = questionIds.slice(offset, offset + QUESTION_METADATA_BATCH_SIZE);
     const { data, error } = await supabase
@@ -216,10 +352,14 @@ function buildQuestionBankOutline(
 }
 
 export async function getLiveQuestionBankOutline(bankId: number): Promise<CategoryWithTopics[]> {
-  // getBankQuestionRows intentionally uses a service-role client for globally cached
-  // aggregate metadata. Always authorize the current user before touching that cache.
-  await requireQuestionBankAccess(bankId);
+  const supabase = await requireQuestionBankAccess(bankId);
 
+  const precomputedRows = await getPrecomputedDashboardRows(supabase, bankId);
+  if (precomputedRows && precomputedRows.length > 0) {
+    return buildPrecomputedQuestionBankOutline(precomputedRows);
+  }
+
+  // Compatibility fallback for environments where migration 004 is not installed yet.
   const [rows, userStateMap] = await Promise.all([
     getBankQuestionRows(bankId),
     getUserQuestionStateMap(bankId),
