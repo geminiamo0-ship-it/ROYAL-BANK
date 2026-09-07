@@ -13,20 +13,105 @@ export type ExamGatewayAction =
 export const isExamGatewayEnabled =
   process.env.NEXT_PUBLIC_EXAM_GATEWAY_ENABLED === 'true';
 
-function extractGatewayError(payload: unknown, fallback: string): string {
-  if (!payload || typeof payload !== 'object') return fallback;
+export const EXAM_RATE_LIMIT_EVENT = 'royal:exam-rate-limit';
+export const EXAM_RATE_LIMIT_STORAGE_KEY = 'royal.exam-rate-limit-until';
+
+type GatewayErrorInfo = {
+  message: string;
+  code: string | null;
+};
+
+export class ExamGatewayError extends Error {
+  code: string | null;
+  status: number;
+  retryAfterSeconds: number | null;
+
+  constructor(
+    message: string,
+    options: {
+      code?: string | null;
+      status: number;
+      retryAfterSeconds?: number | null;
+    }
+  ) {
+    super(message);
+    this.name = 'ExamGatewayError';
+    this.code = options.code ?? null;
+    this.status = options.status;
+    this.retryAfterSeconds = options.retryAfterSeconds ?? null;
+  }
+}
+
+function extractGatewayError(payload: unknown, fallback: string): GatewayErrorInfo {
+  if (!payload || typeof payload !== 'object') {
+    return { message: fallback, code: null };
+  }
 
   const record = payload as Record<string, unknown>;
-  if (typeof record.message === 'string' && record.message) return record.message;
+  const topLevelCode = typeof record.code === 'string' && record.code ? record.code : null;
+
+  if (typeof record.message === 'string' && record.message) {
+    return { message: record.message, code: topLevelCode };
+  }
 
   if (record.error && typeof record.error === 'object') {
     const error = record.error as Record<string, unknown>;
-    if (typeof error.message === 'string' && error.message) return error.message;
-    if (typeof error.code === 'string' && error.code) return error.code;
+    const nestedCode = typeof error.code === 'string' && error.code ? error.code : null;
+
+    if (typeof error.message === 'string' && error.message) {
+      return { message: error.message, code: nestedCode ?? topLevelCode };
+    }
+
+    if (nestedCode) {
+      return { message: nestedCode, code: nestedCode };
+    }
   }
 
-  if (typeof record.code === 'string' && record.code) return record.code;
-  return fallback;
+  if (topLevelCode) return { message: topLevelCode, code: topLevelCode };
+  return { message: fallback, code: null };
+}
+
+function parseRetryAfterSeconds(value: string | null): number | null {
+  if (!value) return null;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return Math.max(1, Math.ceil(numeric));
+  }
+
+  const retryAt = Date.parse(value);
+  if (!Number.isFinite(retryAt)) return null;
+
+  const seconds = Math.ceil((retryAt - Date.now()) / 1000);
+  return seconds > 0 ? seconds : null;
+}
+
+function publishRateLimitCountdown(retryAfterSeconds: number): void {
+  if (typeof window === 'undefined') return;
+
+  const now = Date.now();
+  const candidateRetryAt = now + Math.max(1, retryAfterSeconds) * 1000;
+  let retryAt = candidateRetryAt;
+
+  try {
+    const storedRetryAt = Number(window.sessionStorage.getItem(EXAM_RATE_LIMIT_STORAGE_KEY) || 0);
+    // A fixed-window limiter does not extend just because the user retries during the
+    // same blocked window. Keep the first still-active deadline instead of resetting
+    // the countdown to a full minute on every rejected click.
+    if (Number.isFinite(storedRetryAt) && storedRetryAt > now) {
+      retryAt = storedRetryAt;
+    } else {
+      window.sessionStorage.setItem(EXAM_RATE_LIMIT_STORAGE_KEY, String(retryAt));
+    }
+  } catch {
+    // The countdown is a UX aid only; storage failures must never affect exam security.
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(EXAM_RATE_LIMIT_EVENT, {
+      detail: { retryAt },
+    })
+  );
 }
 
 export async function callExamGateway<T>(
@@ -63,9 +148,29 @@ export async function callExamGateway<T>(
   }
 
   if (!response.ok) {
-    throw new Error(
-      extractGatewayError(payload, `Exam request failed (${response.status}).`)
+    const errorInfo = extractGatewayError(
+      payload,
+      `Exam request failed (${response.status}).`
     );
+
+    if (response.status === 429) {
+      const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('retry-after')) ?? 60;
+      publishRateLimitCountdown(retryAfterSeconds);
+
+      throw new ExamGatewayError(
+        'Request limit reached. Please wait for the countdown before trying again.',
+        {
+          code: errorInfo.code ?? 'RATE_LIMITED',
+          status: response.status,
+          retryAfterSeconds,
+        }
+      );
+    }
+
+    throw new ExamGatewayError(errorInfo.message, {
+      code: errorInfo.code,
+      status: response.status,
+    });
   }
 
   return payload as T;
