@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { checkRateLimit } from '@vercel/firewall';
+import { checkVercelRateLimit } from '@/lib/vercel-firewall-rate-limit';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'dub1';
@@ -209,12 +209,23 @@ export async function POST(request: Request) {
   // authoritative content/session quotas and are stricter for fresh-content abuse.
   if (rateLimitEnabled) {
     try {
-      const { rateLimited } = await checkRateLimit(rateLimitId, {
+      const { rateLimited, error: rateLimitError } = await checkVercelRateLimit(rateLimitId, {
         request,
         rateLimitKey: userId,
       });
 
-      if (rateLimited) {
+      // A missing rule or a blocked internal check is configuration/infrastructure
+      // failure, not user abuse. Preserve progress writes but fail closed for actions
+      // that can disclose fresh content.
+      if (rateLimitError) {
+        if (!RATE_LIMIT_FAIL_OPEN_ACTIONS.has(body.action)) {
+          return jsonError(
+            503,
+            'EXAM_RATE_LIMIT_UNAVAILABLE',
+            'Exam service is temporarily unavailable.'
+          );
+        }
+      } else if (rateLimited) {
         await recordRateLimitRejection({
           supabaseUrl,
           publishableKey,
