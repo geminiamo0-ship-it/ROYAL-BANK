@@ -2,7 +2,7 @@
 Royal Bank - Direct Supabase Batch Ingestion Engine
 ===================================================
 Streams questions, options, and library articles directly to Supabase REST API
-using the service_role key with optimized batching and error recovery.
+using credentials supplied through environment variables.
 """
 
 import os
@@ -11,12 +11,20 @@ import time
 import urllib.request
 import urllib.error
 
-SUPABASE_URL = "https://trnvsgenmzhyuayxxdoq.supabase.co"
-SERVICE_ROLE_KEY = "sb_secret_LfKxUzMNK1tuajaRE0KW3g_hXKjuQdF"
-PROCESSED_DATA_DIR = r"C:\Users\Administrator\.gemini\antigravity\scratch\processed_data"
+
+def require_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
 
 
-def post_batch(table_name: str, records: list, on_conflict: str = None) -> bool:
+SUPABASE_URL = require_env("SUPABASE_URL").rstrip("/")
+SERVICE_ROLE_KEY = require_env("SUPABASE_SERVICE_ROLE_KEY")
+PROCESSED_DATA_DIR = require_env("PROCESSED_DATA_DIR")
+
+
+def post_batch(table_name: str, records: list, on_conflict: str | None = None) -> bool:
     """Post a batch of records to Supabase table via REST API."""
     url = f"{SUPABASE_URL}/rest/v1/{table_name}"
     if on_conflict:
@@ -26,7 +34,7 @@ def post_batch(table_name: str, records: list, on_conflict: str = None) -> bool:
         "apikey": SERVICE_ROLE_KEY,
         "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates"
+        "Prefer": "resolution=merge-duplicates",
     }
 
     data_bytes = json.dumps(records).encode("utf-8")
@@ -35,12 +43,12 @@ def post_batch(table_name: str, records: list, on_conflict: str = None) -> bool:
     try:
         with urllib.request.urlopen(req) as resp:
             return resp.status in (200, 201)
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="ignore")
-        print(f"  [ERROR] {table_name} (status {e.code}): {err_body[:300]}")
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="ignore")
+        print(f"  [ERROR] {table_name} (status {exc.code}): {err_body[:300]}")
         return False
-    except Exception as e:
-        print(f"  [ERROR] Connection error on {table_name}: {e}")
+    except Exception as exc:
+        print(f"  [ERROR] Connection error on {table_name}: {exc}")
         return False
 
 
@@ -50,8 +58,8 @@ def import_library_articles():
         print(f"[SKIP] {path} not found.")
         return
 
-    with open(path, "r", encoding="utf-8") as f:
-        articles = json.load(f)
+    with open(path, "r", encoding="utf-8") as handle:
+        articles = json.load(handle)
 
     print(f"\n[1/2] Ingesting {len(articles)} Textbook Library Articles...")
     batch_size = 50
@@ -62,7 +70,7 @@ def import_library_articles():
         ok = post_batch("library_articles", batch, on_conflict="id")
         if ok:
             success_count += len(batch)
-            print(f"  -> Uploaded articles {i+1} to {min(i+batch_size, len(articles))} of {len(articles)}")
+            print(f"  -> Uploaded articles {i + 1} to {min(i + batch_size, len(articles))} of {len(articles)}")
         else:
             print(f"  [FAILED] Batch starting at index {i}")
         time.sleep(0.1)
@@ -71,8 +79,11 @@ def import_library_articles():
 
 
 def import_questions_and_options():
-    print(f"\n[2/2] Ingesting Questions and Options...")
-    chunk_files = sorted([f for f in os.listdir(PROCESSED_DATA_DIR) if f.startswith("questions_chunk_")])
+    print("\n[2/2] Ingesting Questions and Options...")
+    chunk_files = sorted(
+        filename for filename in os.listdir(PROCESSED_DATA_DIR)
+        if filename.startswith("questions_chunk_")
+    )
     if not chunk_files:
         print("[SKIP] No question chunk files found.")
         return
@@ -82,49 +93,41 @@ def import_questions_and_options():
 
     for chunk_file in chunk_files:
         path = os.path.join(PROCESSED_DATA_DIR, chunk_file)
-        with open(path, "r", encoding="utf-8") as f:
-            q_list = json.load(f)
+        with open(path, "r", encoding="utf-8") as handle:
+            q_list = json.load(handle)
 
         print(f"\nProcessing {chunk_file} ({len(q_list)} questions)...")
-
-        # 1. Prepare questions payload (excluding options)
         questions_payload = []
         options_payload = []
-        for q in q_list:
-            q_copy = dict(q)
-            opts = q_copy.pop("options", [])
-            questions_payload.append(q_copy)
-            for opt in opts:
-                options_payload.append(opt)
 
-        # Upload questions in sub-batches of 50
-        q_batch_size = 50
-        for i in range(0, len(questions_payload), q_batch_size):
-            q_batch = questions_payload[i:i + q_batch_size]
-            ok = post_batch("questions", q_batch, on_conflict="id")
-            if ok:
-                total_q_uploaded += len(q_batch)
+        for question in q_list:
+            question_copy = dict(question)
+            options = question_copy.pop("options", [])
+            questions_payload.append(question_copy)
+            options_payload.extend(options)
+
+        for i in range(0, len(questions_payload), 50):
+            batch = questions_payload[i:i + 50]
+            if post_batch("questions", batch, on_conflict="id"):
+                total_q_uploaded += len(batch)
             else:
                 print(f"  [FAILED] Questions sub-batch starting at {i}")
             time.sleep(0.05)
 
-        # Upload options in sub-batches of 100
-        opt_batch_size = 100
-        for i in range(0, len(options_payload), opt_batch_size):
-            opt_batch = options_payload[i:i + opt_batch_size]
-            ok = post_batch("options", opt_batch, on_conflict="id")
-            if ok:
-                total_opt_uploaded += len(opt_batch)
+        for i in range(0, len(options_payload), 100):
+            batch = options_payload[i:i + 100]
+            if post_batch("options", batch, on_conflict="id"):
+                total_opt_uploaded += len(batch)
             else:
                 print(f"  [FAILED] Options sub-batch starting at {i}")
             time.sleep(0.05)
 
         print(f"  Progress: Total Questions Uploaded = {total_q_uploaded}, Options = {total_opt_uploaded}")
 
-    print(f"\n==================================================")
+    print("\n==================================================")
     print(f"[COMPLETE] Questions Ingested: {total_q_uploaded}")
     print(f"[COMPLETE] Options Ingested:   {total_opt_uploaded}")
-    print(f"==================================================")
+    print("==================================================")
 
 
 if __name__ == "__main__":

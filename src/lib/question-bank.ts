@@ -1,25 +1,8 @@
-﻿import 'server-only';
+import 'server-only';
 import { createClient } from '@/lib/supabase/server';
 import { getBankQuestionRows, type BankQuestionRow } from '@/lib/bank-question-rows';
-import { CategoryWithTopics, DifficultyCounts } from '@/types/question-bank';
-import { CategorySummary } from '@/actions/exam';
-
-export const DEFAULT_CATEGORIES = [
-  { id: 'Cardiology', name: 'Cardiology', total: 604, attempted: 0 },
-  { id: 'Clinical Pharmacology', name: 'Clinical pharmacology, therapeutics and toxicology', total: 541, attempted: 0 },
-  { id: 'Endocrinology', name: 'Endocrinology', total: 396, attempted: 0 },
-  { id: 'Gastroenterology', name: 'Gastroenterology', total: 479, attempted: 0 },
-  { id: 'Geriatric Medicine', name: 'Geriatric medicine', total: 104, attempted: 0 },
-  { id: 'Haematology', name: 'Haematology', total: 301, attempted: 0 },
-  { id: 'Infectious Diseases & STIs', name: 'Infectious diseases and STIs', total: 573, attempted: 0 },
-  { id: 'Nephrology & Renal Medicine', name: 'Nephrology', total: 275, attempted: 0 },
-  { id: 'Neurology', name: 'Neurology', total: 554, attempted: 0 },
-  { id: 'Ophthalmology', name: 'Ophthalmology', total: 100, attempted: 0 },
-  { id: 'Palliative Medicine', name: 'Palliative medicine and end of life care', total: 38, attempted: 0 },
-  { id: 'Psychiatry', name: 'Psychiatry', total: 132, attempted: 0 },
-  { id: 'Respiratory Medicine', name: 'Respiratory medicine', total: 265, attempted: 0 },
-  { id: 'Rheumatology', name: 'Rheumatology', total: 352, attempted: 0 },
-];
+import type { CategoryWithTopics, DifficultyCounts } from '@/types/question-bank';
+import type { CategorySummary } from '@/types/exam';
 
 const createEmptyCounts = (): DifficultyCounts => ({ '1': 0, '2': 0, '3': 0 });
 
@@ -28,219 +11,204 @@ type UserStateCounts = {
   incorrect: DifficultyCounts;
   flagged: DifficultyCounts;
   suspended: DifficultyCounts;
+  newQuestions: DifficultyCounts;
 };
 
-async function getUserQuestionStateMap() {
+type OutlineSummary = {
+  name: string;
+  totalByDiff: DifficultyCounts;
+  topics: Map<string, { totalByDiff: DifficultyCounts }>;
+};
+
+type QuestionMeta = { id: number; category: string; topic: string | null; difficulty: string };
+
+type CanonicalStateRow = {
+  question_id: number;
+  answer_state: string | null;
+  is_suspended: boolean;
+  is_flagged: boolean;
+  is_new: boolean;
+};
+
+const emptyUserState = (): UserStateCounts => ({
+  attempted: createEmptyCounts(),
+  incorrect: createEmptyCounts(),
+  flagged: createEmptyCounts(),
+  suspended: createEmptyCounts(),
+  newQuestions: createEmptyCounts(),
+});
+
+async function requireQuestionBankAccess(bankId: number) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  const stateMap = new Map<string, UserStateCounts>();
-
-  const getOrCreate = (cat: string, top: string | null) => {
-    const key = top ? cat + '|||' + top : cat;
-    if (!stateMap.has(key)) {
-      stateMap.set(key, { 
-        attempted: createEmptyCounts(), 
-        incorrect: createEmptyCounts(), 
-        flagged: createEmptyCounts(), 
-        suspended: createEmptyCounts() 
-      });
-    }
-    return stateMap.get(key)!;
-  };
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
-    return stateMap;
+    throw new Error('Authentication required');
   }
 
-  const [
-    { data: answers },
-    { data: activeSessions }
-  ] = await Promise.all([
-    supabase
-      .from('user_answers')
-      .select('is_correct, is_flagged, questions!inner(category, topic, difficulty)')
-      .eq('user_id', user.id),
-    supabase
-      .from('test_sessions')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('is_completed', false)
-  ]);
+  const { data: canAccess, error } = await supabase.rpc('can_access_question_bank', {
+    p_bank_id: bankId,
+  });
 
-  for (const answer of answers || []) {
-    const qInfo = Array.isArray(answer.questions) ? answer.questions[0] : answer.questions;
-    if (!qInfo?.category) continue;
-    const d = qInfo.difficulty || '1';
-
-    const state = getOrCreate(qInfo.category, qInfo.topic);
-    state.attempted[d] = (state.attempted[d] || 0) + 1;
-    if (answer.is_correct === false) state.incorrect[d] = (state.incorrect[d] || 0) + 1;
-    if (answer.is_flagged === true) state.flagged[d] = (state.flagged[d] || 0) + 1;
-    
-    if (qInfo.topic) {
-      const parentState = getOrCreate(qInfo.category, null);
-      parentState.attempted[d] = (parentState.attempted[d] || 0) + 1;
-      if (answer.is_correct === false) parentState.incorrect[d] = (parentState.incorrect[d] || 0) + 1;
-      if (answer.is_flagged === true) parentState.flagged[d] = (parentState.flagged[d] || 0) + 1;
-    }
+  if (error || canAccess !== true) {
+    throw new Error('Question bank access required');
   }
+}
 
-  const activeSessionIds = (activeSessions || []).map(s => s.id);
+async function getUserQuestionStateMap(bankId: number) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const stateMap = new Map<string, UserStateCounts>();
+  if (!user) return stateMap;
 
-  if (activeSessionIds.length > 0) {
-    const { data: suspended } = await supabase
-      .from('test_session_questions')
-      .select('questions!inner(category, topic, difficulty)')
-      .in('test_session_id', activeSessionIds);
+  const getOrCreate = (category: string, topic: string | null) => {
+    const key = topic ? `${category}|||${topic}` : category;
+    const existing = stateMap.get(key);
+    if (existing) return existing;
+    const created = emptyUserState();
+    stateMap.set(key, created);
+    return created;
+  };
 
-    for (const lock of suspended || []) {
-      const qInfo = Array.isArray(lock.questions) ? lock.questions[0] : lock.questions;
-      if (!qInfo?.category) continue;
-      const d = qInfo.difficulty || '1';
+  const { data: stateRows, error: stateError } = await supabase.rpc('get_user_question_states', {
+    p_bank_id: bankId,
+  });
+  if (stateError) throw new Error(stateError.message);
 
-      const state = getOrCreate(qInfo.category, qInfo.topic);
-      state.suspended[d] = (state.suspended[d] || 0) + 1;
-      state.attempted[d] = (state.attempted[d] || 0) + 1; 
+  const states = (stateRows || []) as CanonicalStateRow[];
+  const questionIds = states.map((row) => row.question_id);
+  if (questionIds.length === 0) return stateMap;
 
-      if (qInfo.topic) {
-        const parentState = getOrCreate(qInfo.category, null);
-        parentState.suspended[d] = (parentState.suspended[d] || 0) + 1;
-        parentState.attempted[d] = (parentState.attempted[d] || 0) + 1;
-      }
-    }
+  const { data: questionRows, error: questionError } = await supabase
+    .from('questions')
+    .select('id, category, topic, difficulty')
+    .in('id', questionIds);
+  if (questionError) throw new Error(questionError.message);
+
+  const metadata = new Map<number, QuestionMeta>(
+    ((questionRows || []) as QuestionMeta[]).map((question) => [question.id, question]),
+  );
+
+  for (const row of states) {
+    const question = metadata.get(row.question_id);
+    if (!question?.category) continue;
+    const difficulty = String(question.difficulty || '1');
+    if (!(difficulty in createEmptyCounts())) continue;
+
+    const apply = (state: UserStateCounts) => {
+      if (row.answer_state !== null) state.attempted[difficulty] += 1;
+      if (row.answer_state === 'incorrect') state.incorrect[difficulty] += 1;
+      if (row.is_flagged) state.flagged[difficulty] += 1;
+      if (row.is_suspended) state.suspended[difficulty] += 1;
+      if (row.is_new) state.newQuestions[difficulty] += 1;
+    };
+
+    apply(getOrCreate(question.category, question.topic));
+    if (question.topic) apply(getOrCreate(question.category, null));
   }
 
   return stateMap;
 }
 
 function sumCounts(counts: DifficultyCounts): number {
-  return (counts['1'] || 0) + (counts['2'] || 0) + (counts['3'] || 0);
+  return counts['1'] + counts['2'] + counts['3'];
 }
 
 function buildQuestionBankOutline(
   rows: BankQuestionRow[],
-  userStateMap: Map<string, UserStateCounts>
-) {
-  const categoryMap = new Map<string, any>();
+  userStateMap: Map<string, UserStateCounts>,
+): CategoryWithTopics[] {
+  const categoryMap = new Map<string, OutlineSummary>();
 
   for (const row of rows) {
-    const d = row.difficulty || '1';
-    let existing = categoryMap.get(row.category);
-    if (!existing) {
-      existing = {
-        name: row.category,
-        totalByDiff: createEmptyCounts(),
-        topics: new Map(),
-      };
-      categoryMap.set(row.category, existing);
-    }
+    const difficulty = String(row.difficulty || '1');
+    if (!(difficulty in createEmptyCounts())) continue;
 
-    existing.totalByDiff[d] = (existing.totalByDiff[d] || 0) + (Number(row.total_questions) || 0);
-    
+    let summary = categoryMap.get(row.category);
+    if (!summary) {
+      summary = { name: row.category, totalByDiff: createEmptyCounts(), topics: new Map() };
+      categoryMap.set(row.category, summary);
+    }
+    summary.totalByDiff[difficulty] += Number(row.total_questions) || 0;
+
     if (row.topic) {
-      let topicObj = existing.topics.get(row.topic);
-      if (!topicObj) {
-        topicObj = { totalByDiff: createEmptyCounts() };
-        existing.topics.set(row.topic, topicObj);
+      let topicSummary = summary.topics.get(row.topic);
+      if (!topicSummary) {
+        topicSummary = { totalByDiff: createEmptyCounts() };
+        summary.topics.set(row.topic, topicSummary);
       }
-      topicObj.totalByDiff[d] = (topicObj.totalByDiff[d] || 0) + (Number(row.total_questions) || 0);
+      topicSummary.totalByDiff[difficulty] += Number(row.total_questions) || 0;
     }
   }
 
   return Array.from(categoryMap.entries())
     .map(([category, summary]) => {
-      const catState = userStateMap.get(category) || { attempted: createEmptyCounts(), incorrect: createEmptyCounts(), flagged: createEmptyCounts(), suspended: createEmptyCounts() };
-      
-      const topics = (Array.from(summary.topics.entries()) as [string, any][]).map(([topic, topicSummary]) => {
-        const topicState = userStateMap.get(category + '|||' + topic) || { attempted: createEmptyCounts(), incorrect: createEmptyCounts(), flagged: createEmptyCounts(), suspended: createEmptyCounts() };
-        
-        return {
-          id: topic,
-          name: topic,
-          total: sumCounts(topicSummary.totalByDiff),
-          attempted: sumCounts(topicState.attempted),
-          newCount: Math.max(sumCounts(topicSummary.totalByDiff) - sumCounts(topicState.attempted), 0),
-          incorrectCount: sumCounts(topicState.incorrect),
-          flaggedCount: sumCounts(topicState.flagged),
-          suspendedCount: sumCounts(topicState.suspended),
-          totalByDiff: topicSummary.totalByDiff,
-          attemptedByDiff: topicState.attempted,
-          incorrectByDiff: topicState.incorrect,
-          flaggedByDiff: topicState.flagged,
-          suspendedByDiff: topicState.suspended,
-        };
-      }).sort((a, b) => a.name.localeCompare(b.name));
+      const categoryState = userStateMap.get(category) || emptyUserState();
+      const categoryTotal = sumCounts(summary.totalByDiff);
+      const categoryAnswered = sumCounts(categoryState.attempted);
+      const categorySuspended = sumCounts(categoryState.suspended);
+
+      const topics = Array.from(summary.topics.entries())
+        .map(([topic, topicSummary]) => {
+          const topicState = userStateMap.get(`${category}|||${topic}`) || emptyUserState();
+          const total = sumCounts(topicSummary.totalByDiff);
+          const answered = sumCounts(topicState.attempted);
+          const suspended = sumCounts(topicState.suspended);
+          return {
+            id: topic,
+            name: topic,
+            total,
+            attempted: answered,
+            newCount: sumCounts(topicState.newQuestions),
+            incorrectCount: sumCounts(topicState.incorrect),
+            flaggedCount: sumCounts(topicState.flagged),
+            suspendedCount: suspended,
+            totalByDiff: topicSummary.totalByDiff,
+            attemptedByDiff: topicState.attempted,
+            incorrectByDiff: topicState.incorrect,
+            flaggedByDiff: topicState.flagged,
+            suspendedByDiff: topicState.suspended,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
 
       return {
         id: category,
         name: summary.name,
-        total: sumCounts(summary.totalByDiff),
-        attempted: sumCounts(catState.attempted),
-        newCount: Math.max(sumCounts(summary.totalByDiff) - sumCounts(catState.attempted), 0),
-        incorrectCount: sumCounts(catState.incorrect),
-        flaggedCount: sumCounts(catState.flagged),
-        suspendedCount: sumCounts(catState.suspended),
+        total: categoryTotal,
+        attempted: categoryAnswered,
+        newCount: sumCounts(categoryState.newQuestions),
+        incorrectCount: sumCounts(categoryState.incorrect),
+        flaggedCount: sumCounts(categoryState.flagged),
+        suspendedCount: categorySuspended,
         totalByDiff: summary.totalByDiff,
-        attemptedByDiff: catState.attempted,
-        incorrectByDiff: catState.incorrect,
-        flaggedByDiff: catState.flagged,
-        suspendedByDiff: catState.suspended,
-        topics
+        attemptedByDiff: categoryState.attempted,
+        incorrectByDiff: categoryState.incorrect,
+        flaggedByDiff: categoryState.flagged,
+        suspendedByDiff: categoryState.suspended,
+        topics,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getLiveQuestionBankOutline(bankId: number): Promise<CategoryWithTopics[]> {
-  try {
-    const [rows, userStateMap] = await Promise.all([
-      getBankQuestionRows(bankId),
-      getUserQuestionStateMap(),
-    ]);
-    
-    const outline = buildQuestionBankOutline(rows, userStateMap);
-    
-    return outline.length > 0
-      ? outline
-      : DEFAULT_CATEGORIES.map((category) => ({
-          ...category,
-          newCount: category.total,
-          incorrectCount: 0,
-          flaggedCount: 0,
-          suspendedCount: 0,
-          totalByDiff: createEmptyCounts(),
-          attemptedByDiff: createEmptyCounts(),
-          incorrectByDiff: createEmptyCounts(),
-          flaggedByDiff: createEmptyCounts(),
-          suspendedByDiff: createEmptyCounts(),
-          topics: [],
-        }));
-  } catch (err) {
-    console.error('Error in getLiveQuestionBankOutline:', err);
-    return DEFAULT_CATEGORIES.map((category) => ({
-      ...category,
-      newCount: category.total,
-      incorrectCount: 0,
-      flaggedCount: 0,
-      suspendedCount: 0,
-      totalByDiff: createEmptyCounts(),
-      attemptedByDiff: createEmptyCounts(),
-      incorrectByDiff: createEmptyCounts(),
-      flaggedByDiff: createEmptyCounts(),
-      suspendedByDiff: createEmptyCounts(),
-      topics: [],
-    }));
-  }
+  // getBankQuestionRows intentionally uses a service-role client for globally cached
+  // aggregate metadata. Always authorize the current user before touching that cache.
+  await requireQuestionBankAccess(bankId);
+
+  const [rows, userStateMap] = await Promise.all([
+    getBankQuestionRows(bankId),
+    getUserQuestionStateMap(bankId),
+  ]);
+  return buildQuestionBankOutline(rows, userStateMap);
 }
 
 export async function getLiveQuestionBankCategories(bankId: number): Promise<CategorySummary[]> {
   const outline = await getLiveQuestionBankOutline(bankId);
-  return outline.map((category) => ({
-    id: category.id,
-    name: category.name,
-    total: category.total,
-    attempted: category.attempted,
-  }));
+  return outline.map(({ id, name, total, attempted }) => ({ id, name, total, attempted }));
 }
-

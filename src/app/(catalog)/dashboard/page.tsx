@@ -1,69 +1,81 @@
 import React from 'react';
 import Link from 'next/link';
 import { logout, getCurrentUser } from '@/actions/auth';
+import { getPathwayDetails } from '@/actions/pathways';
 
 interface CatalogCard {
   title: string;
   description: string;
   imageUrl: string;
   href: string;
-  locked?: boolean;
+  pathwaySlug?: string;
+  locked: boolean;
 }
 
-const getCatalogCards = (subscriptionTier: string): CatalogCard[] => {
-  const isPremium = subscriptionTier === 'premium_full';
-  
-  return [
-    {
-      title: 'MRCP Part 1',
-      description: 'Over 5,100 Single Best Answer questions plus full mock exams and a high-yield MRCP textbook.',
-      imageUrl: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=700&q=80',
-      href: '/pathway/mrcp-part-1',
-      locked: false, // Always open (or just free trial)
-    },
-    {
-      title: 'MRCOG Part 1',
-      description: 'Core obstetrics and gynaecology sciences with anatomy, embryology, physiology, and pharmacology practice.',
-      imageUrl: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?auto=format&fit=crop&w=700&q=80',
-      href: '/pathway/mrcog-part-1',
-      locked: !isPremium,
-    },
-    {
-      title: 'Medical student finals / UKMLA resource',
-      description: 'SBA questions for finals and UKMLA-style clinical practice with high-yield explanations.',
-      imageUrl: 'https://images.unsplash.com/photo-1530497610245-94d3c16cda28?auto=format&fit=crop&w=700&q=80',
-      href: '/pathway/plab-ukmla',
-      locked: !isPremium,
-    },
-    {
-      title: 'MRCS Part A',
-      description: 'Applied surgical anatomy, physiology, pathology, and clinical principles for Part A revision.',
-      imageUrl: 'https://images.unsplash.com/photo-1551076805-e1869033e561?auto=format&fit=crop&w=700&q=80',
-      href: '/pathway/mrcs-part-a',
-      locked: !isPremium,
-    },
-    {
-      title: 'MRCP Part 2 Written',
-      description: 'Clinical reasoning and data interpretation practice for advanced internal medicine preparation.',
-      imageUrl: 'https://images.unsplash.com/photo-1581093458791-9f3c3900df7b?auto=format&fit=crop&w=700&q=80',
-      href: '/pathway/mrcp-part-2',
-      locked: !isPremium,
-    },
-    {
-      title: 'PLAB Part 1',
-      description: 'High-yield clinical scenarios, emergency protocols, and UK practice guidance for PLAB preparation.',
-      imageUrl: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=700&q=80',
-      href: '/pathway/plab-part-1',
-      locked: !isPremium,
-    },
-  ];
-};
+const CATALOG_CARDS: Omit<CatalogCard, 'locked'>[] = [
+  {
+    title: 'MRCP Part 1',
+    description: 'Over 5,100 Single Best Answer questions plus full mock exams and a high-yield MRCP textbook.',
+    imageUrl: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=700&q=80',
+    href: '/pathway/mrcp-part-1',
+    pathwaySlug: 'mrcp-part-1',
+  },
+  {
+    title: 'MRCOG Part 1',
+    description: 'Core obstetrics and gynaecology sciences with anatomy, embryology, physiology, and pharmacology practice.',
+    imageUrl: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?auto=format&fit=crop&w=700&q=80',
+    href: '/pathway/mrcog-part-1',
+    pathwaySlug: 'mrcog-part-1',
+  },
+  {
+    title: 'Medical student finals / UKMLA resource',
+    description: 'SBA questions for finals and UKMLA-style clinical practice with high-yield explanations.',
+    imageUrl: 'https://images.unsplash.com/photo-1530497610245-94d3c16cda28?auto=format&fit=crop&w=700&q=80',
+    href: '/pathway/plab-ukmla',
+    pathwaySlug: 'plab-ukmla',
+  },
+  {
+    title: 'MRCS Part A',
+    description: 'Applied surgical anatomy, physiology, pathology, and clinical principles for Part A revision.',
+    imageUrl: 'https://images.unsplash.com/photo-1551076805-e1869033e561?auto=format&fit=crop&w=700&q=80',
+    href: '/pathway/mrcs-part-a',
+    pathwaySlug: 'mrcs-part-a',
+  },
+  {
+    title: 'MRCP Part 2 Written',
+    description: 'Clinical reasoning and data interpretation practice for advanced internal medicine preparation.',
+    imageUrl: 'https://images.unsplash.com/photo-1581093458791-9f3c3900df7b?auto=format&fit=crop&w=700&q=80',
+    href: '/pathway/mrcp-part-2',
+  },
+  {
+    title: 'PLAB Part 1',
+    description: 'High-yield clinical scenarios, emergency protocols, and UK practice guidance for PLAB preparation.',
+    imageUrl: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=700&q=80',
+    href: '/pathway/plab-part-1',
+  },
+];
 
 export default async function DashboardPage() {
-  const user = await getCurrentUser();
+  const [user, ...pathwayAccess] = await Promise.all([
+    getCurrentUser(),
+    getPathwayDetails('mrcp-part-1'),
+    getPathwayDetails('mrcog-part-1'),
+    getPathwayDetails('plab-ukmla'),
+    getPathwayDetails('mrcs-part-a'),
+  ]);
+
   const isStaff = user?.role === 'admin' || user?.role === 'support';
-  const subscriptionTier = user?.subscription_tier || 'free_trial';
-  const catalogCards = getCatalogCards(subscriptionTier);
+  const accessBySlug = new Map(
+    pathwayAccess
+      .filter((pathway): pathway is NonNullable<typeof pathway> => pathway !== null)
+      .map((pathway) => [pathway.slug, pathway.isUnlocked])
+  );
+
+  const catalogCards: CatalogCard[] = CATALOG_CARDS.map((card) => ({
+    ...card,
+    // Unknown/WIP pathways fail closed until they exist in the canonical catalog/DB.
+    locked: card.pathwaySlug ? accessBySlug.get(card.pathwaySlug) !== true : true,
+  }));
 
   return (
     <main className="min-h-screen bg-[#f4f4f4] text-[#111827]">

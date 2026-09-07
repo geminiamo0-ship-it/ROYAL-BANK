@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useTransition } from 'react';
+import React, { useState, useTransition } from 'react';
 import { Play, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { deleteSession } from '@/actions/exam';
@@ -24,11 +24,15 @@ export function OldBlocksClient({
   bankId: number;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   const handleDelete = (sessionId: string) => {
-    if (!confirm('Are you sure you want to delete this block?')) return;
+    if (!confirm('Delete this incomplete block? Unanswered questions will be released.')) return;
+
+    setError(null);
     startTransition(async () => {
-      await deleteSession(sessionId, `/bank/${bankId}/fixed-sets`);
+      const result = await deleteSession(sessionId, `/bank/${bankId}/fixed-sets`);
+      if (result.error) setError(result.error);
     });
   };
 
@@ -44,41 +48,54 @@ export function OldBlocksClient({
   const formatCategories = (categories: string[] | null) => {
     if (!categories || categories.length === 0) return 'All Categories';
     if (categories.length > 2) return 'Mixed Categories';
-    return categories.map(cat => {
-      if (cat.startsWith('__topic__::')) {
-        const decoded = decodeURIComponent(cat.replace('__topic__::', ''));
+
+    return categories.map((category) => {
+      if (category.startsWith('__topic__::')) {
+        const decoded = decodeURIComponent(category.replace('__topic__::', ''));
         const parts = decoded.split('::');
         return parts.length === 2 ? `${parts[0]} > ${parts[1]}` : decoded;
       }
-      return cat;
+      return category;
     }).join(', ');
   };
 
+  const formatMode = (mode: string) => {
+    if (mode === 'tutor' || mode === 'standard') return 'Tutor';
+    if (mode === 'timed' || mode === 'fixed_timed') return 'Timed';
+    return mode;
+  };
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-16 text-[13px]">
-      <div className="bg-white dark:bg-slate-900 rounded-[4px] border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+    <div className="mx-auto max-w-6xl space-y-6 pb-16 text-[13px]">
+      {error ? (
+        <div className="rounded-[4px] border border-red-300 bg-red-50 px-3 py-2 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-[4px] border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          <table className="w-full min-w-[800px] border-collapse text-left">
             <thead>
-              <tr className="bg-[#fdf2f2] dark:bg-slate-800/50 text-[#8e4545] dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
-                <th className="px-4 py-3 uppercase tracking-wider text-[11px] w-[120px]"># ID</th>
-                <th className="px-4 py-3 uppercase tracking-wider text-[11px]">NAME</th>
-                <th className="px-4 py-3 uppercase tracking-wider text-[11px] text-center w-[80px]">SCORE</th>
-                <th className="px-4 py-3 uppercase tracking-wider text-[11px] text-center w-[120px]">CREATED</th>
-                <th className="px-4 py-3 uppercase tracking-wider text-[11px] text-center w-[100px]">MODE</th>
-                <th className="px-4 py-3 uppercase tracking-wider text-[11px] text-center w-[120px]">QUESTIONS</th>
-                <th className="px-4 py-3 uppercase tracking-wider text-[11px] text-center w-[120px]">STATUS</th>
-                <th className="px-4 py-3 uppercase tracking-wider text-[11px] text-center w-[100px]">ACTIONS</th>
+              <tr className="border-b border-slate-200 bg-[#fdf2f2] font-semibold text-[#8e4545] dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300">
+                <th className="w-[120px] px-4 py-3 text-[11px] uppercase tracking-wider"># ID</th>
+                <th className="px-4 py-3 text-[11px] uppercase tracking-wider">NAME</th>
+                <th className="w-[80px] px-4 py-3 text-center text-[11px] uppercase tracking-wider">SCORE</th>
+                <th className="w-[120px] px-4 py-3 text-center text-[11px] uppercase tracking-wider">CREATED</th>
+                <th className="w-[100px] px-4 py-3 text-center text-[11px] uppercase tracking-wider">MODE</th>
+                <th className="w-[120px] px-4 py-3 text-center text-[11px] uppercase tracking-wider">QUESTIONS</th>
+                <th className="w-[120px] px-4 py-3 text-center text-[11px] uppercase tracking-wider">STATUS</th>
+                <th className="w-[100px] px-4 py-3 text-center text-[11px] uppercase tracking-wider">ACTIONS</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300">
+            <tbody className="divide-y divide-slate-200 bg-white text-slate-700 dark:divide-slate-800 dark:bg-slate-900 dark:text-slate-300">
               {sessions.map((session) => (
-                <tr key={session.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                  <td className="px-4 py-4 text-slate-500 dark:text-slate-400 font-mono text-[12px]">
+                <tr key={session.id} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                  <td className="px-4 py-4 font-mono text-[12px] text-slate-500 dark:text-slate-400">
                     {session.id.split('-')[0]}
                   </td>
                   <td className="px-4 py-4">
-                    <div className="text-slate-700 dark:text-slate-200 font-medium">
+                    <div className="font-medium text-slate-700 dark:text-slate-200">
                       {formatCategories(session.categories)}
                     </div>
                   </td>
@@ -89,51 +106,55 @@ export function OldBlocksClient({
                     {formatDate(session.created_at)}
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <span className="inline-flex items-center px-3 py-1 rounded-full border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-[11px] font-medium">
-                      {session.session_type === 'standard' ? 'Tutor' : session.session_type}
+                    <span className="inline-flex items-center rounded-full border border-slate-300 px-3 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300">
+                      {formatMode(session.session_type)}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-center font-medium">
                     {session.answeredCount} / {session.total_questions}
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <span className={`inline-flex items-center justify-center min-w-[90px] px-3 py-1 rounded-full border text-[11px] font-medium ${
-                      session.is_completed 
-                        ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-400' 
+                    <span className={`inline-flex min-w-[90px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-medium ${
+                      session.is_completed
+                        ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-400'
                         : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-400'
                     }`}>
-                      {session.is_completed ? 'Completed' : 'In Progress'}
+                      {session.is_completed ? 'Completed' : 'Suspended'}
                     </span>
                   </td>
                   <td className="px-4 py-4">
-                    <div className="flex items-center justify-center gap-4">
-                      <Link
-                        href={`/exam/${session.id}`}
-                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-                        title="Continue Block"
-                      >
-                        <Play className="h-4 w-4 fill-current" />
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(session.id)}
-                        disabled={isPending}
-                        className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors disabled:opacity-50"
-                        title="Delete Block"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+                    {session.is_completed ? (
+                      <div className="text-center text-[11px] text-slate-400">Read only</div>
+                    ) : (
+                      <div className="flex items-center justify-center gap-4">
+                        <Link
+                          href={`/exam/${session.id}`}
+                          className="text-blue-600 transition-colors hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                          title="Resume Block"
+                        >
+                          <Play className="h-4 w-4 fill-current" />
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(session.id)}
+                          disabled={isPending}
+                          className="text-red-500 transition-colors hover:text-red-700 disabled:opacity-50 dark:text-red-400 dark:hover:text-red-300"
+                          title="Delete Incomplete Block"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
-              {sessions.length === 0 && (
+              {sessions.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
                     No previous blocks found.
                   </td>
                 </tr>
-              )}
+              ) : null}
             </tbody>
           </table>
         </div>

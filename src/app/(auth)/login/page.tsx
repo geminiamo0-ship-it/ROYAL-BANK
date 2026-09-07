@@ -9,6 +9,7 @@ import { Stethoscope, Lock, Mail, AlertCircle, ArrowRight, Loader2 } from 'lucid
 function LoginForm() {
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get('redirect') || '/dashboard';
+  const needsEmailVerification = searchParams.get('registered') === 'check-email';
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,6 +39,12 @@ function LoginForm() {
 
   return (
     <div className="bg-white dark:bg-slate-900 py-8 px-6 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800 sm:rounded-2xl sm:px-10">
+      {needsEmailVerification && (
+        <div className="mb-6 rounded-lg bg-blue-50 dark:bg-blue-950/50 p-4 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200 text-sm">
+          Account created. Check your email and confirm your address before signing in.
+        </div>
+      )}
+
       {error && (
         <div className="mb-6 rounded-lg bg-red-50 dark:bg-red-950/50 p-4 border border-red-200 dark:border-red-800 flex items-center gap-3 text-red-700 dark:text-red-300 text-sm">
           <AlertCircle className="h-5 w-5 shrink-0" />
@@ -122,7 +129,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-slate-50 dark:bg-slate-950">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        {/* Brand Header */}
         <div className="flex items-center justify-center gap-3">
           <div className="h-12 w-12 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30 text-white">
             <Stethoscope className="h-7 w-7" />

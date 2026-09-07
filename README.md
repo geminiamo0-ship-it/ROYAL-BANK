@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ROYAL-BANK
 
-## Getting Started
+ROYAL-BANK is a Next.js + Supabase question-bank and exam platform. The hardened core covers authentication, bank access, question selection, exam sessions, answer finalization, persistent flags, free-trial quotas, and previous-session behavior.
 
-First, run the development server:
+## Stack
+
+- Next.js 16.3.3
+- React 19.2.8
+- TypeScript
+- Supabase / PostgreSQL
+- Tailwind CSS
+
+## Local setup
+
+Install dependencies:
+
+```bash
+npm ci
+```
+
+Create `.env.local` with the required variables:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` is server-only and must never be exposed to browser code.
+
+Start the application:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Application verification
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Run the complete application check:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run verify
+```
 
-## Learn More
+This runs lint, TypeScript checking, and a production build.
 
-To learn more about Next.js, take a look at the following resources:
+## Database development
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The canonical database history is `supabase/migrations/`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+With the Supabase CLI installed, rebuild and test the database locally with:
 
-## Deploy on Vercel
+```bash
+supabase db start
+supabase db reset
+supabase test db
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The same sequence is enforced by `.github/workflows/verify-db.yml` for Supabase changes.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Core contracts
+
+- [Business rules](docs/BUSINESS_RULES.md)
+- [Access model](docs/ACCESS_MODEL.md)
+- [Database trust boundaries](docs/DATABASE_BOUNDARIES.md)
+- [Core regression matrix](docs/CORE_TEST_MATRIX.md)
+
+## Important invariants
+
+- Each question belongs to exactly one bank.
+- Exam blocks contain at most 70 questions.
+- Standard/Tutor answers are final after Submit.
+- Timed answers remain editable until End Block; unanswered questions become Incorrect on completion.
+- Deleting an incomplete session deletes its session-scoped answers and locks, returning those questions to New when no other surviving state exists.
+- Deleting a trial session never refunds consumed trial quota.
+- Premium access can be global, pathway-scoped, or bank-scoped and may be time-bounded.
+
+## Development scope
+
+The Question Bank, exam flow, previous sessions, and their access/state infrastructure are the hardened core. Other areas of the product may still contain work-in-progress or placeholder functionality and should not be treated as production-complete solely because they render in the UI.
