@@ -6,10 +6,14 @@ on:
       - audit/core-hardening
     paths-ignore:
       - 'supabase/**'
+      - 'docs/**'
+      - '*.md'
       - '.github/workflows/verify-db.yml'
   pull_request:
     paths-ignore:
       - 'supabase/**'
+      - 'docs/**'
+      - '*.md'
       - '.github/workflows/verify-db.yml'
 
 concurrency:
