@@ -58,10 +58,7 @@ export function ExamRateLimitNotice() {
   }, []);
 
   useEffect(() => {
-    if (!retryAt) {
-      setRemainingSeconds(0);
-      return;
-    }
+    if (!retryAt) return;
 
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
