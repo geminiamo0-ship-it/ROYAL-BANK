@@ -27,6 +27,7 @@ SELECT public.create_exam_session(
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
 );
 
+SELECT public.get_exam_session_window((SELECT id FROM standard_session),0,1);
 SELECT public.submit_exam_answer((SELECT id FROM standard_session),9370,94702,3);
 
 RESET ROLE;
