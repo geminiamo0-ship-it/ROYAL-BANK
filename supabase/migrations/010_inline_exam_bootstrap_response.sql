@@ -4,6 +4,10 @@
 -- - Keep all existing auth/access checks unchanged.
 -- - Keep all test_sessions triggers unchanged, including trial advisory locking,
 --   quota enforcement, and usage-ledger recording.
+-- - Preserve the fresh post-insert active/access checks that previously occurred
+--   inside get_exam_session_bootstrap() and get_exam_session_window(). Under
+--   READ COMMITTED those checks can observe a suspension/revocation that happens
+--   after the earlier statement, so removing them would change security semantics.
 -- - Do not trust any client/GUC/cache authorization state.
 -- - Only remove read-after-write work whose values are already known inside this
 --   function after a successful insert.
@@ -398,6 +402,18 @@ BEGIN
         selected.ordinality::INTEGER - 1
     FROM unnest(selected_question_ids) WITH ORDINALITY AS selected(question_id, ordinality);
 
+    -- Preserve the first fresh post-insert authorization boundary from
+    -- get_exam_session_bootstrap(). Do not replace this with the earlier
+    -- has_premium/is_active result: READ COMMITTED allows a later statement to
+    -- observe an account suspension or entitlement revocation.
+    IF auth.uid() IS NULL OR NOT public.is_active_user() THEN
+        RAISE EXCEPTION 'Active authentication required';
+    END IF;
+
+    IF NOT public.can_access_question_bank(new_session.question_bank_id) THEN
+        RAISE EXCEPTION 'Question bank access denied';
+    END IF;
+
     -- Preserve the exact flag semantics of get_exam_session_bootstrap without
     -- re-reading test_session_questions: selected_question_ids is the canonical
     -- order that was just inserted above.
@@ -410,6 +426,16 @@ BEGIN
     JOIN public.user_question_flags uqf
       ON uqf.user_id = v_user_id
      AND uqf.question_id = selected.question_id;
+
+    -- Preserve the second fresh authorization boundary that used to occur in
+    -- get_exam_session_window() immediately before the question payload query.
+    IF auth.uid() IS NULL OR NOT public.is_active_user() THEN
+        RAISE EXCEPTION 'Active authentication required';
+    END IF;
+
+    IF NOT public.can_access_question_bank(new_session.question_bank_id) THEN
+        RAISE EXCEPTION 'Question bank access denied';
+    END IF;
 
     -- Build only Q1 from the selected id already in memory. The payload is
     -- intentionally answer-safe and matches get_exam_session_window().
