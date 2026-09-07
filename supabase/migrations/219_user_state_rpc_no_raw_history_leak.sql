@@ -1,2 +1,0 @@
--- get_user_question_states intentionally returns only state flags/IDs and not answer
--- option details, timestamps, or other users' data.

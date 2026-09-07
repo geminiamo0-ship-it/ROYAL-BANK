@@ -1,2 +1,0 @@
--- Answered means a persisted user_answers row. Merely locking a question into an
--- unfinished session does not create an answer; it is Suspended until submitted.

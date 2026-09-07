@@ -1,2 +1,0 @@
--- Incorrect Only must use latest finalized answer state. A later correct answer
--- removes that question from Incorrect Only.

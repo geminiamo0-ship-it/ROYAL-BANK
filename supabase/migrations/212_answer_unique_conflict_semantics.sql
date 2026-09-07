@@ -1,3 +1,0 @@
--- Unique(test_session_id, question_id) means Timed mode updates/upserts the existing
--- row until End Block. Standard/Tutor submits once; subsequent updates are rejected
--- by enforce_answer_finalization().
