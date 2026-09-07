@@ -50,6 +50,8 @@ type RawBootstrap = {
   current_index?: number;
 };
 
+const inFlightExamCreates = new Map<string, Promise<ExamBootstrap>>();
+
 function toClientAnswer(row: RawSubmitResult | RawSessionAnswer): ExamClientAnswer {
   return {
     questionId: Number(row.question_id),
@@ -138,20 +140,47 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
   }
 
   const limit = Math.min(Math.max(input.limit || 70, 1), 70);
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc('create_exam_session_bootstrap', {
-    p_bank_id: input.bankId,
-    p_session_type: input.sessionType || 'standard',
-    p_limit: limit,
-    p_difficulties: input.difficulties,
-    p_categories: parsedCategories,
-    p_topics: parsedTopics,
-    p_question_selection: input.questionSelection,
+  const requestKey = JSON.stringify({
+    bankId: input.bankId,
+    sessionType: input.sessionType || 'standard',
+    limit,
+    difficulties: input.difficulties,
+    categories: parsedCategories,
+    topics: parsedTopics,
+    questionSelection: input.questionSelection,
   });
 
-  if (error) throw new Error(error.message);
-  if (!data || typeof data !== 'object') throw new Error('Exam bootstrap returned no result.');
-  return normalizeBootstrap(data as RawBootstrap);
+  const existing = inFlightExamCreates.get(requestKey);
+  if (existing) return existing;
+
+  const requestId = crypto.randomUUID();
+  const request = (async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc('create_exam_session_bootstrap_idempotent', {
+      p_request_id: requestId,
+      p_bank_id: input.bankId,
+      p_session_type: input.sessionType || 'standard',
+      p_limit: limit,
+      p_difficulties: input.difficulties,
+      p_categories: parsedCategories,
+      p_topics: parsedTopics,
+      p_question_selection: input.questionSelection,
+    });
+
+    if (error) throw new Error(error.message);
+    if (!data || typeof data !== 'object') throw new Error('Exam bootstrap returned no result.');
+    return normalizeBootstrap(data as RawBootstrap);
+  })();
+
+  inFlightExamCreates.set(requestKey, request);
+
+  try {
+    return await request;
+  } finally {
+    if (inFlightExamCreates.get(requestKey) === request) {
+      inFlightExamCreates.delete(requestKey);
+    }
+  }
 }
 
 export async function getExamSessionBootstrapDirect(sessionId: string): Promise<ExamBootstrap> {
