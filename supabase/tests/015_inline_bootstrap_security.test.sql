@@ -136,11 +136,11 @@ SELECT extensions.ok(
 SELECT extensions.ok(
     regexp_count(
         pg_get_functiondef(
-            'public.create_exam_session_bootstrap(bigint,text,integer,text[],text[],jsonb,text)'::regprocedure
+            'private.create_exam_session_bootstrap_core(bigint,text,integer,text[],text[],jsonb,text)'::regprocedure
         ),
         'public\.can_access_question_bank\(new_session\.question_bank_id\)'
     ) >= 2,
-    'inline create preserves both fresh post-insert bank-access checks from bootstrap + window'
+    'private inline create core preserves both fresh post-insert bank-access checks from bootstrap + window'
 );
 
 SELECT set_config('request.jwt.claim.sub','e0000000-0000-0000-0000-000000000002',true);
