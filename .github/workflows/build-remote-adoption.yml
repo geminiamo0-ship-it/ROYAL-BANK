@@ -1,0 +1,36 @@
+name: Build Remote Adoption SQL
+
+on:
+  push:
+    branches:
+      - audit/remote-adoption-builder
+    paths:
+      - '.github/workflows/build-remote-adoption.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build adoption SQL from post-032 migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          : > out/remote_adoption.sql
+          for f in $(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort); do
+            base=$(basename "$f")
+            num=${base%%_*}
+            if [[ "$num" =~ ^[0-9]+$ ]] && (( 10#$num >= 33 )); then
+              printf '\n-- ===== BEGIN %s =====\n' "$base" >> out/remote_adoption.sql
+              cat "$f" >> out/remote_adoption.sql
+              printf '\n-- ===== END %s =====\n' "$base" >> out/remote_adoption.sql
+            fi
+          done
+          wc -l out/remote_adoption.sql
+          sha256sum out/remote_adoption.sql
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-adoption-sql
+          path: out/remote_adoption.sql
+          if-no-files-found: error
