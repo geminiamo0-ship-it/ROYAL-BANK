@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(10);
+SELECT extensions.plan(12);
 
 SELECT extensions.ok(
     NOT (SELECT enforcement_enabled FROM private.exam_gateway_config WHERE singleton),
@@ -18,8 +18,18 @@ SELECT extensions.ok(
 );
 
 SELECT extensions.ok(
-    has_function_privilege('authenticated', 'public.royal_exam_pre_request()'::regprocedure, 'EXECUTE'),
-    'authenticated can execute the registered security-definer pre-request hook'
+    to_regprocedure('public.royal_exam_pre_request()') IS NULL,
+    'pre-request hook is not present in the exposed public RPC schema'
+);
+
+SELECT extensions.ok(
+    has_schema_privilege('authenticated', 'api_hooks', 'USAGE'),
+    'authenticated API role can resolve the hidden hook schema'
+);
+
+SELECT extensions.ok(
+    has_function_privilege('authenticated', 'api_hooks.royal_exam_pre_request()'::regprocedure, 'EXECUTE'),
+    'authenticated can execute the registered hidden pre-request hook'
 );
 
 SELECT extensions.ok(
@@ -29,9 +39,9 @@ SELECT extensions.ok(
         JOIN pg_roles r ON r.oid = s.setrole
         CROSS JOIN LATERAL unnest(s.setconfig) cfg
         WHERE r.rolname = 'authenticator'
-          AND cfg = 'pgrst.db_pre_request=public.royal_exam_pre_request'
+          AND cfg = 'pgrst.db_pre_request=api_hooks.royal_exam_pre_request'
     ),
-    'authenticator is configured to call royal_exam_pre_request'
+    'authenticator is configured to call the hidden royal exam pre-request hook'
 );
 
 -- Disabled mode must be a safe no-op even for a protected RPC with no gateway key.
@@ -39,7 +49,7 @@ SELECT set_config('request.method', 'POST', true);
 SELECT set_config('request.path', '/rest/v1/rpc/get_exam_session_window', true);
 SELECT set_config('request.headers', '{}'::jsonb::text, true);
 SELECT extensions.lives_ok(
-    'SELECT public.royal_exam_pre_request()',
+    'SELECT api_hooks.royal_exam_pre_request()',
     'protected RPC is not blocked before staged enforcement is enabled'
 );
 
@@ -51,7 +61,7 @@ WHERE singleton;
 
 SELECT set_config('request.headers', '{"x-royal-gateway-key-id":"test-key","x-royal-gateway-key":"wrong"}'::jsonb::text, true);
 SELECT extensions.throws_ok(
-    'SELECT public.royal_exam_pre_request()',
+    'SELECT api_hooks.royal_exam_pre_request()',
     'PGRST',
     '{"code": "GATEWAY_REQUIRED", "message": "Exam gateway required"}',
     'invalid gateway key is rejected before a protected RPC executes'
@@ -63,7 +73,7 @@ SELECT set_config(
     true
 );
 SELECT extensions.lives_ok(
-    'SELECT public.royal_exam_pre_request()',
+    'SELECT api_hooks.royal_exam_pre_request()',
     'valid gateway key is accepted'
 );
 
