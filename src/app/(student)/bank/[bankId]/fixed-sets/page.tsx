@@ -11,7 +11,10 @@ interface TestSessionRow {
   session_type: OldBlockSession['session_type'];
   is_completed: boolean;
   score_percentage: number | null;
-  user_answers?: Array<{ count: number }> | null;
+}
+
+interface SessionAnswerRow {
+  test_session_id: string;
 }
 
 export default async function FixedSetsPage({
@@ -33,21 +36,44 @@ export default async function FixedSetsPage({
     redirect(`/login?redirect=/bank/${parsedBankId}/fixed-sets`);
   }
 
-  const { data: sessions, error } = await supabase
+  // Previous Sessions is owned history. It intentionally does not require a
+  // currently-active bank grant; RLS limits the rows to the authenticated owner.
+  const { data: sessions, error: sessionsError } = await supabase
     .from('test_sessions')
-    .select(`
-      *,
-      user_answers(count)
-    `)
+    .select('id, started_at, categories, total_questions, session_type, is_completed, score_percentage')
     .eq('question_bank_id', parsedBankId)
     .eq('user_id', user.id)
     .order('started_at', { ascending: false });
 
-  if (error) {
-    throw new Error(error.message);
+  if (sessionsError) {
+    throw new Error(sessionsError.message);
   }
 
-  const mappedSessions: OldBlockSession[] = ((sessions || []) as TestSessionRow[]).map((session) => ({
+  const sessionRows = (sessions || []) as TestSessionRow[];
+  const sessionIds = sessionRows.map((session) => session.id);
+  const answeredCounts = new Map<string, number>();
+
+  if (sessionIds.length > 0) {
+    // Read only a safe ownership/link column instead of a nested count query.
+    // This remains compatible with column-level restrictions on answer details.
+    const { data: answerRows, error: answersError } = await supabase
+      .from('user_answers')
+      .select('test_session_id')
+      .in('test_session_id', sessionIds);
+
+    if (answersError) {
+      throw new Error(answersError.message);
+    }
+
+    for (const answer of (answerRows || []) as SessionAnswerRow[]) {
+      answeredCounts.set(
+        answer.test_session_id,
+        (answeredCounts.get(answer.test_session_id) || 0) + 1,
+      );
+    }
+  }
+
+  const mappedSessions: OldBlockSession[] = sessionRows.map((session) => ({
     id: session.id,
     created_at: session.started_at,
     categories: session.categories,
@@ -55,7 +81,7 @@ export default async function FixedSetsPage({
     session_type: session.session_type,
     is_completed: session.is_completed,
     score_percentage: session.score_percentage,
-    answeredCount: session.user_answers?.[0]?.count || 0,
+    answeredCount: answeredCounts.get(session.id) || 0,
   }));
 
   return (
