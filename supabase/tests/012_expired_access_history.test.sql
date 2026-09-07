@@ -78,7 +78,7 @@ SELECT extensions.is(
     'expired user can still read owned session history'
 );
 SELECT extensions.is(
-    (SELECT count(*)::bigint FROM public.user_answers WHERE test_session_id=(SELECT id FROM historical_session)),
+    (SELECT count(id)::bigint FROM public.user_answers WHERE test_session_id=(SELECT id FROM historical_session)),
     1::bigint,
     'expired user can still read owned answer history'
 );
@@ -120,20 +120,23 @@ SELECT extensions.is(
     'expired user can still see owned incomplete session metadata'
 );
 
-CREATE TEMP TABLE expired_update_attempt(blocked boolean);
+CREATE TEMP TABLE expired_update_attempt(rows_changed bigint);
 DO $$
+DECLARE
+    changed bigint;
 BEGIN
-    BEGIN
-        UPDATE public.test_sessions
-        SET time_limit_minutes = 10
-        WHERE id=(SELECT id FROM stale_incomplete_session);
-        INSERT INTO expired_update_attempt VALUES (FALSE);
-    EXCEPTION WHEN OTHERS THEN
-        INSERT INTO expired_update_attempt VALUES (TRUE);
-    END;
+    UPDATE public.test_sessions
+    SET time_limit_minutes = 10
+    WHERE id=(SELECT id FROM stale_incomplete_session);
+    GET DIAGNOSTICS changed = ROW_COUNT;
+    INSERT INTO expired_update_attempt VALUES (changed);
 END;
 $$;
-SELECT extensions.ok((SELECT blocked FROM expired_update_attempt),'expired user cannot resume/update an incomplete session');
+SELECT extensions.is(
+    (SELECT rows_changed FROM expired_update_attempt),
+    0::bigint,
+    'expired user cannot resume/update an incomplete session'
+);
 
 SELECT * FROM extensions.finish();
 ROLLBACK;
