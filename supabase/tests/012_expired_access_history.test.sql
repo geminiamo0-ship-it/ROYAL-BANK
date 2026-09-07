@@ -44,6 +44,13 @@ SELECT public.create_exam_session(
 SELECT public.submit_exam_answer((SELECT id FROM historical_session),9401,95011,5);
 SELECT public.complete_exam_session((SELECT id FROM historical_session));
 
+CREATE TEMP TABLE stale_incomplete_session(id uuid);
+INSERT INTO stale_incomplete_session
+SELECT public.create_exam_session(
+    'c0000000-0000-0000-0000-000000000001',9301,'standard',1,
+    ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
+);
+
 RESET ROLE;
 INSERT INTO public.user_notes (user_id,question_id,note_html)
 VALUES ('c0000000-0000-0000-0000-000000000001',9401,'Historical note');
@@ -107,20 +114,8 @@ END;
 $$;
 SELECT extensions.ok((SELECT blocked FROM expired_create_attempt),'expired user cannot create a new session');
 
-RESET ROLE;
-INSERT INTO public.test_sessions (
-    id,user_id,question_bank_id,session_type,total_questions,is_completed
-) VALUES (
-    'c1000000-0000-0000-0000-000000000001',
-    'c0000000-0000-0000-0000-000000000001',9301,'standard',1,FALSE
-);
-
-SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claim.role','authenticated',true);
-SELECT set_config('request.jwt.claim.sub','c0000000-0000-0000-0000-000000000001',true);
-
 SELECT extensions.is(
-    (SELECT count(*)::bigint FROM public.test_sessions WHERE id='c1000000-0000-0000-0000-000000000001'),
+    (SELECT count(*)::bigint FROM public.test_sessions WHERE id=(SELECT id FROM stale_incomplete_session)),
     1::bigint,
     'expired user can still see owned incomplete session metadata'
 );
@@ -131,7 +126,7 @@ BEGIN
     BEGIN
         UPDATE public.test_sessions
         SET time_limit_minutes = 10
-        WHERE id='c1000000-0000-0000-0000-000000000001';
+        WHERE id=(SELECT id FROM stale_incomplete_session);
         INSERT INTO expired_update_attempt VALUES (FALSE);
     EXCEPTION WHEN OTHERS THEN
         INSERT INTO expired_update_attempt VALUES (TRUE);
