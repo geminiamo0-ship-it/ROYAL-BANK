@@ -58,3 +58,18 @@ export interface ExamClientSession {
   session_type: SessionType;
   time_limit_minutes: number | null;
 }
+
+export interface ExamBootstrapSession extends ExamClientSession {
+  total_questions: number;
+  is_completed: boolean;
+}
+
+export interface ExamBootstrap {
+  status: 'active' | 'completed';
+  session: ExamBootstrapSession;
+  questionIds: number[];
+  questions: ExamClientQuestion[];
+  answers: Record<number, ExamClientAnswer>;
+  flaggedQuestionIds: number[];
+  currentIndex: number;
+}
