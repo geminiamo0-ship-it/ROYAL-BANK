@@ -1,16 +1,24 @@
 # Core Regression Test Matrix
 
-## Access
+## Blocking security: authentication, authorization, ownership
 
+- Signup metadata cannot self-promote a user to `admin`/`support`.
+- Signup metadata cannot self-promote subscription tier.
 - Student cannot open `/admin` or `/support`.
 - Support can open `/support` but not `/admin`.
 - Inactive staff cannot open privileged routes.
+- Inactive users cannot use an otherwise active bank grant.
+- User A cannot read/update/delete User B session.
+- Manipulating bank/question/session IDs cannot expose another user's protected data.
+
+## Access
+
 - Free-trial user can read configured trial-bank content only.
 - Global grant unlocks all banks while active.
 - Pathway grant unlocks current and future banks in that pathway while active.
 - Bank grant unlocks only the selected bank while active.
 - Future and expired grants do not authorize access outside their time window.
-- Manipulating bank/question/session IDs cannot expose locked content.
+- Authenticated users without a grant cannot access paid banks.
 
 ## Trial quota
 
@@ -27,29 +35,27 @@
 - Suspended is unique per question across unfinished sessions.
 - Incorrect -> later Correct becomes Correct and leaves Incorrect Only.
 - Flag remains across sessions/correctness until manual unflag.
-- Active Timed selections do not expose Correct/Incorrect before End Block.
 - Deleting an incomplete session deletes its session-scoped answers and locks; questions with no other surviving state return to New.
 
-## Answers and feedback
+## Answers and sessions
 
 - Wrong selected-option/question relationship is rejected.
-- Client cannot forge `is_correct`.
+- Client cannot forge server-derived correctness used for scoring.
 - Standard/Tutor submitted answer cannot change.
 - Timed answer can change before End Block.
 - Timed answer cannot change after End Block.
-- Active Timed submit/hydration/state APIs do not reveal correctness.
-- `options.is_correct`, raw answer correctness and the legacy raw answer-state view are not directly readable by authenticated browser clients.
-- Explanation/correct-option feedback is gated until Standard/Tutor Submit or End Block for mutable modes.
 - End Block marks unanswered Timed questions Incorrect and uses all locked questions as the score denominator.
-
-## Sessions
-
 - Resume returns the same locked question set.
-- User A cannot read/update/delete User B session.
 - Block cannot exceed 70 questions.
 - Completed session cannot reopen as an active exam.
 - Completed session cannot be deleted through the student session-delete path.
 - Suspend/Close preserves the incomplete session and unanswered locks.
+
+## Non-blocking anti-cheat checks
+
+The suite under `supabase/tests_optional/` is useful hardening, but it does not block the core baseline or release. It covers things such as hiding `options.is_correct`, option percentages, explanations, raw answer correctness, and early feedback from a user who intentionally inspects browser/database responses.
+
+These checks must never take priority over authentication, pathway/bank authorization, ownership isolation, RLS, session integrity, or trial/access rules.
 
 ## Database verification
 
@@ -57,6 +63,6 @@
 
 1. start a local Supabase database;
 2. rebuild from every migration in order;
-3. run the pgTAP behavior suite in `supabase/tests/`.
+3. run the blocking pgTAP behavior suite in `supabase/tests/`.
 
 Application changes must also pass `npm run verify` when relevant.
