@@ -1,3 +1,0 @@
--- Application code must no longer retry a failed answer insert with
--- selected_option_id = NULL. A failed relationship is a real error and must be
--- surfaced; nullable selected_option_id remains only for legacy rows.

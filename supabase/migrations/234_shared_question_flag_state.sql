@@ -1,2 +1,0 @@
--- Persistent flags are user+question global. A shared question remains flagged in
--- every accessible bank until manual unflag.

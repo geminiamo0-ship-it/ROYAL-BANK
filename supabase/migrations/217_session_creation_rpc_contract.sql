@@ -1,4 +1,0 @@
--- create_exam_session is expected to be the sole application path that inserts
--- test_sessions and test_session_questions. It must use auth.uid(), enforce bank
--- access, lock at most 70 questions, and let the database trial-quota trigger guard
--- creation. Application integration will validate/replace the existing RPC body.

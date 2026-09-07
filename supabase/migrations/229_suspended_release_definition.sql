@@ -1,3 +1,0 @@
--- When an unfinished session is deleted, its unanswered locks disappear through FK
--- cascade. Canonical state then classifies those questions as New unless another
--- unfinished lock or a finalized answer exists.

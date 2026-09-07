@@ -1,3 +1,0 @@
--- Expired premium grants no longer authorize question/session reads. Session DELETE
--- remains ownership-based so stale unfinished sessions can still be removed without
--- exposing their question content.
