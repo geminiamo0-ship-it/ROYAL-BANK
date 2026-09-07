@@ -5,6 +5,7 @@ import type { CategoryWithTopics, DifficultyCounts } from '@/types/question-bank
 import type { CategorySummary } from '@/types/exam';
 
 const createEmptyCounts = (): DifficultyCounts => ({ '1': 0, '2': 0, '3': 0 });
+const QUESTION_METADATA_BATCH_SIZE = 400;
 
 type UserStateCounts = {
   attempted: DifficultyCounts;
@@ -57,6 +58,29 @@ async function requireQuestionBankAccess(bankId: number) {
   }
 }
 
+async function fetchQuestionMetadata(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  questionIds: number[],
+): Promise<QuestionMeta[]> {
+  const rows: QuestionMeta[] = [];
+
+  // A full bank can contain thousands of questions. Sending every id in one
+  // PostgREST `.in()` produces an oversized request URL and can fail the Server
+  // Component in production. Keep each request comfortably bounded instead.
+  for (let offset = 0; offset < questionIds.length; offset += QUESTION_METADATA_BATCH_SIZE) {
+    const batch = questionIds.slice(offset, offset + QUESTION_METADATA_BATCH_SIZE);
+    const { data, error } = await supabase
+      .from('questions')
+      .select('id, category, topic, difficulty')
+      .in('id', batch);
+
+    if (error) throw new Error(error.message);
+    rows.push(...((data || []) as QuestionMeta[]));
+  }
+
+  return rows;
+}
+
 async function getUserQuestionStateMap(bankId: number) {
   const supabase = await createClient();
   const {
@@ -80,21 +104,16 @@ async function getUserQuestionStateMap(bankId: number) {
   if (stateError) throw new Error(stateError.message);
 
   const states = (stateRows || []) as CanonicalStateRow[];
-  const questionIds = states.map((row) => row.question_id);
+  const questionIds = states.map((row) => Number(row.question_id));
   if (questionIds.length === 0) return stateMap;
 
-  const { data: questionRows, error: questionError } = await supabase
-    .from('questions')
-    .select('id, category, topic, difficulty')
-    .in('id', questionIds);
-  if (questionError) throw new Error(questionError.message);
-
+  const questionRows = await fetchQuestionMetadata(supabase, questionIds);
   const metadata = new Map<number, QuestionMeta>(
-    ((questionRows || []) as QuestionMeta[]).map((question) => [question.id, question]),
+    questionRows.map((question) => [Number(question.id), question]),
   );
 
   for (const row of states) {
-    const question = metadata.get(row.question_id);
+    const question = metadata.get(Number(row.question_id));
     if (!question?.category) continue;
     const difficulty = String(question.difficulty || '1');
     if (!(difficulty in createEmptyCounts())) continue;

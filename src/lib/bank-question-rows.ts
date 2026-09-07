@@ -10,6 +10,8 @@ export interface BankQuestionRow {
   total_questions: number;
 }
 
+const CACHE_KEY = 'bank-question-rows-rpc-v4';
+
 const getCachedBankQuestionRows = unstable_cache(
   async (bankId: number) => {
     const supabase = createAdminClient();
@@ -26,10 +28,10 @@ const getCachedBankQuestionRows = unstable_cache(
 
     return data as BankQuestionRow[];
   },
-  ['bank-question-rows-rpc-v3'],
+  [CACHE_KEY],
   {
-    revalidate: 3600, // 1 hour
-    tags: ['bank-question-rows-rpc-v3'],
+    revalidate: 3600,
+    tags: [CACHE_KEY],
   }
 );
 
