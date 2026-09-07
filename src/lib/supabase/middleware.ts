@@ -93,6 +93,26 @@ export async function updateSession(request: NextRequest) {
       redirectUrl.search = '';
       return NextResponse.redirect(redirectUrl);
     }
+
+    // The bank home contains client-side/static fallback UI, so authorize the exact
+    // /bank/:id landing route here before any of that UI can render. History routes
+    // remain separate so expired users can still read their owned previous sessions.
+    const bankHomeMatch = pathname.match(/^\/bank\/(\d+)\/?$/);
+    if (accountIsActive && bankHomeMatch) {
+      const bankId = Number(bankHomeMatch[1]);
+      const { data: canAccessBank, error: accessError } = await supabase.rpc(
+        'can_access_question_bank',
+        { p_bank_id: bankId }
+      );
+
+      if (accessError || canAccessBank !== true) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = '/dashboard';
+        redirectUrl.search = '';
+        redirectUrl.searchParams.set('access', 'denied');
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
   }
 
   return response;
