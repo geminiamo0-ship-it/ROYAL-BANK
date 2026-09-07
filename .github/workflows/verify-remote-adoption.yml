@@ -16,32 +16,44 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
-      - name: Stage legacy schema through migration 032
+      - name: Stage legacy schema through migration 019
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/post032
+          mkdir -p /tmp/post019
           for f in $(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort); do
             base=$(basename "$f")
             num=${base%%_*}
-            if [[ "$num" =~ ^[0-9]+$ ]] && (( 10#$num >= 33 )); then
-              mv "$f" /tmp/post032/
+            if [[ "$num" =~ ^[0-9]+$ ]] && (( 10#$num >= 20 )); then
+              mv "$f" /tmp/post019/
             fi
           done
       - name: Start local Supabase
         run: supabase db start
-      - name: Rebuild legacy state
+      - name: Rebuild older legacy state
         run: supabase db reset
-      - name: Build atomic adoption migration
+      - name: Build drift-tolerant atomic adoption migration
         shell: bash
         run: |
           set -euo pipefail
           {
             echo 'BEGIN;'
-            for f in $(find /tmp/post032 -maxdepth 1 -type f -name '*.sql' | sort); do
+            # Critical prerequisites that the real remote is missing or may be missing.
+            for n in 020 021 024 025 029 030 031 032; do
+              f=$(find /tmp/post019 -maxdepth 1 -type f -name "${n}_*.sql" | head -n1)
               echo "-- BEGIN $(basename "$f")"
               cat "$f"
               echo "-- END $(basename "$f")"
+            done
+            # Current hardening chain.
+            for f in $(find /tmp/post019 -maxdepth 1 -type f -name '*.sql' | sort); do
+              base=$(basename "$f")
+              num=${base%%_*}
+              if [[ "$num" =~ ^[0-9]+$ ]] && (( 10#$num >= 33 )); then
+                echo "-- BEGIN $base"
+                cat "$f"
+                echo "-- END $base"
+              fi
             done
             echo 'COMMIT;'
           } > /tmp/remote_adoption.sql
