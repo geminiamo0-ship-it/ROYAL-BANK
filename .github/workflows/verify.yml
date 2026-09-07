@@ -4,17 +4,20 @@ on:
   push:
     branches:
       - audit/core-hardening
+      - audit/core-hardening-clean
     paths-ignore:
       - 'supabase/**'
       - 'docs/**'
       - '*.md'
       - '.github/workflows/verify-db.yml'
+      - '.github/workflows/prepare-migration-squash.yml'
   pull_request:
     paths-ignore:
       - 'supabase/**'
       - 'docs/**'
       - '*.md'
       - '.github/workflows/verify-db.yml'
+      - '.github/workflows/prepare-migration-squash.yml'
 
 concurrency:
   group: verify-app-${{ github.ref }}
