@@ -7,6 +7,9 @@ on:
     paths:
       - '.github/workflows/prepare-migration-squash.yml'
 
+permissions:
+  contents: write
+
 concurrency:
   group: prepare-migration-squash-${{ github.ref }}
   cancel-in-progress: true
@@ -18,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
@@ -33,22 +38,79 @@ jobs:
           supabase test db
 
       - name: Squash schema migrations
-        run: supabase migration squash --local
+        run: |
+          supabase migration squash --local
+          generated="$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | head -n 1)"
+          mv "$generated" supabase/migrations/20260907000000_core_baseline.sql
 
-      - name: Verify squashed migrations from scratch
+      - name: Restore explicit client privilege boundary
+        run: |
+          cat >> supabase/migrations/20260907000000_core_baseline.sql <<'SQL'
+
+          -- =============================================================================
+          -- POST-SQUASH CLIENT PRIVILEGE LOCKDOWN
+          -- Supabase schema dumps do not preserve explicit REVOKEs that narrow the
+          -- platform's default table privileges, so re-apply them after dump grants.
+          -- =============================================================================
+
+          REVOKE SELECT ON TABLE public.questions FROM anon, authenticated;
+          GRANT SELECT (
+              id,
+              main_id,
+              text_html,
+              category,
+              topic,
+              concept_id,
+              notes_id,
+              difficulty,
+              source,
+              pm_question_id,
+              created_at
+          ) ON TABLE public.questions TO authenticated;
+
+          REVOKE SELECT ON TABLE public.options FROM anon, authenticated;
+          GRANT SELECT (
+              id,
+              question_id,
+              text_html,
+              option_order
+          ) ON TABLE public.options TO authenticated;
+
+          REVOKE SELECT ON TABLE public.user_answers FROM anon, authenticated;
+          GRANT SELECT (
+              id,
+              test_session_id,
+              user_id,
+              question_id,
+              selected_option_id,
+              is_flagged,
+              time_spent_seconds,
+              answered_at
+          ) ON TABLE public.user_answers TO authenticated;
+
+          REVOKE ALL ON TABLE public.user_latest_answer_state FROM PUBLIC;
+          REVOKE ALL ON TABLE public.user_latest_answer_state FROM anon;
+          REVOKE ALL ON TABLE public.user_latest_answer_state FROM authenticated;
+          SQL
+
+      - name: Verify corrected baseline from scratch
         run: |
           supabase db reset
           supabase test db
 
-      - name: List squashed migration files
-        if: always()
-        run: find supabase/migrations -maxdepth 1 -type f -printf '%f\n' | sort
+      - name: Commit verified baseline
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A supabase/migrations
+          git commit -m "chore(db): squash migrations into verified core baseline"
+          git push origin HEAD:audit/core-hardening-clean
 
-      - name: Upload squashed migration directory
+      - name: Upload verified baseline
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: squashed-migrations
+          name: verified-core-baseline
           path: supabase/migrations
           if-no-files-found: error
           retention-days: 3
