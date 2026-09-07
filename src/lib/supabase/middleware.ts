@@ -46,19 +46,21 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Refresh auth token
-  const { data: { user } } = await supabase.auth.getUser();
+  // Refresh auth token and resolve account status from the canonical DB helper.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-
-  // Protect student / admin routes if not authenticated
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
-  const isProtectedRoute = pathname.startsWith('/dashboard') || 
-                           pathname.startsWith('/bank') || 
-                           pathname.startsWith('/pathway') || 
-                           pathname.startsWith('/exam') || 
-                           pathname.startsWith('/admin') ||
-                           pathname.startsWith('/support');
+  const isInactiveRoute = pathname.startsWith('/inactive');
+  const isProtectedRoute =
+    pathname.startsWith('/dashboard') ||
+    pathname.startsWith('/bank') ||
+    pathname.startsWith('/pathway') ||
+    pathname.startsWith('/exam') ||
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/support');
 
   if (!user && isProtectedRoute) {
     const redirectUrl = request.nextUrl.clone();
@@ -67,10 +69,30 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  if (user && isAuthRoute) {
+  if (!user && isInactiveRoute) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = '/dashboard';
+    redirectUrl.pathname = '/login';
+    redirectUrl.search = '';
     return NextResponse.redirect(redirectUrl);
+  }
+
+  if (user && (isProtectedRoute || isAuthRoute || isInactiveRoute)) {
+    const { data: isActive, error: activeError } = await supabase.rpc('is_active_user');
+    const accountIsActive = !activeError && isActive === true;
+
+    if (!accountIsActive && !isInactiveRoute) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = '/inactive';
+      redirectUrl.search = '';
+      return NextResponse.redirect(redirectUrl);
+    }
+
+    if (accountIsActive && (isAuthRoute || isInactiveRoute)) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = '/dashboard';
+      redirectUrl.search = '';
+      return NextResponse.redirect(redirectUrl);
+    }
   }
 
   return response;
