@@ -10,10 +10,10 @@ CREATE OR REPLACE FUNCTION public.create_exam_session(
     p_bank_id BIGINT,
     p_session_type TEXT,
     p_limit INTEGER,
-    p_difficulties TEXT[],
-    p_categories TEXT[],
-    p_topics JSONB,
-    p_question_selection TEXT
+    p_difficulties TEXT[] DEFAULT ARRAY[]::TEXT[],
+    p_categories TEXT[] DEFAULT ARRAY[]::TEXT[],
+    p_topics JSONB DEFAULT '[]'::JSONB,
+    p_question_selection TEXT DEFAULT 'new_only'::TEXT
 )
 RETURNS UUID
 LANGUAGE plpgsql
