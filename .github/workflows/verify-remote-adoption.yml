@@ -1,0 +1,52 @@
+name: Verify Remote Adoption
+
+on:
+  push:
+    branches:
+      - audit/remote-adoption-builder
+    paths:
+      - '.github/workflows/verify-remote-adoption.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Stage legacy schema through migration 032
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/post032
+          for f in $(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort); do
+            base=$(basename "$f")
+            num=${base%%_*}
+            if [[ "$num" =~ ^[0-9]+$ ]] && (( 10#$num >= 33 )); then
+              mv "$f" /tmp/post032/
+            fi
+          done
+      - name: Start local Supabase
+        run: supabase db start
+      - name: Rebuild legacy state
+        run: supabase db reset
+      - name: Build atomic adoption migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo 'BEGIN;'
+            for f in $(find /tmp/post032 -maxdepth 1 -type f -name '*.sql' | sort); do
+              echo "-- BEGIN $(basename "$f")"
+              cat "$f"
+              echo "-- END $(basename "$f")"
+            done
+            echo 'COMMIT;'
+          } > /tmp/remote_adoption.sql
+          wc -l /tmp/remote_adoption.sql
+      - name: Apply adoption migration as one transaction
+        run: psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 -f /tmp/remote_adoption.sql
+      - name: Run blocking database behavior tests
+        run: supabase test db
