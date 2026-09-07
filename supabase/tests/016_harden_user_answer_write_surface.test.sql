@@ -83,6 +83,7 @@ SELECT public.create_exam_session(
     9860,'standard',2,
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
 );
+SELECT public.get_exam_session_window((SELECT id FROM answer_surface_standard_session),0,2);
 
 CREATE TEMP TABLE answer_surface_feedback(payload jsonb);
 INSERT INTO answer_surface_feedback
@@ -100,6 +101,7 @@ SELECT public.create_exam_session(
     9860,'timed',2,
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
 );
+SELECT public.get_exam_session_window((SELECT id FROM answer_surface_timed_session),0,2);
 
 SELECT public.submit_exam_answer(
     (SELECT id FROM answer_surface_timed_session),
