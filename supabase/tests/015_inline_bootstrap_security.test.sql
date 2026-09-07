@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(11);
+SELECT extensions.plan(12);
 
 SELECT extensions.ok(
     has_function_privilege(
@@ -50,7 +50,7 @@ INSERT INTO public.pathways (id,name,slug) VALUES
 INSERT INTO public.question_banks (
     id,pathway_id,name,is_free_trial,free_trial_block_limit,free_trial_question_limit
 ) VALUES
-(9899,9890,'Inline Premium Bank',FALSE,NULL,NULL),
+(9899,9890,'Inline Premium Bank',FALSE,NULL,70),
 (9898,9891,'Inline Trial Bank',TRUE,1,2);
 
 INSERT INTO public.user_access_grants (user_id,scope_type,question_bank_id) VALUES
@@ -131,6 +131,16 @@ SELECT extensions.ok(
         )
     ) = 0,
     'create bootstrap no longer performs the read-after-write bootstrap reload'
+);
+
+SELECT extensions.ok(
+    regexp_count(
+        pg_get_functiondef(
+            'public.create_exam_session_bootstrap(bigint,text,integer,text[],text[],jsonb,text)'::regprocedure
+        ),
+        'public\.can_access_question_bank\(new_session\.question_bank_id\)'
+    ) >= 2,
+    'inline create preserves both fresh post-insert bank-access checks from bootstrap + window'
 );
 
 SELECT set_config('request.jwt.claim.sub','e0000000-0000-0000-0000-000000000002',true);
