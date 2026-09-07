@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - audit/core-hardening
+      - audit/core-hardening-clean
     paths:
       - 'supabase/**'
       - '.github/workflows/verify-db.yml'
