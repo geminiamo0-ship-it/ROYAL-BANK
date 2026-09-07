@@ -54,8 +54,6 @@ export async function getQuestionBankCategories(bankId: number): Promise<Categor
 
 export async function startExamSession(input: StartExamInput): Promise<string> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
 
   const parsedTopics: Array<{ category: string; topic: string }> = [];
   const parsedCategories: string[] = [];
@@ -68,7 +66,6 @@ export async function startExamSession(input: StartExamInput): Promise<string> {
 
   const limit = Math.min(Math.max(input.limit || 70, 1), 70);
   const { data: sessionId, error } = await supabase.rpc('create_exam_session', {
-    p_user_id: user.id,
     p_bank_id: input.bankId,
     p_session_type: input.sessionType || 'standard',
     p_limit: limit,
@@ -78,7 +75,10 @@ export async function startExamSession(input: StartExamInput): Promise<string> {
     p_question_selection: input.questionSelection,
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.message.includes('Not authenticated')) redirect('/login');
+    throw new Error(error.message);
+  }
   if (!sessionId) throw new Error('Exam session was not created.');
   return sessionId as string;
 }
