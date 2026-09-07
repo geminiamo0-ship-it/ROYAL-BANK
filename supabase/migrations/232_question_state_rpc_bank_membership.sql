@@ -1,2 +1,0 @@
--- get_user_question_states enumerates only question_bank_questions for the requested
--- bank; shared questions mapped to multiple banks are evaluated once per requested bank.
