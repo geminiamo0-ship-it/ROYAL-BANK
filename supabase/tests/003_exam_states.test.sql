@@ -23,6 +23,9 @@ CREATE TEMP TABLE exam_session(id uuid);
 INSERT INTO exam_session SELECT public.create_exam_session('30000000-0000-0000-0000-000000000001',9220,'timed',2,ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all');
 SELECT extensions.is((SELECT count(*)::bigint FROM public.get_user_question_states(9220) WHERE is_suspended),2::bigint,'locked unanswered questions are Suspended');
 
+-- The answer APIs now require the content to have passed the guarded disclosure path.
+SELECT public.get_exam_session_window((SELECT id FROM exam_session),0,2);
+
 -- Timed mode must update the same answer row until End Block.
 SELECT public.submit_exam_answer((SELECT id FROM exam_session),9321,94212,3);
 SELECT public.submit_exam_answer((SELECT id FROM exam_session),9321,94211,5);
