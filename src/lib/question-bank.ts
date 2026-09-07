@@ -38,9 +38,30 @@ const emptyUserState = (): UserStateCounts => ({
   newQuestions: createEmptyCounts(),
 });
 
+async function requireQuestionBankAccess(bankId: number) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error('Authentication required');
+  }
+
+  const { data: canAccess, error } = await supabase.rpc('can_access_question_bank', {
+    p_bank_id: bankId,
+  });
+
+  if (error || canAccess !== true) {
+    throw new Error('Question bank access required');
+  }
+}
+
 async function getUserQuestionStateMap(bankId: number) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const stateMap = new Map<string, UserStateCounts>();
   if (!user) return stateMap;
 
@@ -176,6 +197,10 @@ function buildQuestionBankOutline(
 }
 
 export async function getLiveQuestionBankOutline(bankId: number): Promise<CategoryWithTopics[]> {
+  // getBankQuestionRows intentionally uses a service-role client for globally cached
+  // aggregate metadata. Always authorize the current user before touching that cache.
+  await requireQuestionBankAccess(bankId);
+
   const [rows, userStateMap] = await Promise.all([
     getBankQuestionRows(bankId),
     getUserQuestionStateMap(bankId),
