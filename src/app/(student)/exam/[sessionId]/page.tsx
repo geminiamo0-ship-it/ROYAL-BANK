@@ -1,5 +1,6 @@
-import { getFullExamSession } from '@/actions/exam';
+import { getExamSession, getFullExamSession } from '@/actions/exam';
 import { ExamPageClient } from '@/components/exam/ExamPageClient';
+import { createClient } from '@/lib/supabase/server';
 import type { ExamClientAnswer } from '@/types/exam';
 import { notFound, redirect } from 'next/navigation';
 
@@ -19,17 +20,41 @@ interface ExamPageProps {
 
 export default async function ExamPage({ params }: ExamPageProps) {
   const { sessionId } = await params;
-  const fullData = await getFullExamSession(sessionId);
 
+  // Read owned session metadata first. Historical metadata remains readable after
+  // access expiry, but resuming an unfinished block requires current bank access.
+  const sessionMeta = await getExamSession(sessionId);
+  if (!sessionMeta) {
+    notFound();
+  }
+
+  const bankId = Number(sessionMeta.question_bank_id);
+  if (!Number.isInteger(bankId) || bankId <= 0) {
+    notFound();
+  }
+
+  if (sessionMeta.is_completed) {
+    redirect(`/bank/${bankId}/fixed-sets`);
+  }
+
+  const supabase = await createClient();
+  const { data: canAccess, error: accessError } = await supabase.rpc('can_access_question_bank', {
+    p_bank_id: bankId,
+  });
+
+  if (accessError || canAccess !== true) {
+    // Keep the unfinished block visible as owned history, but do not load its
+    // question content or allow resume until current bank access is restored.
+    redirect(`/bank/${bankId}/fixed-sets`);
+  }
+
+  const fullData = await getFullExamSession(sessionId);
   if (!fullData) {
     notFound();
   }
 
+  // Handle a completion that raced with the metadata read above.
   if (fullData.status === 'completed') {
-    if (!Number.isInteger(fullData.bankId) || fullData.bankId <= 0) {
-      notFound();
-    }
-
     redirect(`/bank/${fullData.bankId}/fixed-sets`);
   }
 
