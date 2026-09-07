@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { startExamSession } from '@/actions/exam';
+import { startExamSession } from '@/lib/exam-launch';
 import { encodeTopicFilter } from '@/lib/topic-filters';
 import type { CategoryWithTopics, TopicSummary } from '@/types/question-bank';
 import { ChevronRight, Minus, Plus, Search, Hammer } from 'lucide-react';
