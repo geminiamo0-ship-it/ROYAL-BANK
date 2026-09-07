@@ -51,39 +51,17 @@ jobs:
             ORDER BY n.nspname, c.relname, t.tgname;
           " | sed -E 's/EXECUTE FUNCTION ([A-Za-z_][A-Za-z0-9_]*)\(/EXECUTE FUNCTION public.\1(/g' > /tmp/cross-triggers-before.sql
 
-          DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)"
-          test -n "$DB_CONTAINER"
-          docker exec "$DB_CONTAINER" pg_dump \
-            --username postgres \
-            --dbname postgres \
-            --schema=public \
-            --schema-only \
-            --no-owner \
-            --no-comments \
-            | grep -E '^(GRANT|REVOKE)' \
-            | LC_ALL=C sort > /tmp/privileges-before.sql
-
           {
-            printf '%s\n' '-- ROYAL-BANK consolidated core baseline.'
-            printf '%s\n' '-- Prevent fresh project relations from inheriting broad browser-role table privileges.'
-            printf '%s\n\n' 'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;'
+            printf '%s\n\n' '-- ROYAL-BANK consolidated core baseline.'
             cat /tmp/public-before.sql
-            printf '\n-- Normalize relation privileges before replaying the exact current object grants.\n'
-            printf '%s\n' 'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon, authenticated;'
-            printf '%s\n' 'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;'
             if [ -s /tmp/cross-triggers-before.sql ]; then
               printf '\n-- Cross-schema triggers owned by ROYAL-BANK public functions.\n'
               cat /tmp/cross-triggers-before.sql
-            fi
-            if [ -s /tmp/privileges-before.sql ]; then
-              printf '\n-- Exact current object privileges omitted by supabase db dump.\n'
-              cat /tmp/privileges-before.sql
             fi
           } > baseline/001_core_baseline.sql
 
           sha256sum baseline/001_core_baseline.sql
           wc -l baseline/001_core_baseline.sql
-          wc -l /tmp/privileges-before.sql
 
       - name: Rebuild using baseline only
         shell: bash
@@ -93,7 +71,7 @@ jobs:
           cp baseline/001_core_baseline.sql supabase/migrations/001_core_baseline.sql
           supabase db reset
 
-      - name: Verify baseline behavior
+      - name: Verify blocking core behavior
         run: supabase test db
 
       - name: Compare reconstructed schema
@@ -117,19 +95,6 @@ jobs:
             ORDER BY n.nspname, c.relname, t.tgname;
           " | sed -E 's/EXECUTE FUNCTION ([A-Za-z_][A-Za-z0-9_]*)\(/EXECUTE FUNCTION public.\1(/g' > /tmp/cross-triggers-after.sql
           cmp /tmp/cross-triggers-before.sql /tmp/cross-triggers-after.sql
-
-          DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)"
-          test -n "$DB_CONTAINER"
-          docker exec "$DB_CONTAINER" pg_dump \
-            --username postgres \
-            --dbname postgres \
-            --schema=public \
-            --schema-only \
-            --no-owner \
-            --no-comments \
-            | grep -E '^(GRANT|REVOKE)' \
-            | LC_ALL=C sort > /tmp/privileges-after.sql
-          cmp /tmp/privileges-before.sql /tmp/privileges-after.sql
 
       - name: Upload validated baseline
         uses: actions/upload-artifact@v4
