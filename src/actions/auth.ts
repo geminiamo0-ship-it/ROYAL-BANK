@@ -53,7 +53,7 @@ export async function register(formData: FormData) {
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -65,6 +65,12 @@ export async function register(formData: FormData) {
 
   if (error) {
     return { error: error.message };
+  }
+
+  // Supabase returns no session when email confirmation is required. Do not
+  // pretend the new user is authenticated; send them to a clear verification state.
+  if (!data.session) {
+    redirect('/login?registered=check-email');
   }
 
   redirect('/dashboard');
@@ -82,7 +88,9 @@ export async function getCurrentUser() {
   }
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) return null;
 
