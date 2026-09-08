@@ -5,6 +5,7 @@ import {
   LibraryAccessError,
   LibraryAuthenticationError,
   LibraryNotFoundError,
+  type LibraryCatalog,
 } from '@/lib/library';
 
 interface HighYieldTextbookPageProps {
@@ -21,9 +22,9 @@ export default async function HighYieldTextbookPage({ params }: HighYieldTextboo
     notFound();
   }
 
+  let catalog: LibraryCatalog;
   try {
-    const catalog = await getLibraryCatalog(parsedBankId);
-    return <HighYieldTextbookClient bankId={parsedBankId} initialCatalog={catalog} />;
+    catalog = await getLibraryCatalog(parsedBankId);
   } catch (error) {
     if (error instanceof LibraryAuthenticationError) {
       redirect(`/login?redirect=/bank/${parsedBankId}/textbook/high-yield`);
@@ -39,4 +40,6 @@ export default async function HighYieldTextbookPage({ params }: HighYieldTextboo
 
     throw error;
   }
+
+  return <HighYieldTextbookClient bankId={parsedBankId} initialCatalog={catalog} />;
 }
