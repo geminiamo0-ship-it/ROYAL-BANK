@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { checkVercelRateLimit } from '@/lib/vercel-firewall-rate-limit';
+import { getSupabaseServerConfig } from '@/lib/supabase/env';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'dub1';
@@ -71,7 +72,7 @@ type ExamServerTimings = {
   bodyParseMs: number;
   authMs: number;
   rateLimitMs: number;
-  supabaseFetchMs: number;
+  upstreamFetchMs: number;
   responseReadMs: number;
   totalServerMs: number;
 };
@@ -135,7 +136,7 @@ function serverTimingHeader(timings: ExamServerTimings): string {
     `body_parse;dur=${timings.bodyParseMs.toFixed(1)}`,
     `auth;dur=${timings.authMs.toFixed(1)}`,
     `rate_limit;dur=${timings.rateLimitMs.toFixed(1)}`,
-    `supabase_fetch;dur=${timings.supabaseFetchMs.toFixed(1)}`,
+    `upstream_fetch;dur=${timings.upstreamFetchMs.toFixed(1)}`,
     `response_read;dur=${timings.responseReadMs.toFixed(1)}`,
     `total_server;dur=${timings.totalServerMs.toFixed(1)}`,
   ].join(', ');
@@ -230,6 +231,30 @@ function gatewayHeaders(
   };
 }
 
+function safeUpstreamErrorBody(responseBody: string): string {
+  try {
+    const parsed = JSON.parse(responseBody) as Record<string, unknown>;
+    const rawMessage = typeof parsed.message === 'string' ? parsed.message.trim() : '';
+    const rawCode = typeof parsed.code === 'string' ? parsed.code.trim() : '';
+    const sensitive = /supabase|postgrest|postgres|https?:\/\/|\.supabase\.co/i;
+    const safeMessage =
+      rawMessage && rawMessage.length <= 240 && !sensitive.test(rawMessage)
+        ? rawMessage
+        : 'Exam request failed.';
+    const safeCode = /^[A-Z][A-Z0-9_]{1,63}$/.test(rawMessage)
+      ? rawMessage
+      : /^[A-Z][A-Z0-9_]{1,63}$/.test(rawCode)
+        ? rawCode
+        : 'EXAM_REQUEST_FAILED';
+
+    return JSON.stringify({ error: { code: safeCode, message: safeMessage } });
+  } catch {
+    return JSON.stringify({
+      error: { code: 'EXAM_REQUEST_FAILED', message: 'Exam request failed.' },
+    });
+  }
+}
+
 async function recordRateLimitRejection(options: {
   supabaseUrl: string;
   publishableKey: string;
@@ -259,7 +284,7 @@ export async function POST(request: Request) {
   let bodyParseMs = 0;
   let authMs = 0;
   let rateLimitMs = 0;
-  let supabaseFetchMs = 0;
+  let upstreamFetchMs = 0;
   let responseReadMs = 0;
 
   const contentLength = Number(request.headers.get('content-length') || 0);
@@ -272,8 +297,7 @@ export async function POST(request: Request) {
     return jsonError(401, 'AUTH_REQUIRED', 'Authentication required.');
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const { url: supabaseUrl, publishableKey } = getSupabaseServerConfig();
   const gatewayKeyId = process.env.ROYAL_GATEWAY_KEY_ID || '';
   const gatewayKey = process.env.ROYAL_GATEWAY_KEY || '';
   const riskHmacSecret = process.env.ROYAL_RISK_HMAC_SECRET || '';
@@ -320,7 +344,7 @@ export async function POST(request: Request) {
   // public SUPABASE_JWKS value is pinned in the server environment, getClaims()
   // verifies ES256/RS256 signatures entirely in-process and never needs the JWKS
   // discovery request on this hot path. Without the optional pin, preserve the
-  // existing Supabase getClaims() behavior and its managed JWKS cache/fallback.
+  // managed getClaims() JWKS cache/fallback behavior.
   const authClient = createClient(supabaseUrl, publishableKey, {
     auth: {
       autoRefreshToken: false,
@@ -338,9 +362,6 @@ export async function POST(request: Request) {
       return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
     }
 
-    // Fail closed rather than silently going back to the network if the pinned
-    // JWKS is stale or does not contain the token's signing key. This protects
-    // the security boundary and makes key-rotation configuration failures clear.
     if (!pinnedJwkForHeader(PINNED_SUPABASE_JWKS.jwks, header)) {
       return jsonError(
         503,
@@ -381,10 +402,6 @@ export async function POST(request: Request) {
 
   const rateLimitStart = performance.now();
 
-  // N: durable Vercel-side request limiting keyed by the VERIFIED JWT subject.
-  // On Hobby this is intentionally one aggregate rule (target: 60 requests/minute)
-  // rather than a distributed in-memory counter. Existing DB guardrails remain the
-  // authoritative content/session quotas and are stricter for fresh-content abuse.
   if (rateLimitEnabled) {
     try {
       const { rateLimited, error: rateLimitError } = await checkVercelRateLimit(rateLimitId, {
@@ -392,9 +409,6 @@ export async function POST(request: Request) {
         rateLimitKey: userId,
       });
 
-      // A missing rule or a blocked internal check is configuration/infrastructure
-      // failure, not user abuse. Preserve progress writes but fail closed for actions
-      // that can disclose fresh content.
       if (rateLimitError) {
         if (!RATE_LIMIT_FAIL_OPEN_ACTIONS.has(body.action)) {
           return jsonError(
@@ -420,8 +434,6 @@ export async function POST(request: Request) {
         );
       }
     } catch {
-      // If the optional edge limiter itself is unavailable, preserve progress actions
-      // but fail closed for actions capable of disclosing fresh question content.
       if (!RATE_LIMIT_FAIL_OPEN_ACTIONS.has(body.action)) {
         return jsonError(
           503,
@@ -436,7 +448,7 @@ export async function POST(request: Request) {
 
   const rpcName = RPC_BY_ACTION[body.action];
 
-  const supabaseFetchStart = performance.now();
+  const upstreamFetchStart = performance.now();
   let upstream: Response;
   try {
     upstream = await fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
@@ -448,14 +460,17 @@ export async function POST(request: Request) {
   } catch {
     return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
   }
-  supabaseFetchMs = performance.now() - supabaseFetchStart;
+  upstreamFetchMs = performance.now() - upstreamFetchStart;
 
   const responseReadStart = performance.now();
-  const responseBody = await upstream.text();
+  const rawResponseBody = await upstream.text();
   responseReadMs = performance.now() - responseReadStart;
+  const responseBody = upstream.ok ? rawResponseBody : safeUpstreamErrorBody(rawResponseBody);
 
   const headers = new Headers({
-    'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+    'content-type': upstream.ok
+      ? upstream.headers.get('content-type') || 'application/json; charset=utf-8'
+      : 'application/json; charset=utf-8',
     'cache-control': 'no-store',
   });
 
@@ -469,7 +484,7 @@ export async function POST(request: Request) {
         bodyParseMs,
         authMs,
         rateLimitMs,
-        supabaseFetchMs,
+        upstreamFetchMs,
         responseReadMs,
         totalServerMs: performance.now() - totalServerStart,
       })
