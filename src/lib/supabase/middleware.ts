@@ -1,52 +1,36 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 import { type NextRequest, NextResponse } from 'next/server';
 import { isSupabaseConfigured } from './config';
+import { getSupabaseServerConfig } from '@/lib/supabase/env';
+import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
 
 export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  });
+  let response = NextResponse.next({ request });
+  const { url, publishableKey } = getSupabaseServerConfig();
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-  if (!supabaseUrl || !supabaseAnonKey || !isSupabaseConfigured()) {
+  if (!url || !publishableKey || !isSupabaseConfigured()) {
     return response;
   }
 
-  const supabase = createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options });
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          });
-          response.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: '', ...options });
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          });
-          response.cookies.set({ name, value: '', ...options });
-        },
+  const supabase = createServerClient(url, publishableKey, {
+    cookieOptions: getRoyalAuthCookieOptions(),
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
       },
-    }
-  );
+      setAll(cookiesToSet, cacheHeaders) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) => {
+          response.cookies.set(name, value, hardenAuthCookie(options));
+        });
+        Object.entries(cacheHeaders).forEach(([key, value]) => response.headers.set(key, value));
+      },
+    },
+  });
 
-  // Refresh auth token and resolve account status from the canonical DB helper.
+  // Validate/refresh the cookie-backed session before using it for authorization.
+  await supabase.auth.getClaims();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -62,18 +46,28 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/admin') ||
     pathname.startsWith('/support');
 
+  function redirectWithSession(urlToUse: URL) {
+    const redirectResponse = NextResponse.redirect(urlToUse);
+    response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie));
+    for (const headerName of ['cache-control', 'expires', 'pragma']) {
+      const value = response.headers.get(headerName);
+      if (value) redirectResponse.headers.set(headerName, value);
+    }
+    return redirectResponse;
+  }
+
   if (!user && isProtectedRoute) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';
     redirectUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(redirectUrl);
+    return redirectWithSession(redirectUrl);
   }
 
   if (!user && isInactiveRoute) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';
     redirectUrl.search = '';
-    return NextResponse.redirect(redirectUrl);
+    return redirectWithSession(redirectUrl);
   }
 
   if (user && (isProtectedRoute || isAuthRoute || isInactiveRoute)) {
@@ -84,19 +78,16 @@ export async function updateSession(request: NextRequest) {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = '/inactive';
       redirectUrl.search = '';
-      return NextResponse.redirect(redirectUrl);
+      return redirectWithSession(redirectUrl);
     }
 
     if (accountIsActive && (isAuthRoute || isInactiveRoute)) {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = '/dashboard';
       redirectUrl.search = '';
-      return NextResponse.redirect(redirectUrl);
+      return redirectWithSession(redirectUrl);
     }
 
-    // The bank home contains client-side/static fallback UI, so authorize the exact
-    // /bank/:id landing route here before any of that UI can render. History routes
-    // remain separate so expired users can still read their owned previous sessions.
     const bankHomeMatch = pathname.match(/^\/bank\/(\d+)\/?$/);
     if (accountIsActive && bankHomeMatch) {
       const bankId = Number(bankHomeMatch[1]);
@@ -110,7 +101,7 @@ export async function updateSession(request: NextRequest) {
         redirectUrl.pathname = '/dashboard';
         redirectUrl.search = '';
         redirectUrl.searchParams.set('access', 'denied');
-        return NextResponse.redirect(redirectUrl);
+        return redirectWithSession(redirectUrl);
       }
     }
   }
