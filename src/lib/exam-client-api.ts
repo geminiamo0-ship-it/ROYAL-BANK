@@ -1,5 +1,4 @@
-import { callExamGateway, isExamGatewayEnabled } from '@/lib/exam-gateway-client';
-import { createClient } from '@/lib/supabase/client';
+import { callExamGateway } from '@/lib/exam-gateway-client';
 import { decodeTopicFilter } from '@/lib/topic-filters';
 import type {
   ExamBootstrap,
@@ -167,20 +166,11 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
   };
 
   const request = (async () => {
-    if (isExamGatewayEnabled) {
-      const data = await callExamGateway<RawBootstrap>('create', args);
-      if (!data || typeof data !== 'object') {
-        throw new Error('Exam bootstrap returned no result.');
-      }
-      return normalizeBootstrap(data);
+    const data = await callExamGateway<RawBootstrap>('create', args);
+    if (!data || typeof data !== 'object') {
+      throw new Error('Exam bootstrap returned no result.');
     }
-
-    const supabase = createClient();
-    const { data, error } = await supabase.rpc('create_exam_session_bootstrap_idempotent', args);
-
-    if (error) throw new Error(error.message);
-    if (!data || typeof data !== 'object') throw new Error('Exam bootstrap returned no result.');
-    return normalizeBootstrap(data as RawBootstrap);
+    return normalizeBootstrap(data);
   })();
 
   inFlightExamCreates.set(requestKey, request);
@@ -195,20 +185,9 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
 }
 
 export async function getExamSessionBootstrapDirect(sessionId: string): Promise<ExamBootstrap> {
-  const args = { p_session_id: sessionId };
-
-  if (isExamGatewayEnabled) {
-    const data = await callExamGateway<RawBootstrap>('bootstrap', args);
-    if (!data || typeof data !== 'object') throw new Error('Exam bootstrap returned no result.');
-    return normalizeBootstrap(data);
-  }
-
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc('get_exam_session_bootstrap', args);
-
-  if (error) throw new Error(error.message);
+  const data = await callExamGateway<RawBootstrap>('bootstrap', { p_session_id: sessionId });
   if (!data || typeof data !== 'object') throw new Error('Exam bootstrap returned no result.');
-  return normalizeBootstrap(data as RawBootstrap);
+  return normalizeBootstrap(data);
 }
 
 export async function getExamSessionWindowDirect(
@@ -216,24 +195,14 @@ export async function getExamSessionWindowDirect(
   start: number,
   count = 3,
 ): Promise<ExamClientQuestion[]> {
-  const args = {
+  const data = await callExamGateway<ExamClientQuestion[]>('window', {
     p_session_id: sessionId,
     p_start: Math.max(0, Math.floor(start)),
     p_count: Math.min(5, Math.max(1, Math.floor(count))),
-  };
+  });
 
-  if (isExamGatewayEnabled) {
-    const data = await callExamGateway<ExamClientQuestion[]>('window', args);
-    if (!Array.isArray(data)) return [];
-    return data.map(normalizeQuestion);
-  }
-
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc('get_exam_session_window', args);
-
-  if (error) throw new Error(error.message);
   if (!Array.isArray(data)) return [];
-  return (data as ExamClientQuestion[]).map(normalizeQuestion);
+  return data.map(normalizeQuestion);
 }
 
 export async function submitExamAnswerWithFeedbackDirect(input: {
@@ -242,24 +211,12 @@ export async function submitExamAnswerWithFeedbackDirect(input: {
   selectedOptionId: number;
   timeSpentSeconds?: number;
 }): Promise<{ answer: ExamClientAnswer; feedback: ExamQuestionFeedback }> {
-  const args = {
+  const raw = await callExamGateway<RawInlineFeedbackResult>('submit', {
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,
     p_time_spent_seconds: Math.max(0, Math.floor(input.timeSpentSeconds || 0)),
-  };
-
-  let raw: RawInlineFeedbackResult;
-
-  if (isExamGatewayEnabled) {
-    raw = await callExamGateway<RawInlineFeedbackResult>('submit', args);
-  } else {
-    const supabase = createClient();
-    const { data, error } = await supabase.rpc('submit_exam_answer_with_feedback', args);
-    if (error) throw new Error(error.message);
-    if (!data || typeof data !== 'object') throw new Error('Answer feedback was not returned.');
-    raw = data as RawInlineFeedbackResult;
-  }
+  });
 
   if (!raw || typeof raw !== 'object') throw new Error('Answer feedback was not returned.');
   if (!raw.answer || !raw.feedback) throw new Error('Answer feedback payload is incomplete.');
@@ -281,75 +238,37 @@ export async function submitExamAnswerDirect(input: {
   selectedOptionId: number;
   timeSpentSeconds?: number;
 }): Promise<ExamClientAnswer> {
-  const args = {
+  const data = await callExamGateway<RawSubmitResult>('submitRaw', {
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,
     p_time_spent_seconds: Math.max(0, Math.floor(input.timeSpentSeconds || 0)),
-  };
+  });
 
-  if (isExamGatewayEnabled) {
-    const data = await callExamGateway<RawSubmitResult>('submitRaw', args);
-    if (!data || typeof data !== 'object') throw new Error('Answer submission returned no result.');
-    return toClientAnswer(data);
-  }
-
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc('submit_exam_answer', args);
-
-  if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error('Answer submission returned no result.');
-  return toClientAnswer(data as RawSubmitResult);
+  return toClientAnswer(data);
 }
 
 export async function getExamQuestionFeedbackDirect(
   sessionId: string,
   questionId: number,
 ): Promise<ExamQuestionFeedback> {
-  const args = {
+  const data = await callExamGateway<RawQuestionFeedback>('feedback', {
     p_session_id: sessionId,
     p_question_id: questionId,
-  };
+  });
 
-  if (isExamGatewayEnabled) {
-    const data = await callExamGateway<RawQuestionFeedback>('feedback', args);
-    if (!data || typeof data !== 'object') throw new Error('Question feedback was not returned.');
-    return toClientFeedback(data);
-  }
-
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc('get_exam_question_feedback', args);
-
-  if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error('Question feedback was not returned.');
-  return toClientFeedback(data as RawQuestionFeedback);
+  return toClientFeedback(data);
 }
 
 export async function setQuestionFlagDirect(questionId: number, flagged: boolean): Promise<void> {
-  const args = {
+  await callExamGateway<unknown>('flag', {
     p_question_id: questionId,
     p_flagged: flagged,
-  };
-
-  if (isExamGatewayEnabled) {
-    await callExamGateway<unknown>('flag', args);
-    return;
-  }
-
-  const supabase = createClient();
-  const { error } = await supabase.rpc('set_question_flag', args);
-  if (error) throw new Error(error.message);
+  });
 }
 
 export async function completeExamSessionDirect(sessionId: string): Promise<void> {
-  const args = { p_session_id: sessionId };
-
-  if (isExamGatewayEnabled) {
-    await callExamGateway<unknown>('complete', args);
-    return;
-  }
-
-  const supabase = createClient();
-  const { error } = await supabase.rpc('complete_exam_session', args);
-  if (error) throw new Error(error.message);
+  await callExamGateway<unknown>('complete', { p_session_id: sessionId });
 }
