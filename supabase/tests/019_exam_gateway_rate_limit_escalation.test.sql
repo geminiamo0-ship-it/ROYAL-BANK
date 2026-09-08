@@ -55,8 +55,8 @@ SELECT set_config('request.royal_gateway_verified','0',true);
 
 SELECT extensions.throws_ok(
     $$SELECT public.record_exam_gateway_rate_limit_rejection('window')$$,
-    'PGRST',
-    '{"code": "GATEWAY_REQUIRED", "message": "Exam gateway required"}',
+    'PT403',
+    'Exam gateway required',
     'a client cannot self-record or manipulate abuse state without gateway verification'
 );
 
