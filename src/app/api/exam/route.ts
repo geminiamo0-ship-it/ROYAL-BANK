@@ -67,6 +67,15 @@ type JwtHeader = {
   kid: string;
 };
 
+type ExamServerTimings = {
+  bodyParseMs: number;
+  authMs: number;
+  rateLimitMs: number;
+  supabaseFetchMs: number;
+  responseReadMs: number;
+  totalServerMs: number;
+};
+
 function parsePinnedSupabaseJwks(rawValue: string | undefined): PinnedJwksState {
   const raw = rawValue?.trim();
   if (!raw) return { kind: 'disabled' };
@@ -119,6 +128,17 @@ function jsonError(status: number, code: string, message: string, retryAfter?: n
     { error: { code, message } },
     { status, headers }
   );
+}
+
+function serverTimingHeader(timings: ExamServerTimings): string {
+  return [
+    `body_parse;dur=${timings.bodyParseMs.toFixed(1)}`,
+    `auth;dur=${timings.authMs.toFixed(1)}`,
+    `rate_limit;dur=${timings.rateLimitMs.toFixed(1)}`,
+    `supabase_fetch;dur=${timings.supabaseFetchMs.toFixed(1)}`,
+    `response_read;dur=${timings.responseReadMs.toFixed(1)}`,
+    `total_server;dur=${timings.totalServerMs.toFixed(1)}`,
+  ].join(', ');
 }
 
 function readBearerToken(request: Request): string | null {
@@ -235,6 +255,13 @@ async function recordRateLimitRejection(options: {
 }
 
 export async function POST(request: Request) {
+  const totalServerStart = performance.now();
+  let bodyParseMs = 0;
+  let authMs = 0;
+  let rateLimitMs = 0;
+  let supabaseFetchMs = 0;
+  let responseReadMs = 0;
+
   const contentLength = Number(request.headers.get('content-length') || 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
     return jsonError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
@@ -252,6 +279,7 @@ export async function POST(request: Request) {
   const riskHmacSecret = process.env.ROYAL_RISK_HMAC_SECRET || '';
   const rateLimitEnabled = process.env.ROYAL_GATEWAY_RATE_LIMIT_ENABLED === 'true';
   const rateLimitId = process.env.ROYAL_GATEWAY_RATE_LIMIT_ID || '';
+  const serverTimingEnabled = process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true';
 
   if (!supabaseUrl || !publishableKey || !gatewayKeyId || !gatewayKey || !riskHmacSecret) {
     return jsonError(503, 'EXAM_GATEWAY_NOT_CONFIGURED', 'Exam gateway is not configured.');
@@ -265,6 +293,7 @@ export async function POST(request: Request) {
     return jsonError(503, 'EXAM_AUTH_NOT_CONFIGURED', 'Exam authentication is not configured.');
   }
 
+  const bodyParseStart = performance.now();
   let body: ExamGatewayBody;
   try {
     const rawBody = await request.text();
@@ -275,6 +304,7 @@ export async function POST(request: Request) {
   } catch {
     return jsonError(400, 'INVALID_REQUEST', 'Invalid request body.');
   }
+  bodyParseMs = performance.now() - bodyParseStart;
 
   if (!body.action || !isAllowedAction(body.action)) {
     return jsonError(400, 'INVALID_EXAM_ACTION', 'Unsupported exam action.');
@@ -283,6 +313,8 @@ export async function POST(request: Request) {
   if (body.args == null || typeof body.args !== 'object' || Array.isArray(body.args)) {
     return jsonError(400, 'INVALID_REQUEST', 'Exam RPC arguments are required.');
   }
+
+  const authStart = performance.now();
 
   // Verify the JWT before using sub as a security/rate-limit identity. When a
   // public SUPABASE_JWKS value is pinned in the server environment, getClaims()
@@ -338,12 +370,16 @@ export async function POST(request: Request) {
     return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
   }
 
+  authMs = performance.now() - authStart;
+
   const proof: GatewayProof = {
     gatewayKeyId,
     gatewayKey,
     ipHmac: hmacSignal(riskHmacSecret, getRequestIp(request)),
     userAgentHmac: hmacSignal(riskHmacSecret, normalizeUserAgent(request)),
   };
+
+  const rateLimitStart = performance.now();
 
   // N: durable Vercel-side request limiting keyed by the VERIFIED JWT subject.
   // On Hobby this is intentionally one aggregate rule (target: 60 requests/minute)
@@ -396,8 +432,11 @@ export async function POST(request: Request) {
     }
   }
 
+  rateLimitMs = performance.now() - rateLimitStart;
+
   const rpcName = RPC_BY_ACTION[body.action];
 
+  const supabaseFetchStart = performance.now();
   let upstream: Response;
   try {
     upstream = await fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
@@ -409,8 +448,12 @@ export async function POST(request: Request) {
   } catch {
     return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
   }
+  supabaseFetchMs = performance.now() - supabaseFetchStart;
 
+  const responseReadStart = performance.now();
   const responseBody = await upstream.text();
+  responseReadMs = performance.now() - responseReadStart;
+
   const headers = new Headers({
     'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -418,6 +461,20 @@ export async function POST(request: Request) {
 
   const retryAfter = upstream.headers.get('retry-after');
   if (retryAfter) headers.set('retry-after', retryAfter);
+
+  if (serverTimingEnabled) {
+    headers.set(
+      'server-timing',
+      serverTimingHeader({
+        bodyParseMs,
+        authMs,
+        rateLimitMs,
+        supabaseFetchMs,
+        responseReadMs,
+        totalServerMs: performance.now() - totalServerStart,
+      })
+    );
+  }
 
   return new Response(responseBody, {
     status: upstream.status,
