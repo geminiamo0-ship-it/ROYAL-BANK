@@ -4,7 +4,9 @@
 
 - A Pathway contains many Banks.
 - A Bank contains many Questions.
+- A Bank may also have a mapped Library.
 - Each Question belongs to exactly one Bank.
+- A Library Article may be mapped to one or more Banks.
 - Question IDs are globally unique.
 
 ## Question state
@@ -40,14 +42,19 @@
 
 ## Access
 
+- `user_access_grants` is the only premium entitlement source.
 - Banks are configured individually as free-trial or premium-only.
 - A pathway may contain any mix of free-trial and premium banks.
-- Premium access may be granted globally, to a pathway (including future banks in that pathway), or to selected banks.
+- Premium access may be granted globally, to a pathway (including future banks in that pathway), or to one or more selected banks.
+- A bank entitlement covers both its Question Bank and its mapped Library.
+- A user may hold multiple bank grants inside the same pathway while sibling banks remain locked.
 - Access starts at `starts_at`; `expires_at = NULL` means lifetime access.
 - Expiry blocks new protected access but does not erase stored session/history data.
 - A free-trial bank has a configurable lifetime block quota per user and configurable per-block question limit.
-- Quota enforcement is database-side and serialized against concurrent requests.
-- Bank metadata may be visible while question content remains locked.
+- A free-trial bank also has a configurable lifetime quota of unique Library Articles per user.
+- Reopening an already disclosed trial article does not consume another article slot.
+- Question and Library trial quota enforcement is database-side and serialized against concurrent requests.
+- Bank metadata may be visible while protected question/article content remains locked.
 
 ## Block size
 

@@ -1,22 +1,23 @@
 import 'server-only';
 
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServerConfig } from '@/lib/supabase/env';
 
-function requireServerEnv(name: 'NEXT_PUBLIC_SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY'): string {
-  const value = process.env[name];
-
+function requireServiceRoleKey(): string {
+  const value = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!value) {
-    throw new Error(`Missing required server environment variable: ${name}`);
+    throw new Error('Missing required server environment variable: SUPABASE_SERVICE_ROLE_KEY');
   }
-
   return value;
 }
 
 export function createAdminClient() {
-  const supabaseUrl = requireServerEnv('NEXT_PUBLIC_SUPABASE_URL');
-  const serviceRoleKey = requireServerEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const { url } = getSupabaseServerConfig();
+  if (!url) {
+    throw new Error('Missing required server environment variable: SUPABASE_URL');
+  }
 
-  return createClient(supabaseUrl, serviceRoleKey, {
+  return createClient(url, requireServiceRoleKey(), {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

@@ -1,12 +1,16 @@
+import 'server-only';
+
+import { getSupabaseServerConfig } from '@/lib/supabase/env';
+
 export function isSupabaseConfigured() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const { url, publishableKey } = getSupabaseServerConfig();
 
   return Boolean(
     url &&
-      anonKey &&
+      publishableKey &&
       !url.includes('YOUR_PROJECT_REF') &&
       !url.includes('your-project') &&
-      !anonKey.includes('your-anon-key')
+      !publishableKey.includes('your-anon-key') &&
+      !publishableKey.includes('placeholder')
   );
 }

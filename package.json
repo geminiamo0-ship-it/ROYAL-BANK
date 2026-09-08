@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run lint && npm run typecheck && npm run build"
+    "audit:client-boundary": "node scripts/audit-client-boundary.mjs",
+    "verify": "npm run lint && npm run typecheck && npm run audit:client-boundary && npm run build && npm run audit:client-boundary -- --build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
@@ -21,7 +22,7 @@
     "next": "16.3.3",
     "next-themes": "^0.4.6",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
+    "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3",

@@ -1,5 +1,3 @@
-import { createClient } from '@/lib/supabase/client';
-
 export type ExamGatewayAction =
   | 'create'
   | 'bootstrap'
@@ -9,9 +7,6 @@ export type ExamGatewayAction =
   | 'feedback'
   | 'flag'
   | 'complete';
-
-export const isExamGatewayEnabled =
-  process.env.NEXT_PUBLIC_EXAM_GATEWAY_ENABLED === 'true';
 
 export const EXAM_RATE_LIMIT_EVENT = 'royal:exam-rate-limit';
 export const EXAM_RATE_LIMIT_STORAGE_KEY = 'royal.exam-rate-limit-until';
@@ -95,9 +90,6 @@ function publishRateLimitCountdown(retryAfterSeconds: number): void {
 
   try {
     const storedRetryAt = Number(window.sessionStorage.getItem(EXAM_RATE_LIMIT_STORAGE_KEY) || 0);
-    // A fixed-window limiter does not extend just because the user retries during the
-    // same blocked window. Keep the first still-active deadline instead of resetting
-    // the countdown to a full minute on every rejected click.
     if (Number.isFinite(storedRetryAt) && storedRetryAt > now) {
       retryAt = storedRetryAt;
     } else {
@@ -118,19 +110,11 @@ export async function callExamGateway<T>(
   action: ExamGatewayAction,
   args: Record<string, unknown>
 ): Promise<T> {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.getSession();
-  const accessToken = data.session?.access_token;
-
-  if (error || !accessToken) {
-    throw new Error('Authentication required.');
-  }
-
   const response = await fetch('/api/exam', {
     method: 'POST',
     cache: 'no-store',
+    credentials: 'same-origin',
     headers: {
-      authorization: `Bearer ${accessToken}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({ action, args }),

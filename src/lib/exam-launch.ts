@@ -18,7 +18,7 @@ export async function startExamSession(input: StartExamInput): Promise<string> {
   primeExamLaunchCache(bootstrap);
 
   // Do not block navigation on the look-ahead buffer. Q1 is already in the create RPC;
-  // Q2 + Q3 are fetched directly from Supabase while Next.js starts the route transition.
+  // Q2 + Q3 are fetched through the Royal exam gateway while Next.js starts the route transition.
   const nextStart = Math.min(bootstrap.currentIndex + 1, bootstrap.questionIds.length);
   if (nextStart < bootstrap.questionIds.length) {
     void getExamSessionWindowDirect(sessionId, nextStart, 2)
