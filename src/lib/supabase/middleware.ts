@@ -5,7 +5,8 @@ import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
 
 export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  const requestHeaders = new Headers(request.headers);
+  let response = NextResponse.next({ request: { headers: requestHeaders } });
   const { url, publishableKey } = getSupabaseServerConfig();
 
   if (!url || !publishableKey || !isSupabaseConfigured()) {
@@ -20,7 +21,7 @@ export async function updateSession(request: NextRequest) {
       },
       setAll(cookiesToSet, cacheHeaders) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({ request });
+        response = NextResponse.next({ request: { headers: requestHeaders } });
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, hardenAuthCookie(options));
         });
@@ -36,6 +37,31 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
+
+  // The browser never receives or supplies the access token. For the existing exam
+  // gateway contract, middleware injects the validated cookie session server-side.
+  // Any caller-supplied Authorization header is overwritten or removed.
+  if (pathname === '/api/exam') {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (user && session?.access_token) {
+      requestHeaders.set('authorization', `Bearer ${session.access_token}`);
+    } else {
+      requestHeaders.delete('authorization');
+    }
+
+    const pendingCookies = response.cookies.getAll();
+    const pendingCacheHeaders = ['cache-control', 'expires', 'pragma']
+      .map((name) => [name, response.headers.get(name)] as const)
+      .filter((entry): entry is readonly [string, string] => Boolean(entry[1]));
+
+    response = NextResponse.next({ request: { headers: requestHeaders } });
+    pendingCookies.forEach((cookie) => response.cookies.set(cookie));
+    pendingCacheHeaders.forEach(([name, value]) => response.headers.set(name, value));
+  }
+
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
   const isInactiveRoute = pathname.startsWith('/inactive');
   const isProtectedRoute =
