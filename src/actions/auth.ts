@@ -20,6 +20,26 @@ function safeInternalRedirect(value: FormDataEntryValue | null): string {
   }
 }
 
+function getConfirmationRedirectUrl(): string | undefined {
+  const appUrl = process.env.ROYAL_APP_URL?.trim();
+  if (!appUrl) return undefined;
+
+  try {
+    return new URL('/auth/confirm', appUrl).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function publicAuthError(message: string, fallback: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('invalid login credentials')) return 'Invalid email or password.';
+  if (normalized.includes('email not confirmed')) return 'Please confirm your email before signing in.';
+  if (normalized.includes('user already registered')) return 'An account with this email already exists.';
+  if (normalized.includes('password')) return message.replace(/supabase/gi, 'authentication service');
+  return fallback;
+}
+
 export async function login(formData: FormData) {
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
@@ -30,15 +50,14 @@ export async function login(formData: FormData) {
   }
 
   if (!isSupabaseConfigured()) {
-    return { error: 'Supabase is not linked yet. Add your project URL and anon key to .env.local.' };
+    return { error: 'Authentication service is not configured.' };
   }
 
   const supabase = await createClient();
-
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    return { error: error.message };
+    return { error: publicAuthError(error.message, 'Unable to sign in. Please try again.') };
   }
 
   redirect(redirectPath);
@@ -58,15 +77,16 @@ export async function register(formData: FormData) {
   }
 
   if (!isSupabaseConfigured()) {
-    return { error: 'Supabase is not linked yet. Add your project URL and anon key to .env.local.' };
+    return { error: 'Authentication service is not configured.' };
   }
 
   const supabase = await createClient();
-
+  const emailRedirectTo = getConfirmationRedirectUrl();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
+      ...(emailRedirectTo ? { emailRedirectTo } : {}),
       data: {
         full_name: fullName || splitEmail(email),
       },
@@ -74,11 +94,9 @@ export async function register(formData: FormData) {
   });
 
   if (error) {
-    return { error: error.message };
+    return { error: publicAuthError(error.message, 'Unable to create your account. Please try again.') };
   }
 
-  // Supabase returns no session when email confirmation is required. Do not
-  // pretend the new user is authenticated; send them to a clear verification state.
   if (!data.session) {
     redirect('/login?registered=check-email');
   }
