@@ -62,9 +62,9 @@ WHERE singleton;
 SELECT set_config('request.headers', '{"x-royal-gateway-key-id":"test-key","x-royal-gateway-key":"wrong"}'::jsonb::text, true);
 SELECT extensions.throws_ok(
     'SELECT api_hooks.royal_exam_pre_request()',
-    'PGRST',
-    '{"code": "GATEWAY_REQUIRED", "message": "Exam gateway required"}',
-    'invalid gateway key is rejected before a protected RPC executes'
+    'PT403',
+    'Exam gateway required',
+    'invalid gateway key is rejected as HTTP 403 before a protected RPC executes'
 );
 
 SELECT set_config(
