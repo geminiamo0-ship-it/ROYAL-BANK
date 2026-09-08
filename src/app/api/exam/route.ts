@@ -9,6 +9,7 @@ export const maxDuration = 10;
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 const RATE_LIMIT_RECORD_TIMEOUT_MS = 1500;
+const SUPPORTED_PINNED_JWT_ALGORITHMS = new Set(['ES256', 'RS256']);
 
 const RPC_BY_ACTION = {
   create: 'create_exam_session_bootstrap_idempotent',
@@ -43,6 +44,69 @@ type GatewayProof = {
   userAgentHmac: string;
 };
 
+type SupabaseJwk = {
+  kty: string;
+  key_ops: string[];
+  alg?: string;
+  kid?: string;
+  crv?: string;
+  [key: string]: unknown;
+};
+
+type SupabaseJwks = {
+  keys: SupabaseJwk[];
+};
+
+type PinnedJwksState =
+  | { kind: 'disabled' }
+  | { kind: 'invalid' }
+  | { kind: 'ready'; jwks: SupabaseJwks };
+
+type JwtHeader = {
+  alg: string;
+  kid: string;
+};
+
+function parsePinnedSupabaseJwks(rawValue: string | undefined): PinnedJwksState {
+  const raw = rawValue?.trim();
+  if (!raw) return { kind: 'disabled' };
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { kind: 'invalid' };
+    }
+
+    const keys = (parsed as { keys?: unknown }).keys;
+    if (!Array.isArray(keys) || keys.length === 0) {
+      return { kind: 'invalid' };
+    }
+
+    for (const candidate of keys) {
+      if (candidate == null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        return { kind: 'invalid' };
+      }
+
+      const key = candidate as Record<string, unknown>;
+      if (
+        typeof key.kty !== 'string' ||
+        typeof key.kid !== 'string' ||
+        !key.kid ||
+        !Array.isArray(key.key_ops) ||
+        !key.key_ops.every((operation) => typeof operation === 'string')
+      ) {
+        return { kind: 'invalid' };
+      }
+    }
+
+    return { kind: 'ready', jwks: parsed as SupabaseJwks };
+  } catch {
+    return { kind: 'invalid' };
+  }
+}
+
+const PINNED_SUPABASE_JWKS = parsePinnedSupabaseJwks(process.env.SUPABASE_JWKS);
+
 function jsonError(status: number, code: string, message: string, retryAfter?: number) {
   const headers = new Headers({
     'content-type': 'application/json; charset=utf-8',
@@ -62,6 +126,47 @@ function readBearerToken(request: Request): string | null {
   if (!authorization.startsWith('Bearer ')) return null;
   const token = authorization.slice('Bearer '.length).trim();
   return token || null;
+}
+
+function readJwtHeader(token: string): JwtHeader | null {
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts[0]) return null;
+
+  try {
+    const decoded = Buffer.from(parts[0], 'base64url').toString('utf8');
+    const parsed = JSON.parse(decoded) as unknown;
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+    const header = parsed as Record<string, unknown>;
+    if (typeof header.alg !== 'string' || typeof header.kid !== 'string' || !header.kid) {
+      return null;
+    }
+
+    return { alg: header.alg, kid: header.kid };
+  } catch {
+    return null;
+  }
+}
+
+function pinnedJwkForHeader(jwks: SupabaseJwks, header: JwtHeader): SupabaseJwk | null {
+  if (!SUPPORTED_PINNED_JWT_ALGORITHMS.has(header.alg)) return null;
+
+  const key = jwks.keys.find((candidate) => candidate.kid === header.kid);
+  if (!key) return null;
+  if (key.alg && key.alg !== header.alg) return null;
+  if (!key.key_ops.includes('verify')) return null;
+
+  if (header.alg === 'ES256' && (key.kty !== 'EC' || key.crv !== 'P-256')) return null;
+  if (header.alg === 'RS256' && key.kty !== 'RSA') return null;
+
+  return key;
+}
+
+function audienceIncludesAuthenticated(audience: unknown): boolean {
+  return (
+    audience === 'authenticated' ||
+    (Array.isArray(audience) && audience.some((value) => value === 'authenticated'))
+  );
 }
 
 function hmacSignal(secret: string, value: string): string {
@@ -156,6 +261,10 @@ export async function POST(request: Request) {
     return jsonError(503, 'EXAM_RATE_LIMIT_NOT_CONFIGURED', 'Exam rate limit is not configured.');
   }
 
+  if (PINNED_SUPABASE_JWKS.kind === 'invalid') {
+    return jsonError(503, 'EXAM_AUTH_NOT_CONFIGURED', 'Exam authentication is not configured.');
+  }
+
   let body: ExamGatewayBody;
   try {
     const rawBody = await request.text();
@@ -175,9 +284,11 @@ export async function POST(request: Request) {
     return jsonError(400, 'INVALID_REQUEST', 'Exam RPC arguments are required.');
   }
 
-  // Verify the JWT before using sub as a security/rate-limit identity. getClaims()
-  // verifies Supabase-issued access tokens against the project's JWKS when possible
-  // and falls back to the Auth server for legacy symmetric signing keys.
+  // Verify the JWT before using sub as a security/rate-limit identity. When a
+  // public SUPABASE_JWKS value is pinned in the server environment, getClaims()
+  // verifies ES256/RS256 signatures entirely in-process and never needs the JWKS
+  // discovery request on this hot path. Without the optional pin, preserve the
+  // existing Supabase getClaims() behavior and its managed JWKS cache/fallback.
   const authClient = createClient(supabaseUrl, publishableKey, {
     auth: {
       autoRefreshToken: false,
@@ -189,10 +300,41 @@ export async function POST(request: Request) {
     },
   });
 
-  const { data: claimsData, error: claimsError } = await authClient.auth.getClaims(accessToken);
-  const userId = claimsData?.claims?.sub;
+  if (PINNED_SUPABASE_JWKS.kind === 'ready') {
+    const header = readJwtHeader(accessToken);
+    if (!header) {
+      return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+    }
 
-  if (claimsError || typeof userId !== 'string' || !userId) {
+    // Fail closed rather than silently going back to the network if the pinned
+    // JWKS is stale or does not contain the token's signing key. This protects
+    // the security boundary and makes key-rotation configuration failures clear.
+    if (!pinnedJwkForHeader(PINNED_SUPABASE_JWKS.jwks, header)) {
+      return jsonError(
+        503,
+        'EXAM_AUTH_KEY_UNAVAILABLE',
+        'Exam authentication is temporarily unavailable.'
+      );
+    }
+  }
+
+  const { data: claimsData, error: claimsError } =
+    PINNED_SUPABASE_JWKS.kind === 'ready'
+      ? await authClient.auth.getClaims(accessToken, { jwks: PINNED_SUPABASE_JWKS.jwks })
+      : await authClient.auth.getClaims(accessToken);
+
+  const claims = claimsData?.claims;
+  const userId = claims?.sub;
+  const expectedIssuer = `${supabaseUrl.replace(/\/+$/, '')}/auth/v1`;
+
+  if (
+    claimsError ||
+    typeof userId !== 'string' ||
+    !userId ||
+    claims?.iss !== expectedIssuer ||
+    !audienceIncludesAuthenticated(claims?.aud) ||
+    claims?.role !== 'authenticated'
+  ) {
     return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
   }
 
