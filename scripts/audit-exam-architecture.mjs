@@ -26,7 +26,7 @@ const examPage = await fs.readFile(examPagePath, 'utf8');
 if (!examPage.includes("@/components/exam/WindowedExamPageClient")) {
   failures.push('exam route: production exam page must use the windowed exam engine');
 }
-if (/ExamPageClient(?!Props)/.test(examPage)) {
+if (examPage.includes('@/components/exam/ExamPageClient')) {
   failures.push('exam route: legacy full-load ExamPageClient reference detected');
 }
 
