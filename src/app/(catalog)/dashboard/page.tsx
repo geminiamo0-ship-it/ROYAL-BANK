@@ -109,8 +109,12 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-1 gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3">
           {CATALOG_CARDS.map((card) => {
             const pathway = card.pathwaySlug ? pathwayBySlug.get(card.pathwaySlug) : undefined;
-            const available = Boolean(pathway);
             const fullAccess = pathway?.hasFullAccess === true;
+            const actionHref = pathway
+              ? fullAccess
+                ? `${card.href}#access-details`
+                : `/upgrade?pathway=${pathway.id}`
+              : null;
 
             return (
               <article
@@ -123,15 +127,11 @@ export default async function DashboardPage() {
                 />
 
                 <div className="px-4 pb-4 pt-4">
-                  <h2 className="text-[16px] font-semibold leading-5 text-black">
-                    {card.title}
-                  </h2>
-                  <p className="mt-3 min-h-[72px] text-[13px] leading-[19px] text-black">
-                    {card.description}
-                  </p>
+                  <h2 className="text-[16px] font-semibold leading-5 text-black">{card.title}</h2>
+                  <p className="mt-3 min-h-[72px] text-[13px] leading-[19px] text-black">{card.description}</p>
 
                   <div className="mt-3 flex items-center gap-2">
-                    {available ? (
+                    {pathway && actionHref ? (
                       <>
                         <Link
                           href={card.href}
@@ -140,7 +140,7 @@ export default async function DashboardPage() {
                           Open Pathway
                         </Link>
                         <Link
-                          href={fullAccess ? `${card.href}#access-details` : `/upgrade?pathway=${pathway.id}`}
+                          href={actionHref}
                           className={`border px-[8px] py-[4px] text-[12px] font-medium leading-none ${
                             fullAccess
                               ? 'border-[#159947] bg-[#effbf3] text-[#087c31] hover:bg-[#e5f8eb]'
