@@ -181,11 +181,11 @@ function removeConceptInlineTools(conceptHtml: string): ConceptInlineToolsResult
 
   return {
     contentHtml: conceptHtml
-    .replace(
-      /<div\s+style=["'][^"']*display\s*:\s*flex;[^"']*align-items\s*:\s*center;[^"']*gap\s*:\s*16px;[^"']*font-size\s*:\s*0\.78rem;?[^"']*["']>[\s\S]*?Important for me[\s\S]*?Less important[\s\S]*?<\/div>/i,
-      ''
-    )
-    .replace(conceptDetailsPattern, ''),
+      .replace(
+        /<div\s+style=["'][^"']*display\s*:\s*flex;[^"']*align-items\s*:\s*center;[^"']*gap\s*:\s*16px;[^"']*font-size\s*:\s*0\.78rem;?[^"']*["']>[\s\S]*?Important for me[\s\S]*?Less important[\s\S]*?<\/div>/i,
+        ''
+      )
+      .replace(conceptDetailsPattern, ''),
     detailsBodyHtml: detailsMatch ? extractConceptDetailsBody(detailsMatch[0]) : null,
   };
 }
@@ -291,5 +291,3 @@ export function extractExplanationPanels(html: string, isConceptBookmarked = fal
     conceptImageHtml: transformed.conceptImageHtml,
   };
 }
-
-// force rebuild 1

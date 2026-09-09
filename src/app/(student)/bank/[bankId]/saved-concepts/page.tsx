@@ -2,14 +2,13 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { 
-  Sparkles, 
-  ThumbsUp, 
-  ThumbsDown, 
-  Search, 
-  ArrowRight, 
+import {
+  Sparkles,
+  ThumbsUp,
+  ThumbsDown,
+  ArrowRight,
   Trash2,
-  BookOpen
+  BookOpen,
 } from 'lucide-react';
 
 interface SavedConceptItem {
@@ -49,30 +48,23 @@ const SAMPLE_SAVED: SavedConceptItem[] = [
 ];
 
 export default function SavedConceptsPage() {
-  const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'important' | 'less_important'>('all');
   const [items, setItems] = useState<SavedConceptItem[]>(SAMPLE_SAVED);
 
-  const filteredItems = items.filter((item) => {
-    const matchesSearch =
-      item.conceptText.toLowerCase().includes(search.toLowerCase()) ||
-      item.category.toLowerCase().includes(search.toLowerCase());
-    const matchesFilter =
-      filter === 'all'
-        ? true
-        : filter === 'important'
+  const filteredItems = items.filter((item) =>
+    filter === 'all'
+      ? true
+      : filter === 'important'
         ? item.isImportant
-        : !item.isImportant;
-    return matchesSearch && matchesFilter;
-  });
+        : !item.isImportant
+  );
 
   const handleDelete = (id: number) => {
-    setItems(items.filter((i) => i.id !== id));
+    setItems(items.filter((item) => item.id !== id));
   };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      {/* Top Banner */}
       <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-300 flex items-center justify-center font-bold">
@@ -88,7 +80,6 @@ export default function SavedConceptsPage() {
           </div>
         </div>
 
-        {/* Filter Pills */}
         <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
           <button
             onClick={() => setFilter('all')}
@@ -123,7 +114,6 @@ export default function SavedConceptsPage() {
         </div>
       </div>
 
-      {/* Concepts List */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs divide-y divide-slate-100 dark:divide-slate-800">
         {filteredItems.length > 0 ? (
           filteredItems.map((item) => (

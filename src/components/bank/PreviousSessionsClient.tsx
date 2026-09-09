@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState, useTransition } from 'react';
-import { Play, Trash2 } from 'lucide-react';
 import Link from 'next/link';
+import { Play, Trash2 } from 'lucide-react';
 import { deleteSession } from '@/actions/exam';
+import { decodeTopicFilter } from '@/lib/topic-filters';
+import { formatDate } from '@/lib/utils';
 
-export interface OldBlockSession {
+export interface PreviousSession {
   id: string;
   created_at: string;
   categories: string[] | null;
@@ -16,11 +18,29 @@ export interface OldBlockSession {
   answeredCount: number;
 }
 
-export function OldBlocksClient({
+function formatCategories(categories: string[] | null) {
+  if (!categories || categories.length === 0) return 'All Categories';
+  if (categories.length > 2) return 'Mixed Categories';
+
+  return categories
+    .map((category) => {
+      const topicFilter = decodeTopicFilter(category);
+      return topicFilter ? `${topicFilter.category} > ${topicFilter.topic}` : category;
+    })
+    .join(', ');
+}
+
+function formatMode(mode: string) {
+  if (mode === 'tutor' || mode === 'standard') return 'Tutor';
+  if (mode === 'timed' || mode === 'fixed_timed') return 'Timed';
+  return mode;
+}
+
+export function PreviousSessionsClient({
   sessions,
   bankId,
 }: {
-  sessions: OldBlockSession[];
+  sessions: PreviousSession[];
   bankId: number;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -34,35 +54,6 @@ export function OldBlocksClient({
       const result = await deleteSession(sessionId, `/bank/${bankId}/fixed-sets`);
       if (result.error) setError(result.error);
     });
-  };
-
-  const formatDate = (isoString: string) => {
-    const date = new Date(isoString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const formatCategories = (categories: string[] | null) => {
-    if (!categories || categories.length === 0) return 'All Categories';
-    if (categories.length > 2) return 'Mixed Categories';
-
-    return categories.map((category) => {
-      if (category.startsWith('__topic__::')) {
-        const decoded = decodeURIComponent(category.replace('__topic__::', ''));
-        const parts = decoded.split('::');
-        return parts.length === 2 ? `${parts[0]} > ${parts[1]}` : decoded;
-      }
-      return category;
-    }).join(', ');
-  };
-
-  const formatMode = (mode: string) => {
-    if (mode === 'tutor' || mode === 'standard') return 'Tutor';
-    if (mode === 'timed' || mode === 'fixed_timed') return 'Timed';
-    return mode;
   };
 
   return (

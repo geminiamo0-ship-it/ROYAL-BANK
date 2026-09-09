@@ -3,7 +3,7 @@ name: Verify DB
 on:
   push:
     branches:
-      - audit/core-hardening
+      - main
     paths:
       - 'supabase/**'
       - '.github/workflows/verify-db.yml'
@@ -27,7 +27,7 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.117.0
 
       - name: Start local database
         run: supabase db start

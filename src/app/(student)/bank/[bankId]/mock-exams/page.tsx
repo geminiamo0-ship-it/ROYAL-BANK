@@ -2,17 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { 
-  FileText, 
-  Clock, 
-  Play, 
-  Award, 
-  CheckCircle2, 
-  AlertCircle,
-  Calendar,
-  Layers
-} from 'lucide-react';
+import { FileText, Clock, Play, Award, AlertCircle, Layers } from 'lucide-react';
 
 interface MockExam {
   id: number;
@@ -60,12 +50,8 @@ const MOCK_EXAMS: MockExam[] = [
 ];
 
 export default function MockExamsPage() {
-  const params = useParams();
-  const bankId = params.bankId || '1';
-
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      {/* Header Banner */}
       <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold">
@@ -87,7 +73,6 @@ export default function MockExamsPage() {
         </div>
       </div>
 
-      {/* Info Notice */}
       <div className="p-4 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/80 flex items-start gap-3 text-blue-900 dark:text-blue-200 text-xs">
         <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
         <div className="space-y-1">
@@ -98,7 +83,6 @@ export default function MockExamsPage() {
         </div>
       </div>
 
-      {/* Mock Exams List */}
       <div className="space-y-4">
         {MOCK_EXAMS.map((mock) => (
           <div

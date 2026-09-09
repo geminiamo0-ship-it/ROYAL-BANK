@@ -28,10 +28,15 @@ export function mergeExamLaunchWindow(sessionId: string, questions: ExamClientQu
   }
 }
 
+/**
+ * The launch cache is a one-shot handoff between the question-bank screen and
+ * the exam route. Consuming it prevents stale bootstrap state from being reused
+ * if the same session is revisited later in the SPA lifetime.
+ */
 export function getExamLaunchCache(sessionId: string): CachedExamLaunch | null {
-  return launchCache.get(sessionId) || null;
-}
+  const cached = launchCache.get(sessionId);
+  if (!cached) return null;
 
-export function clearExamLaunchCache(sessionId: string) {
   launchCache.delete(sessionId);
+  return cached;
 }

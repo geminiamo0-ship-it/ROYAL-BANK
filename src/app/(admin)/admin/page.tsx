@@ -1,15 +1,12 @@
 'use client';
 
 import React from 'react';
-import { 
-  Users, 
-  CreditCard, 
-  Layers, 
-  ShieldAlert, 
-  TrendingUp, 
-  Clock, 
-  CheckCircle2, 
-  AlertTriangle 
+import {
+  Users,
+  CreditCard,
+  Layers,
+  ShieldAlert,
+  TrendingUp,
 } from 'lucide-react';
 
 export default function AdminOverviewPage() {

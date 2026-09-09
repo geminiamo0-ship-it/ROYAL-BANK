@@ -2,220 +2,87 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { removeSavedConcept, saveConceptVote } from '@/actions/exam';
-import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamHeader } from '@/components/exam/ExamHeader';
+import { WindowedExamQuestionPane } from '@/components/exam/WindowedExamQuestionPane';
 import { WindowedExamSidebarWidgets } from '@/components/exam/WindowedExamSidebarWidgets';
+import { useExamConceptBookmark } from '@/components/exam/useExamConceptBookmark';
+import { useExamKeyboardShortcuts } from '@/components/exam/useExamKeyboardShortcuts';
+import { useWindowedExamSession } from '@/components/exam/useWindowedExamSession';
 import {
   completeExamSessionDirect,
   getExamQuestionFeedbackDirect,
-  getExamSessionBootstrapDirect,
-  getExamSessionWindowDirect,
   setQuestionFlagDirect,
   submitExamAnswerDirect,
   submitExamAnswerWithFeedbackDirect,
 } from '@/lib/exam-client-api';
-import {
-  getExamLaunchCache,
-  mergeExamLaunchWindow,
-  primeExamLaunchCache,
-} from '@/lib/exam-launch-cache';
+import { prepareQuestionStemHtml, rewriteExamMediaHtml } from '@/lib/exam-html';
 import { extractExplanationPanels } from '@/lib/explanation-panels';
 import type {
   ExamBootstrap,
-  ExamBootstrapSession,
   ExamClientAnswer,
   ExamClientOption,
-  ExamClientQuestion,
   ExamQuestionFeedback,
 } from '@/types/exam';
-import { ChevronRight } from 'lucide-react';
 
 interface WindowedExamPageClientProps {
   sessionId: string;
 }
 
-function htmlToPlainText(html: string) {
-  if (typeof document === 'undefined') {
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  }
-
-  const element = document.createElement('div');
-  element.innerHTML = html;
-  return element.textContent?.replace(/\s+/g, ' ').trim() || html;
-}
-
 export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProps) {
   const router = useRouter();
-  const [session, setSession] = useState<ExamBootstrapSession | null>(null);
-  const [questionIds, setQuestionIds] = useState<number[]>([]);
-  const [questionsById, setQuestionsById] = useState<Record<number, ExamClientQuestion>>({});
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>({});
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(new Set());
   const [struckOutOptionIds, setStruckOutOptionIds] = useState<Set<number>>(new Set());
   const [showClues, setShowClues] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [bookmarkedConceptKeys, setBookmarkedConceptKeys] = useState<Set<string>>(new Set());
-  const [pendingConceptKey, setPendingConceptKey] = useState<string | null>(null);
   const [savingQuestionIds, setSavingQuestionIds] = useState<Set<number>>(new Set());
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
-  const [loadingQuestionIndex, setLoadingQuestionIndex] = useState<number | null>(null);
   const [feedbackByQuestionId, setFeedbackByQuestionId] = useState<Record<number, ExamQuestionFeedback>>({});
 
-  const questionIdsRef = useRef<number[]>([]);
-  const questionsByIdRef = useRef<Record<number, ExamClientQuestion>>({});
-  const prefetchCursorRef = useRef(0);
-  const prefetchChainRef = useRef<Promise<void>>(Promise.resolve());
   const answerSaveChains = useRef<Record<number, Promise<void>>>({});
   const flagSaveChains = useRef<Record<number, Promise<void>>>({});
   const feedbackFetchingIds = useRef(new Set<number>());
   const persistedSelectionRef = useRef<Record<number, number | null>>({});
 
-  const addQuestions = useCallback((questions: ExamClientQuestion[]) => {
-    if (questions.length === 0) return;
-
-    const nextRef = { ...questionsByIdRef.current };
-    for (const question of questions) nextRef[question.id] = question;
-    questionsByIdRef.current = nextRef;
-    setQuestionsById(nextRef);
-    mergeExamLaunchWindow(sessionId, questions);
-  }, [sessionId]);
-
-  const loadWindow = useCallback(async (start: number, count: number) => {
-    if (count <= 0 || start >= questionIdsRef.current.length) return [];
-    const questions = await getExamSessionWindowDirect(sessionId, start, count);
-    addQuestions(questions);
-    return questions;
-  }, [addQuestions, sessionId]);
-
-  const queuePrefetch = useCallback((count = 2) => {
-    prefetchChainRef.current = prefetchChainRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        const ids = questionIdsRef.current;
-        const start = prefetchCursorRef.current;
-        if (start >= ids.length) return;
-
-        const end = Math.min(start + count, ids.length);
-        let firstMissing = -1;
-        for (let index = start; index < end; index += 1) {
-          if (!questionsByIdRef.current[ids[index]]) {
-            firstMissing = index;
-            break;
-          }
-        }
-
-        if (firstMissing >= 0) {
-          await loadWindow(firstMissing, end - firstMissing);
-        }
-        prefetchCursorRef.current = end;
-      });
-  }, [loadWindow]);
-
-  const applyBootstrap = useCallback((bootstrap: ExamBootstrap, cachedQuestions?: Record<number, ExamClientQuestion>) => {
-    if (bootstrap.status === 'completed' || bootstrap.session.is_completed) {
-      router.replace(`/bank/${bootstrap.session.question_bank_id}/fixed-sets`);
-      return;
-    }
-
-    const loaded: Record<number, ExamClientQuestion> = { ...(cachedQuestions || {}) };
-    for (const question of bootstrap.questions) loaded[question.id] = question;
-
-    const safeIndex = Math.min(
-      Math.max(0, bootstrap.currentIndex),
-      Math.max(bootstrap.questionIds.length - 1, 0),
-    );
-
-    setSession(bootstrap.session);
-    setQuestionIds(bootstrap.questionIds);
-    questionIdsRef.current = bootstrap.questionIds;
-    setQuestionsById(loaded);
-    questionsByIdRef.current = loaded;
-    setCurrentIndex(safeIndex);
+  const applyBootstrapState = useCallback((bootstrap: ExamBootstrap) => {
     setAnswers(bootstrap.answers);
     setFlaggedQuestionIds(new Set(bootstrap.flaggedQuestionIds));
     persistedSelectionRef.current = Object.fromEntries(
       Object.values(bootstrap.answers).map((answer) => [answer.questionId, answer.selectedOptionId]),
     );
-    prefetchCursorRef.current = Math.min(safeIndex + 1, bootstrap.questionIds.length);
-    setIsBootstrapping(false);
+  }, []);
 
-    queuePrefetch(2);
-  }, [queuePrefetch, router]);
+  const reportPersistenceError = useCallback((message: string) => {
+    setPersistenceError(message);
+  }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const cached = getExamLaunchCache(sessionId);
-
-    if (cached) {
-      applyBootstrap(cached.bootstrap, cached.questionsById);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setIsBootstrapping(true);
-    getExamSessionBootstrapDirect(sessionId)
-      .then((bootstrap) => {
-        if (cancelled) return;
-        primeExamLaunchCache(bootstrap);
-        applyBootstrap(bootstrap);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : 'Unable to load the exam session.';
-        if (/not authenticated|jwt|authentication/i.test(message)) {
-          router.replace('/login');
-          return;
-        }
-        setPersistenceError(message);
-        setIsBootstrapping(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [applyBootstrap, router, sessionId]);
+  const {
+    session,
+    questionIds,
+    currentIndex,
+    currentQuestion: currentQ,
+    isBootstrapping,
+    loadingQuestionIndex,
+    goNext,
+    goPrev,
+    queuePrefetch,
+    getQuestionById,
+  } = useWindowedExamSession({
+    sessionId,
+    onBootstrap: applyBootstrapState,
+    onError: reportPersistenceError,
+  });
 
   const sessionType = String(session?.session_type || 'standard');
   const isTimedMode = sessionType === 'timed' || sessionType === 'fixed_timed';
   const bankId = Number(session?.question_bank_id || 0);
-  const currentQuestionId = questionIds[currentIndex];
-  const currentQ = currentQuestionId ? questionsById[currentQuestionId] : undefined;
   const timeLimitSeconds = Number(session?.time_limit_minutes || 0) * 60;
-
-  const goToIndex = useCallback(async (targetIndex: number) => {
-    const ids = questionIdsRef.current;
-    if (targetIndex < 0 || targetIndex >= ids.length) return;
-
-    const targetId = ids[targetIndex];
-    if (questionsByIdRef.current[targetId]) {
-      setCurrentIndex(targetIndex);
-      return;
-    }
-
-    setLoadingQuestionIndex(targetIndex);
-    try {
-      await loadWindow(targetIndex, Math.min(3, ids.length - targetIndex));
-      if (questionsByIdRef.current[targetId]) setCurrentIndex(targetIndex);
-    } catch (error) {
-      setPersistenceError(error instanceof Error ? error.message : 'Unable to load the question.');
-    } finally {
-      setLoadingQuestionIndex(null);
-    }
-  }, [loadWindow]);
-
-  const goNext = useCallback(() => {
-    void goToIndex(Math.min(currentIndex + 1, questionIdsRef.current.length - 1));
-  }, [currentIndex, goToIndex]);
-
-  const goPrev = useCallback(() => {
-    void goToIndex(Math.max(currentIndex - 1, 0));
-  }, [currentIndex, goToIndex]);
+  const {
+    isBookmarked: isCurrentConceptBookmarked,
+    toggleBookmark: toggleConceptBookmark,
+  } = useExamConceptBookmark(currentQ);
 
   const queueTimedAnswerSave = useCallback((answer: ExamClientAnswer) => {
     if (answer.selectedOptionId == null) return;
@@ -265,7 +132,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     const selectedOptionId = pendingSelections[questionId];
     if (!selectedOptionId) return;
 
-    const question = questionsByIdRef.current[questionId];
+    const question = getQuestionById(questionId);
     const option = question?.options?.find((item) => item.id === selectedOptionId);
     if (!option) return;
 
@@ -283,8 +150,6 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
       persistedSelectionRef.current[questionId] = option.id;
       setAnswers((previous) => ({ ...previous, [questionId]: persistedAnswer }));
       setFeedbackByQuestionId((previous) => ({ ...previous, [questionId]: feedback }));
-
-      // Every submit extends the look-ahead buffer by two questions without blocking feedback.
       queuePrefetch(2);
     } catch (error) {
       setPersistenceError(error instanceof Error ? error.message : 'Unable to submit the answer.');
@@ -295,7 +160,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
         return next;
       });
     }
-  }, [answers, elapsedSeconds, isTimedMode, pendingSelections, queuePrefetch, savingQuestionIds, sessionId]);
+  }, [answers, elapsedSeconds, getQuestionById, isTimedMode, pendingSelections, queuePrefetch, savingQuestionIds, sessionId]);
 
   const toggleFlag = useCallback((questionId: number) => {
     const nextFlagged = !flaggedQuestionIds.has(questionId);
@@ -362,7 +227,9 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   }, [bankId, flushTimedAnswers, router]);
 
   const handleEndBlock = useCallback(async (forceSubmit = false) => {
-    if (!forceSubmit && !window.confirm('End this block? Unanswered timed questions will be marked incorrect.')) return;
+    if (!forceSubmit && !window.confirm('End this block? Unanswered timed questions will be marked incorrect.')) {
+      return;
+    }
 
     setIsSubmitting(true);
     setPersistenceError(null);
@@ -397,35 +264,18 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     return () => window.clearInterval(timerId);
   }, [handleEndBlock, isSubmitting, isTimedMode, timeLimitSeconds]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((event.target as HTMLElement).tagName)) return;
-      if (!currentQ || isSubmitting) return;
-
-      if (event.key === 'ArrowRight') {
-        goNext();
-        return;
-      }
-      if (event.key === 'ArrowLeft') {
-        goPrev();
-        return;
-      }
-      if (event.key.toLowerCase() === 'f') {
-        toggleFlag(currentQ.id);
-        return;
-      }
-      if (['1', '2', '3', '4', '5'].includes(event.key)) {
-        const optionIndex = Number(event.key) - 1;
-        const option = currentQ.options?.[optionIndex];
-        if (option) selectOption(currentQ.id, option);
-        return;
-      }
-      if (event.key === 'Enter' && !isTimedMode) void submitAnswer(currentQ.id);
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentQ, goNext, goPrev, isSubmitting, isTimedMode, selectOption, submitAnswer, toggleFlag]);
+  useExamKeyboardShortcuts({
+    question: currentQ,
+    isSubmitting,
+    isTimedMode,
+    onNext: goNext,
+    onPrev: goPrev,
+    onToggleFlag: toggleFlag,
+    onSelectOption: selectOption,
+    onSubmitAnswer: (questionId) => {
+      void submitAnswer(questionId);
+    },
+  });
 
   const answeredCount = useMemo(
     () => questionIds.filter((questionId) => answers[questionId]).length,
@@ -468,7 +318,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   if (isBootstrapping) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#282828] text-[#d9dce0]">
-        <p className="text-[12px] font-medium animate-pulse">Loading question...</p>
+        <p className="animate-pulse text-[12px] font-medium">Loading question...</p>
       </div>
     );
   }
@@ -484,85 +334,26 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   if (!currentQ) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#282828] text-[#d9dce0]">
-        <p className="text-[12px] font-medium animate-pulse">
+        <p className="animate-pulse text-[12px] font-medium">
           {loadingQuestionIndex == null ? 'Preparing question...' : `Preparing question ${loadingQuestionIndex + 1}...`}
         </p>
       </div>
     );
   }
 
-  const currentConceptKey = currentQ.concept_id || String(currentQ.id);
-  const isCurrentConceptBookmarked = bookmarkedConceptKeys.has(currentConceptKey);
   const currentFeedback = feedbackByQuestionId[currentQ.id];
-
-  const rawExplanation = currentFeedback?.explanationHtml || '';
   const mediaUrl = process.env.NEXT_PUBLIC_R2_MEDIA_URL || 'offline_media';
-  const updatedExplanation = rawExplanation.replace(
-    /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
-    `$1${mediaUrl}/`,
-  );
+  const updatedExplanation = rewriteExamMediaHtml(currentFeedback?.explanationHtml || '', mediaUrl);
   const explanationPanels = extractExplanationPanels(updatedExplanation, isCurrentConceptBookmarked);
-
   const currentAnswer = answers[currentQ.id];
   const isAnswered = Boolean(currentAnswer);
   const selectedOptionId = currentAnswer?.selectedOptionId ?? pendingSelections[currentQ.id] ?? null;
   const correctOptionId = currentFeedback?.correctOptionId ?? currentAnswer?.correctOptionId ?? null;
   const optionPercentages = currentFeedback?.optionPercentages || {};
-
-  const currentHtml = currentQ.text_html
-    ? currentQ.text_html
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(
-          /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
-          `$1${mediaUrl}/`,
-        )
-    : '';
-
+  const currentHtml = prepareQuestionStemHtml(currentQ.text_html || '', mediaUrl);
   const conceptHtml = explanationPanels.conceptHtml
-    ? explanationPanels.conceptHtml.replace(
-        /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
-        `$1${mediaUrl}/`,
-      )
+    ? rewriteExamMediaHtml(explanationPanels.conceptHtml, mediaUrl)
     : null;
-
-  const handleConceptBookmark = async () => {
-    if (!conceptHtml || pendingConceptKey) return;
-    setPendingConceptKey(currentConceptKey);
-
-    if (isCurrentConceptBookmarked) {
-      setBookmarkedConceptKeys((previous) => {
-        const next = new Set(previous);
-        next.delete(currentConceptKey);
-        return next;
-      });
-
-      try {
-        await removeSavedConcept(currentQ.id);
-      } catch {
-        setBookmarkedConceptKeys((previous) => new Set(previous).add(currentConceptKey));
-      } finally {
-        setPendingConceptKey(null);
-      }
-      return;
-    }
-
-    setBookmarkedConceptKeys((previous) => new Set(previous).add(currentConceptKey));
-    try {
-      await saveConceptVote({
-        questionId: currentQ.id,
-        conceptText: htmlToPlainText(conceptHtml),
-        isImportant: true,
-      });
-    } catch {
-      setBookmarkedConceptKeys((previous) => {
-        const next = new Set(previous);
-        next.delete(currentConceptKey);
-        return next;
-      });
-    } finally {
-      setPendingConceptKey(null);
-    }
-  };
 
   const handleExplanationClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -571,7 +362,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
 
     if (bookmarkButton) {
       event.preventDefault();
-      void handleConceptBookmark();
+      void toggleConceptBookmark(conceptHtml);
       return;
     }
     if (deepDiveButton) event.preventDefault();
@@ -604,78 +395,29 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
       ) : null}
 
       <main className="mx-auto grid max-w-[1240px] gap-6 px-4 pb-12 pt-4 lg:grid-cols-[minmax(0,1fr)_476px]">
-        <section className="min-w-0">
-          <div
-            className={`pm-question-stem select-text text-[16px] leading-[1.55] text-white ${showClues ? 'pm-show-clues' : 'pm-hide-clues'}`}
-            dangerouslySetInnerHTML={{ __html: currentHtml }}
-          />
-
-          <AnswerOptionList
-            isAnswered={isAnswered}
-            isTimedMode={isTimedMode}
-            pendingSelectionId={selectedOptionId}
-            question={currentQ}
-            struckOutOptionIds={struckOutOptionIds}
-            submittedAnswer={currentAnswer}
-            correctOptionId={correctOptionId}
-            optionPercentages={optionPercentages}
-            onSelectOption={selectOption}
-            onToggleStrikeOut={toggleStrikeOut}
-          />
-
-          {!isTimedMode && !isAnswered ? (
-            <div className="mt-6 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void submitAnswer(currentQ.id)}
-                disabled={!selectedOptionId || savingQuestionIds.has(currentQ.id) || isSubmitting}
-                className="inline-flex h-[34px] items-center rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff] disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                {savingQuestionIds.has(currentQ.id) ? 'Submitting...' : 'Submit answer'}
-              </button>
-              {!selectedOptionId ? (
-                <span className="text-[12px] text-[#a8aeb4]">Choose one option first.</span>
-              ) : null}
-            </div>
-          ) : null}
-
-          {isTimedMode ? (
-            <p className="mt-3 text-[11px] text-[#a8aeb4]">
-              Timed selections are saved automatically and can be changed until End Block.
-            </p>
-          ) : null}
-
-          {isAnswered && !isTimedMode ? (
-            <div className="space-y-6 pt-6">
-              <div
-                className="pm-explanation-container text-[16px] leading-[1.7] text-white"
-                onClick={handleExplanationClick}
-              >
-                {currentQ.topic ? (
-                  <h2 className="mb-5 text-[16px] font-semibold text-[#23a7ff]">{currentQ.topic}</h2>
-                ) : null}
-                {currentFeedback ? (
-                  <div dangerouslySetInnerHTML={{ __html: explanationPanels.contentHtml }} />
-                ) : (
-                  <div className="text-[#80868b] animate-pulse py-4">Fetching explanation...</div>
-                )}
-              </div>
-
-              {currentIndex < questionIds.length - 1 ? (
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={goNext}
-                    className="inline-flex h-[36px] items-center gap-2 rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff]"
-                  >
-                    <span>Next question</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
+        <WindowedExamQuestionPane
+          question={currentQ}
+          currentIndex={currentIndex}
+          questionCount={questionIds.length}
+          questionHtml={currentHtml}
+          explanationHtml={explanationPanels.contentHtml}
+          hasFeedback={Boolean(currentFeedback)}
+          showClues={showClues}
+          isAnswered={isAnswered}
+          isTimedMode={isTimedMode}
+          selectedOptionId={selectedOptionId}
+          struckOutOptionIds={struckOutOptionIds}
+          submittedAnswer={currentAnswer}
+          correctOptionId={correctOptionId}
+          optionPercentages={optionPercentages}
+          isSaving={savingQuestionIds.has(currentQ.id)}
+          isSubmitting={isSubmitting}
+          onSelectOption={selectOption}
+          onToggleStrikeOut={toggleStrikeOut}
+          onSubmitAnswer={() => void submitAnswer(currentQ.id)}
+          onNext={goNext}
+          onExplanationClick={handleExplanationClick}
+        />
 
         <WindowedExamSidebarWidgets
           answers={answers}
