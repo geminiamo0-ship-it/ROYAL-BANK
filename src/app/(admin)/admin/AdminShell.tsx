@@ -4,19 +4,25 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  BarChart3,
-  Users,
-  ShieldAlert,
-  Headphones,
   ArrowLeft,
+  BadgePercent,
+  BarChart3,
+  CircleDollarSign,
+  Headphones,
+  ShieldAlert,
   Stethoscope,
+  Users,
+  WalletCards,
 } from 'lucide-react';
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   const navItems = [
-    { name: 'Dashboard Overview', href: '/admin', icon: BarChart3 },
+    { name: 'Business Overview', href: '/admin', icon: BarChart3 },
+    { name: 'Revenue', href: '/admin/revenue', icon: CircleDollarSign },
+    { name: 'Promo Codes', href: '/admin/promos', icon: BadgePercent },
+    { name: 'Commissions', href: '/admin/commissions', icon: WalletCards },
     { name: 'Users & Subscriptions', href: '/admin/users', icon: Users },
     { name: 'Security & IP Block', href: '/admin/security', icon: ShieldAlert },
     { name: 'Support Activation', href: '/support', icon: Headphones },
@@ -35,7 +41,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         <nav className="flex-1 p-3 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive = item.href === '/admin'
+              ? pathname === '/admin'
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (
               <Link
                 key={item.href}
