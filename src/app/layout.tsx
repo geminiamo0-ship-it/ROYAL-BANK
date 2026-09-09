@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
-import { QueryProvider } from '@/components/providers/QueryProvider';
 
 export const metadata: Metadata = {
   title: 'Royal Bank — Medical Question Bank & Revision Platform',
@@ -22,7 +21,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <QueryProvider>{children}</QueryProvider>
+          {children}
         </ThemeProvider>
       </body>
     </html>
