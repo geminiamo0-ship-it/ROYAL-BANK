@@ -1,7 +1,9 @@
 import { createHmac } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { checkVercelRateLimit } from '@/lib/vercel-firewall-rate-limit';
+import { EXAM_RPC_BY_ACTION, parseExamGatewayRequest } from '@/lib/exam-gateway-contract';
 import { getSupabaseServerConfig } from '@/lib/supabase/env';
+import type { ExamGatewayAction } from '@/types/exam-gateway';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'dub1';
@@ -12,17 +14,6 @@ const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 const RATE_LIMIT_RECORD_TIMEOUT_MS = 1500;
 const SUPPORTED_PINNED_JWT_ALGORITHMS = new Set(['ES256', 'RS256']);
 
-const RPC_BY_ACTION = {
-  create: 'create_exam_session_bootstrap_idempotent',
-  bootstrap: 'get_exam_session_bootstrap',
-  window: 'get_exam_session_window',
-  submit: 'submit_exam_answer_with_feedback',
-  submitRaw: 'submit_exam_answer',
-  feedback: 'get_exam_question_feedback',
-  flag: 'set_question_flag',
-  complete: 'complete_exam_session',
-} as const;
-
 const RATE_LIMIT_FAIL_OPEN_ACTIONS = new Set<ExamGatewayAction>([
   'submit',
   'submitRaw',
@@ -30,13 +21,6 @@ const RATE_LIMIT_FAIL_OPEN_ACTIONS = new Set<ExamGatewayAction>([
   'flag',
   'complete',
 ]);
-
-type ExamGatewayAction = keyof typeof RPC_BY_ACTION;
-
-type ExamGatewayBody = {
-  action?: string;
-  args?: Record<string, unknown>;
-};
 
 type GatewayProof = {
   gatewayKeyId: string;
@@ -209,10 +193,6 @@ function normalizeUserAgent(request: Request): string {
   return (request.headers.get('user-agent') || 'unknown').trim().slice(0, 512);
 }
 
-function isAllowedAction(value: string): value is ExamGatewayAction {
-  return Object.prototype.hasOwnProperty.call(RPC_BY_ACTION, value);
-}
-
 function gatewayHeaders(
   publishableKey: string,
   accessToken: string,
@@ -318,26 +298,28 @@ export async function POST(request: Request) {
   }
 
   const bodyParseStart = performance.now();
-  let body: ExamGatewayBody;
+  let rawRequestBody: unknown;
   try {
     const rawBody = await request.text();
     if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
       return jsonError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
     }
-    body = JSON.parse(rawBody) as ExamGatewayBody;
+    rawRequestBody = JSON.parse(rawBody) as unknown;
   } catch {
     return jsonError(400, 'INVALID_REQUEST', 'Invalid request body.');
   }
+
+  const parsedRequest = parseExamGatewayRequest(rawRequestBody);
   bodyParseMs = performance.now() - bodyParseStart;
 
-  if (!body.action || !isAllowedAction(body.action)) {
-    return jsonError(400, 'INVALID_EXAM_ACTION', 'Unsupported exam action.');
+  if (!parsedRequest.ok) {
+    if (parsedRequest.code === 'INVALID_EXAM_ACTION') {
+      return jsonError(400, 'INVALID_EXAM_ACTION', 'Unsupported exam action.');
+    }
+    return jsonError(400, 'INVALID_REQUEST', 'Invalid exam RPC arguments.');
   }
 
-  if (body.args == null || typeof body.args !== 'object' || Array.isArray(body.args)) {
-    return jsonError(400, 'INVALID_REQUEST', 'Exam RPC arguments are required.');
-  }
-
+  const body = parsedRequest.value;
   const authStart = performance.now();
 
   // Verify the JWT before using sub as a security/rate-limit identity. When a
@@ -446,7 +428,7 @@ export async function POST(request: Request) {
 
   rateLimitMs = performance.now() - rateLimitStart;
 
-  const rpcName = RPC_BY_ACTION[body.action];
+  const rpcName = EXAM_RPC_BY_ACTION[body.action];
 
   const upstreamFetchStart = performance.now();
   let upstream: Response;
