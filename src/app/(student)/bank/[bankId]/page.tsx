@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { getQuestionBankCategories, startExamSession, type CategorySummary } from '@/actions/exam';
+import { getQuestionBankCategories, type CategorySummary } from '@/actions/exam';
+import { startExamSession } from '@/lib/exam-launch';
 import {
   BarChart3,
   BookOpen,
@@ -174,20 +175,6 @@ export default function QuestionBankHomePage() {
               className="rounded-[3px] bg-[#ffd7ea] px-3 py-[7px] text-[12px] text-[#561035] hover:bg-[#ffe5f1]"
             >
               High-yield textbook
-            </Link>
-            <Link
-              href={`${bankBase(bankId)}/textbook/extended`}
-              className="rounded-[3px] bg-[#ffe6d2] px-3 py-[7px] text-[12px] text-[#5d2b0e] hover:bg-[#fff0e2]"
-            >
-              Extended textbook
-              <ChevronRight className="ml-1 inline h-3 w-3" />
-            </Link>
-            <Link
-              href={`${bankBase(bankId)}/textbook/high-yield?separate=true`}
-              className="rounded-[3px] bg-[#ffd7ea] px-3 py-[7px] text-[12px] text-[#561035] hover:bg-[#ffe5f1]"
-            >
-              High-yield textbook in separate tab
-              <ChevronRight className="ml-1 inline h-3 w-3" />
             </Link>
           </div>
         </Panel>
