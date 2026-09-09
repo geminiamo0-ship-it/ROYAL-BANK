@@ -1,15 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { 
-  Search, 
-  ShieldCheck, 
-  UserCheck, 
-  Check, 
-  Clock, 
-  Lock, 
-  Calendar,
-  AlertCircle
+import {
+  Search,
+  ShieldCheck,
+  UserCheck,
+  Check,
+  AlertCircle,
 } from 'lucide-react';
 
 interface MockUser {
@@ -87,7 +84,6 @@ export default function SupportDeskPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      {/* Top Header */}
       <div className="bg-purple-950 text-white rounded-xl p-6 shadow-md border border-purple-900 flex items-center justify-between">
         <div className="space-y-1">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-800/60 text-purple-200 text-xs font-semibold">
@@ -108,7 +104,6 @@ export default function SupportDeskPage() {
         </div>
       )}
 
-      {/* Search Box */}
       <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
         <h2 className="font-bold text-slate-900 dark:text-white text-sm">
           Search Registered Student
@@ -136,7 +131,6 @@ export default function SupportDeskPage() {
         </form>
       </div>
 
-      {/* User Lookup Result & Activation Panel */}
       {selectedUser ? (
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-6 animate-in fade-in duration-200">
           <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
@@ -158,7 +152,6 @@ export default function SupportDeskPage() {
             </span>
           </div>
 
-          {/* Activation Form */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
