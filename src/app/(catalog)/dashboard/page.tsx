@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { logout, getCurrentUser } from '@/actions/auth';
-import { getPathwayDetails } from '@/actions/pathways';
+import { getPathwayDetails, type PathwayDetail } from '@/actions/pathways';
 
 interface CatalogCard {
   title: string;
@@ -9,10 +9,9 @@ interface CatalogCard {
   imageUrl: string;
   href: string;
   pathwaySlug?: string;
-  locked: boolean;
 }
 
-const CATALOG_CARDS: Omit<CatalogCard, 'locked'>[] = [
+const CATALOG_CARDS: CatalogCard[] = [
   {
     title: 'MRCP Part 1',
     description: 'Over 5,100 Single Best Answer questions plus full mock exams and a high-yield MRCP textbook.',
@@ -56,26 +55,18 @@ const CATALOG_CARDS: Omit<CatalogCard, 'locked'>[] = [
 ];
 
 export default async function DashboardPage() {
-  const [user, ...pathwayAccess] = await Promise.all([
+  const pathwaySlugs = CATALOG_CARDS.flatMap((card) => card.pathwaySlug ? [card.pathwaySlug] : []);
+  const [user, ...resolvedPathways] = await Promise.all([
     getCurrentUser(),
-    getPathwayDetails('mrcp-part-1'),
-    getPathwayDetails('mrcog-part-1'),
-    getPathwayDetails('plab-ukmla'),
-    getPathwayDetails('mrcs-part-a'),
+    ...pathwaySlugs.map((slug) => getPathwayDetails(slug)),
   ]);
 
   const isStaff = user?.role === 'admin' || user?.role === 'support';
-  const accessBySlug = new Map(
-    pathwayAccess
-      .filter((pathway): pathway is NonNullable<typeof pathway> => pathway !== null)
-      .map((pathway) => [pathway.slug, pathway.isUnlocked])
+  const pathwayBySlug = new Map<string, PathwayDetail>(
+    resolvedPathways
+      .filter((pathway): pathway is PathwayDetail => pathway !== null)
+      .map((pathway) => [pathway.slug, pathway])
   );
-
-  const catalogCards: CatalogCard[] = CATALOG_CARDS.map((card) => ({
-    ...card,
-    // Unknown/WIP pathways fail closed until they exist in the canonical catalog/DB.
-    locked: card.pathwaySlug ? accessBySlug.get(card.pathwaySlug) !== true : true,
-  }));
 
   return (
     <main className="min-h-screen bg-[#f4f4f4] text-[#111827]">
@@ -116,41 +107,59 @@ export default async function DashboardPage() {
 
       <section className="mx-auto max-w-[930px] px-4 py-10">
         <div className="grid grid-cols-1 gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3">
-          {catalogCards.map((card) => (
-            <article
-              key={card.title}
-              className="overflow-hidden rounded-[2px] border border-[#d7d7d7] bg-white shadow-[0_1px_5px_rgba(0,0,0,0.12)]"
-            >
-              <div
-                className="h-20 w-full bg-cover bg-center"
-                style={{ backgroundImage: `url('${card.imageUrl}')` }}
-              />
+          {CATALOG_CARDS.map((card) => {
+            const pathway = card.pathwaySlug ? pathwayBySlug.get(card.pathwaySlug) : undefined;
+            const fullAccess = pathway?.hasFullAccess === true;
+            const actionHref = pathway
+              ? fullAccess
+                ? `${card.href}#access-details`
+                : `/upgrade?pathway=${pathway.id}`
+              : null;
 
-              <div className="px-4 pb-4 pt-4">
-                <h2 className="text-[16px] font-semibold leading-5 text-black">
-                  {card.title}
-                </h2>
-                <p className="mt-3 min-h-[72px] text-[13px] leading-[19px] text-black">
-                  {card.description}
-                </p>
+            return (
+              <article
+                key={card.title}
+                className="overflow-hidden rounded-[2px] border border-[#d7d7d7] bg-white shadow-[0_1px_5px_rgba(0,0,0,0.12)]"
+              >
+                <div
+                  className="h-20 w-full bg-cover bg-center"
+                  style={{ backgroundImage: `url('${card.imageUrl}')` }}
+                />
 
-                <div className="mt-3 flex items-center">
-                  <Link
-                    href={card.locked ? '/dashboard?upgrade=true' : card.href}
-                    className="border border-[#00a2d3] px-[8px] py-[4px] text-[12px] leading-none text-[#0089b5] hover:bg-[#eaf8fc]"
-                  >
-                    Take a demo
-                  </Link>
-                  <Link
-                    href={card.locked ? '/dashboard?upgrade=true' : card.href}
-                    className="-ml-px border border-[#1eb34a] px-[8px] py-[4px] text-[12px] leading-none text-[#0a9e34] hover:bg-[#eefbf2]"
-                  >
-                    {card.locked ? 'Upgrade' : 'Open'}
-                  </Link>
+                <div className="px-4 pb-4 pt-4">
+                  <h2 className="text-[16px] font-semibold leading-5 text-black">{card.title}</h2>
+                  <p className="mt-3 min-h-[72px] text-[13px] leading-[19px] text-black">{card.description}</p>
+
+                  <div className="mt-3 flex items-center gap-2">
+                    {pathway && actionHref ? (
+                      <>
+                        <Link
+                          href={card.href}
+                          className="border border-[#00a2d3] px-[8px] py-[4px] text-[12px] leading-none text-[#007fa8] hover:bg-[#eaf8fc]"
+                        >
+                          Open Pathway
+                        </Link>
+                        <Link
+                          href={actionHref}
+                          className={`border px-[8px] py-[4px] text-[12px] font-medium leading-none ${
+                            fullAccess
+                              ? 'border-[#159947] bg-[#effbf3] text-[#087c31] hover:bg-[#e5f8eb]'
+                              : 'border-[#1eb34a] text-[#0a8e31] hover:bg-[#eefbf2]'
+                          }`}
+                        >
+                          {fullAccess ? 'Activated' : 'Upgrade'}
+                        </Link>
+                      </>
+                    ) : (
+                      <span className="border border-[#b9b9b9] bg-[#f7f7f7] px-[8px] py-[4px] text-[12px] leading-none text-[#666666]">
+                        Coming soon
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </section>
     </main>

@@ -2,6 +2,16 @@
 
 import { createClient } from '@/lib/supabase/server';
 
+export interface ActiveAccessGrant {
+  id: number;
+  scope_type: 'global' | 'pathway' | 'bank';
+  pathway_id: number | null;
+  question_bank_id: number | null;
+  starts_at: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
 export interface QuestionBankItem {
   id: number;
   pathwayId: number;
@@ -15,6 +25,7 @@ export interface QuestionBankItem {
   features: string[];
   isFreeTrialAvailable: boolean;
   isUnlocked: boolean;
+  hasPremiumAccess: boolean;
   thumbnailUrl?: string;
   badge?: string;
 }
@@ -28,10 +39,17 @@ export interface PathwayDetail {
   description: string;
   totalQuestions: number;
   isUnlocked: boolean;
+  hasFullAccess: boolean;
+  activeAccess: ActiveAccessGrant[];
   banks: QuestionBankItem[];
 }
 
-const PATHWAYS_DATA: Record<string, PathwayDetail> = {
+type StaticQuestionBank = Omit<QuestionBankItem, 'isUnlocked' | 'hasPremiumAccess'>;
+type StaticPathway = Omit<PathwayDetail, 'isUnlocked' | 'hasFullAccess' | 'activeAccess' | 'banks'> & {
+  banks: StaticQuestionBank[];
+};
+
+const PATHWAYS_DATA: Record<string, StaticPathway> = {
   'mrcp-part-1': {
     id: 1,
     slug: 'mrcp-part-1',
@@ -40,7 +58,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
     category: 'Internal Medicine',
     description: 'Royal College of Physicians Examination Part 1. Choose from our specialized banks with full clinical explanations and isolated analytics.',
     totalQuestions: 13444,
-    isUnlocked: false,
     banks: [
       {
         id: 1,
@@ -60,7 +77,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Saved Concepts (Important / Less Important)'
         ],
         isFreeTrialAvailable: true,
-        isUnlocked: false,
         badge: 'Recommended'
       },
       {
@@ -80,7 +96,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Topic-Specific Revision Sets'
         ],
         isFreeTrialAvailable: false,
-        isUnlocked: false,
         badge: 'Popular'
       },
       {
@@ -99,7 +114,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Timed Benchmark Simulation Mode'
         ],
         isFreeTrialAvailable: false,
-        isUnlocked: false,
         badge: 'Advanced'
       },
     ],
@@ -112,7 +126,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
     category: 'Obstetrics & Gynaecology',
     description: 'Royal College of Obstetricians and Gynaecologists Part 1 Examination.',
     totalQuestions: 3200,
-    isUnlocked: false,
     banks: [
       {
         id: 4,
@@ -130,7 +143,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Full Exam Simulation'
         ],
         isFreeTrialAvailable: false,
-        isUnlocked: false,
       }
     ],
   },
@@ -142,7 +154,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
     category: 'Surgery',
     description: 'Intercollegiate MRCS Part A Examination preparation.',
     totalQuestions: 4100,
-    isUnlocked: false,
     banks: [
       {
         id: 5,
@@ -160,7 +171,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Paper 1 & Paper 2 Format'
         ],
         isFreeTrialAvailable: false,
-        isUnlocked: false,
       }
     ],
   },
@@ -172,7 +182,6 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
     category: 'General Clinical Practice',
     description: 'GMC General Medical Council Licensing Examination (UKMLA).',
     totalQuestions: 4800,
-    isUnlocked: false,
     banks: [
       {
         id: 6,
@@ -190,36 +199,53 @@ const PATHWAYS_DATA: Record<string, PathwayDetail> = {
           'Full Gold-Standard Mock Exams'
         ],
         isFreeTrialAvailable: false,
-        isUnlocked: false,
       }
     ],
   },
 };
 
-async function resolveBankAccess(bankIds: number[]): Promise<Map<number, boolean>> {
-  const access = new Map<number, boolean>(bankIds.map((id) => [id, false]));
-  if (bankIds.length === 0) return access;
+interface ResolvedBankAccess {
+  unlocked: boolean;
+  premium: boolean;
+}
+
+async function resolveBankAccess(bankIds: number[]): Promise<{
+  access: Map<number, ResolvedBankAccess>;
+  grants: ActiveAccessGrant[];
+}> {
+  const access = new Map<number, ResolvedBankAccess>(
+    bankIds.map((id) => [id, { unlocked: false, premium: false }])
+  );
+  if (bankIds.length === 0) return { access, grants: [] };
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return access;
+  if (!user) return { access, grants: [] };
+
+  const grantsPromise = supabase.rpc('get_my_active_access_grants');
 
   await Promise.all(
     bankIds.map(async (bankId) => {
-      const { data, error } = await supabase.rpc('can_access_question_bank', {
-        p_bank_id: bankId,
-      });
+      const [contentResult, premiumResult] = await Promise.all([
+        supabase.rpc('can_access_question_bank', { p_bank_id: bankId }),
+        supabase.rpc('has_premium_question_bank_access', { p_bank_id: bankId }),
+      ]);
 
-      if (!error) {
-        access.set(bankId, data === true);
-      }
+      access.set(bankId, {
+        unlocked: !contentResult.error && contentResult.data === true,
+        premium: !premiumResult.error && premiumResult.data === true,
+      });
     })
   );
 
-  return access;
+  const grantsResult = await grantsPromise;
+  return {
+    access,
+    grants: grantsResult.error ? [] : ((grantsResult.data || []) as ActiveAccessGrant[]),
+  };
 }
 
 export async function getPathwayDetails(slug: string): Promise<PathwayDetail | null> {
@@ -229,24 +255,36 @@ export async function getPathwayDetails(slug: string): Promise<PathwayDetail | n
   const banks = pathway.banks.map((bank) => ({ ...bank, features: [...bank.features] }));
 
   try {
-    const access = await resolveBankAccess(banks.map((bank) => bank.id));
-    const resolvedBanks = banks.map((bank) => ({
+    const resolved = await resolveBankAccess(banks.map((bank) => bank.id));
+    const resolvedBanks: QuestionBankItem[] = banks.map((bank) => ({
       ...bank,
-      isUnlocked: access.get(bank.id) === true,
+      isUnlocked: resolved.access.get(bank.id)?.unlocked === true,
+      hasPremiumAccess: resolved.access.get(bank.id)?.premium === true,
     }));
+    const bankIds = new Set(resolvedBanks.map((bank) => bank.id));
+    const activeAccess = resolved.grants.filter((grant) =>
+      grant.scope_type === 'global'
+      || (grant.scope_type === 'pathway' && grant.pathway_id === pathway.id)
+      || (grant.scope_type === 'bank' && grant.question_bank_id !== null && bankIds.has(grant.question_bank_id))
+    );
+    const directFullGrant = activeAccess.some(
+      (grant) => grant.scope_type === 'global' || (grant.scope_type === 'pathway' && grant.pathway_id === pathway.id)
+    );
 
     return {
       ...pathway,
       isUnlocked: resolvedBanks.some((bank) => bank.isUnlocked),
+      hasFullAccess: directFullGrant || (resolvedBanks.length > 0 && resolvedBanks.every((bank) => bank.hasPremiumAccess)),
+      activeAccess,
       banks: resolvedBanks,
     };
   } catch {
-    // Fail closed: catalog metadata can still render, but no bank is shown as unlocked
-    // if canonical authorization cannot be resolved.
     return {
       ...pathway,
       isUnlocked: false,
-      banks: banks.map((bank) => ({ ...bank, isUnlocked: false })),
+      hasFullAccess: false,
+      activeAccess: [],
+      banks: banks.map((bank) => ({ ...bank, isUnlocked: false, hasPremiumAccess: false })),
     };
   }
 }
@@ -259,17 +297,19 @@ export async function getBankDetails(bankId: number): Promise<QuestionBankItem |
   if (!bank) return null;
 
   try {
-    const access = await resolveBankAccess([bankId]);
+    const resolved = await resolveBankAccess([bankId]);
     return {
       ...bank,
       features: [...bank.features],
-      isUnlocked: access.get(bankId) === true,
+      isUnlocked: resolved.access.get(bankId)?.unlocked === true,
+      hasPremiumAccess: resolved.access.get(bankId)?.premium === true,
     };
   } catch {
     return {
       ...bank,
       features: [...bank.features],
       isUnlocked: false,
+      hasPremiumAccess: false,
     };
   }
 }

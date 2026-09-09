@@ -5,11 +5,11 @@ import {
   BadgeCheck,
   Banknote,
   CheckCircle2,
-  Clock3,
   Loader2,
   RefreshCw,
   Search,
   UserRound,
+  X,
   XCircle,
 } from 'lucide-react';
 import {
@@ -17,7 +17,6 @@ import {
   cancelSupportUpgrade,
   getSupportUpgradeRequest,
   listSupportUpgradeRequests,
-  markSupportUpgradeContacted,
   recordSupportUpgradePayment,
   saveSupportUpgradeOrder,
 } from '@/actions/business';
@@ -26,23 +25,21 @@ import {
   Field,
   InfoCard,
   MoneyField,
+  ProgressStrip,
   RequestHeader,
-  StatusBadge,
   SuccessBox,
-  formatDate,
   formatMoney,
   formatPromoDiscount,
   inputClass,
+  visibleStatus,
 } from '@/components/business/SupportActivationParts';
-import type {
-  SupportUpgradeDetail,
-  SupportUpgradeQueueItem,
-  UpgradeRequestStatus,
-} from '@/types/business';
+import { SupportRequestQueue } from '@/components/business/SupportRequestQueue';
+import type { SupportUpgradeDetail, SupportUpgradeQueueItem } from '@/types/business';
 
-const STATUS_OPTIONS: Array<{ value: UpgradeRequestStatus | 'all'; label: string }> = [
+type QueueFilter = 'pending' | 'paid' | 'activated' | 'cancelled' | 'all';
+
+const FILTERS: Array<{ value: QueueFilter; label: string }> = [
   { value: 'pending', label: 'Pending' },
-  { value: 'contacted', label: 'Contacted' },
   { value: 'paid', label: 'Paid' },
   { value: 'activated', label: 'Activated' },
   { value: 'cancelled', label: 'Cancelled' },
@@ -50,7 +47,7 @@ const STATUS_OPTIONS: Array<{ value: UpgradeRequestStatus | 'all'; label: string
 ];
 
 export function SupportActivationClient() {
-  const [status, setStatus] = useState<UpgradeRequestStatus | 'all'>('pending');
+  const [status, setStatus] = useState<QueueFilter>('pending');
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
   const [items, setItems] = useState<SupportUpgradeQueueItem[]>([]);
@@ -67,51 +64,78 @@ export function SupportActivationClient() {
   const [agreedPrice, setAgreedPrice] = useState('');
   const [currency, setCurrency] = useState('EGP');
   const [orderNotes, setOrderNotes] = useState('');
-
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('InstaPay');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [cancelReason, setCancelReason] = useState('');
 
-  const refreshQueue = useCallback(async () => {
+  const loadQueue = useCallback(async () => {
     setQueueError(null);
+
+    if (!search && status === 'pending') {
+      const [pendingResult, legacyContactedResult] = await Promise.all([
+        listSupportUpgradeRequests({ status: 'pending', search: '', limit: 100, offset: 0 }),
+        listSupportUpgradeRequests({ status: 'contacted', search: '', limit: 100, offset: 0 }),
+      ]);
+      if (!pendingResult.ok) return setQueueError(pendingResult.error);
+      if (!legacyContactedResult.ok) return setQueueError(legacyContactedResult.error);
+      setItems(
+        [...pendingResult.data, ...legacyContactedResult.data]
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      );
+      return;
+    }
+
     const result = await listSupportUpgradeRequests({
-      status: status === 'all' ? null : status,
+      status: search || status === 'all' ? null : status,
       search,
       limit: 100,
       offset: 0,
     });
-
     if (!result.ok) {
       setItems([]);
       setQueueError(result.error);
       return;
     }
-
     setItems(result.data);
   }, [search, status]);
 
   useEffect(() => {
     let cancelled = false;
 
-    void listSupportUpgradeRequests({
-      status: status === 'all' ? null : status,
-      search,
-      limit: 100,
-      offset: 0,
-    }).then((result) => {
-      if (cancelled) return;
+    void (async () => {
+      if (!search && status === 'pending') {
+        const [pendingResult, legacyContactedResult] = await Promise.all([
+          listSupportUpgradeRequests({ status: 'pending', search: '', limit: 100, offset: 0 }),
+          listSupportUpgradeRequests({ status: 'contacted', search: '', limit: 100, offset: 0 }),
+        ]);
+        if (cancelled) return;
+        if (!pendingResult.ok) return setQueueError(pendingResult.error);
+        if (!legacyContactedResult.ok) return setQueueError(legacyContactedResult.error);
+        setQueueError(null);
+        setItems(
+          [...pendingResult.data, ...legacyContactedResult.data]
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        );
+        return;
+      }
 
+      const result = await listSupportUpgradeRequests({
+        status: search || status === 'all' ? null : status,
+        search,
+        limit: 100,
+        offset: 0,
+      });
+      if (cancelled) return;
       if (!result.ok) {
         setItems([]);
         setQueueError(result.error);
         return;
       }
-
       setQueueError(null);
       setItems(result.data);
-    });
+    })();
 
     return () => {
       cancelled = true;
@@ -141,312 +165,285 @@ export function SupportActivationClient() {
     setCancelReason('');
   }, []);
 
-  const openRequest = useCallback(async (requestId: string, keepForms = false) => {
+  const openRequest = useCallback(async (requestId: string) => {
     setLoadingDetail(true);
     setActionError(null);
     const result = await getSupportUpgradeRequest(requestId);
     setLoadingDetail(false);
-
-    if (!result.ok) {
-      setActionError(result.error);
-      return;
-    }
-
+    if (!result.ok) return setActionError(result.error);
     setDetail(result.data);
-    if (!keepForms) syncForms(result.data);
+    syncForms(result.data);
   }, [syncForms]);
 
   async function refreshSelected(message?: string) {
     if (!detail) return;
-    await Promise.all([refreshQueue(), openRequest(detail.request.id)]);
+    const result = await getSupportUpgradeRequest(detail.request.id);
+    await loadQueue();
+    if (!result.ok) return setActionError(result.error);
+    setDetail(result.data);
+    syncForms(result.data);
     if (message) setNotice(message);
   }
 
   function runAction(task: () => Promise<void>) {
     setActionError(null);
     setNotice(null);
-    startTransition(() => {
-      void task();
-    });
+    startTransition(() => void task());
   }
 
-  const amountDue = useMemo(() => {
-    if (!detail?.order) return 0;
-    return Number(detail.order.amount_due || 0);
-  }, [detail]);
-
+  const amountDue = useMemo(() => Number(detail?.order?.amount_due || 0), [detail]);
   const canEditOrder = detail && ['pending', 'contacted'].includes(detail.request.status);
-  const canRecordPayment = detail?.order && ['pending', 'contacted', 'paid'].includes(detail.request.status);
+  const canRecordPayment = Boolean(
+    detail?.order && ['pending', 'contacted', 'paid'].includes(detail.request.status) && amountDue > 0
+  );
   const canActivate = detail?.request.status === 'paid' && amountDue <= 0;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-purple-500">Operations</p>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">Support Activation</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Telegram-assisted sales: verify the request, record payment, then activate access.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void refreshQueue()}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
-      </header>
+    <div className="min-h-screen bg-[#07101d] px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1600px] space-y-5">
+        <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-purple-400">Operations</p>
+            <h1 className="mt-1 text-3xl font-black tracking-tight text-white">Support Activation</h1>
+            <p className="mt-1 text-sm font-medium text-slate-400">Find the customer, record the sale, confirm payment, activate access.</p>
+          </div>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex w-full max-w-2xl gap-2">
+            <form
+              className="flex min-w-0 flex-1 gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const query = searchDraft.trim();
+                setSearch(query);
+                if (query) setStatus('all');
+              }}
+            >
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  value={searchDraft}
+                  onChange={(event) => setSearchDraft(event.target.value)}
+                  placeholder="Search request ID, email, or name..."
+                  className="h-11 w-full rounded-xl border border-slate-700 bg-[#0b1627] pl-10 pr-10 text-sm font-medium text-white outline-none placeholder:text-slate-500 focus:border-purple-500"
+                />
+                {searchDraft && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchDraft('');
+                      setSearch('');
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <button type="submit" className="rounded-xl bg-purple-600 px-5 text-xs font-black text-white hover:bg-purple-500">Search</button>
+            </form>
+            <button
+              type="button"
+              onClick={() => void loadQueue()}
+              className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-700 bg-[#0b1627] px-4 text-xs font-bold text-slate-200 hover:border-slate-500"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+          </div>
+        </header>
+
         <div className="flex flex-wrap gap-2">
-          {STATUS_OPTIONS.map((option) => (
+          {FILTERS.map((option) => (
             <button
               key={option.value}
               type="button"
-              onClick={() => setStatus(option.value)}
-              className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-                status === option.value
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'
+              onClick={() => {
+                setStatus(option.value);
+                setSearch('');
+                setSearchDraft('');
+              }}
+              className={`rounded-full border px-4 py-2 text-xs font-black transition ${
+                status === option.value && !search
+                  ? 'border-purple-400 bg-purple-600 text-white'
+                  : 'border-slate-700 bg-[#0b1627] text-slate-300 hover:border-slate-500 hover:text-white'
               }`}
             >
               {option.label}
             </button>
           ))}
         </div>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            setSearch(searchDraft.trim());
-          }}
-          className="mt-3 flex gap-2"
-        >
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              placeholder="Request ID, email, or name"
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-purple-500 dark:border-slate-700 dark:bg-slate-950"
-            />
-          </div>
-          <button type="submit" className="rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white dark:bg-slate-700">
-            Search
-          </button>
-        </form>
-      </section>
 
-      {queueError && <ErrorBox message={queueError} />}
-      {notice && <SuccessBox message={notice} />}
-      {actionError && <ErrorBox message={actionError} />}
+        {queueError && <ErrorBox message={queueError} />}
+        {notice && <SuccessBox message={notice} />}
+        {actionError && <ErrorBox message={actionError} />}
 
-      <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-            <p className="text-xs font-semibold text-slate-500">{items.length} requests</p>
-          </div>
-          <div className="max-h-[720px] divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
-            {items.length === 0 && !queueError ? (
-              <div className="p-8 text-center text-sm text-slate-400">No matching requests.</div>
+        <div className="grid gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+          <SupportRequestQueue
+            items={items}
+            selectedId={detail?.request.id}
+            queueError={queueError}
+            onOpen={(requestId) => void openRequest(requestId)}
+          />
+
+          <section className="min-h-[620px] rounded-2xl border border-slate-800 bg-[#0b1627] p-5 shadow-2xl shadow-black/20 sm:p-6">
+            {loadingDetail ? (
+              <div className="flex min-h-[520px] items-center justify-center text-slate-500"><Loader2 className="h-7 w-7 animate-spin" /></div>
+            ) : !detail ? (
+              <div className="flex min-h-[520px] flex-col items-center justify-center text-center text-slate-500">
+                <UserRound className="mb-3 h-11 w-11" />
+                <p className="text-sm font-semibold">Select a request to manage it.</p>
+              </div>
             ) : (
-              items.map((item) => (
-                <button
-                  key={item.request_id}
-                  type="button"
-                  onClick={() => void openRequest(item.request_id)}
-                  className={`w-full p-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                    detail?.request.id === item.request_id ? 'bg-purple-50 dark:bg-purple-950/20' : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-mono text-xs font-bold text-purple-600">{item.public_code}</p>
-                      <p className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-white">{item.full_name || item.email}</p>
-                      <p className="truncate text-xs text-slate-500">{item.email}</p>
-                    </div>
-                    <StatusBadge status={item.request_status} />
-                  </div>
-                  <p className="mt-3 truncate text-xs font-medium text-slate-700 dark:text-slate-300">{item.product_name}</p>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                    <span>{item.promo_code ? `Promo ${item.promo_code}` : 'No promo'}</span>
-                    <span>{formatDate(item.created_at)}</span>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
+              <div className="space-y-5">
+                <RequestHeader detail={detail} />
+                <ProgressStrip status={detail.request.status} />
 
-        <section className="min-h-[520px] rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          {loadingDetail ? (
-            <div className="flex min-h-[420px] items-center justify-center text-slate-400">
-              <Loader2 className="h-6 w-6 animate-spin" />
-            </div>
-          ) : !detail ? (
-            <div className="flex min-h-[420px] flex-col items-center justify-center text-center text-slate-400">
-              <UserRound className="mb-3 h-10 w-10" />
-              <p className="text-sm">Select an upgrade request.</p>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              <RequestHeader detail={detail} />
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                <InfoCard label="Current status" value={detail.request.status} />
-                <InfoCard label="Promo" value={detail.request.promo_code || 'None'} />
-                <InfoCard label="Existing grants" value={String(detail.active_access.length)} />
-              </div>
-
-              {detail.promo && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-                  Promo {detail.promo.code}: {formatPromoDiscount(detail.promo)}. Commission details stay hidden from Support.
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <InfoCard label="Current status" value={visibleStatus(detail.request.status)} />
+                  <InfoCard label="Promo" value={detail.request.promo_code || 'None'} />
+                  <InfoCard label="Existing grants" value={String(detail.active_access.length)} />
+                  <InfoCard label="Requested product" value={detail.request.product_name} />
                 </div>
-              )}
 
-              {detail.request.status === 'pending' && (
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => runAction(async () => {
-                    const result = await markSupportUpgradeContacted(detail.request.id);
-                    if (!result.ok) return setActionError(result.error);
-                    await refreshSelected('Request marked as contacted.');
-                  })}
-                  className="inline-flex items-center gap-2 rounded-lg border border-purple-300 px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:opacity-50 dark:border-purple-800 dark:text-purple-300"
-                >
-                  <Clock3 className="h-4 w-4" />
-                  Mark contacted
-                </button>
-              )}
+                {detail.promo && (
+                  <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-xs font-semibold text-blue-200">
+                    Promo {detail.promo.code}: {formatPromoDiscount(detail.promo)}.
+                  </div>
+                )}
 
-              <div className="grid gap-5 xl:grid-cols-2">
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!canEditOrder) return;
-                    runAction(async () => {
-                      const result = await saveSupportUpgradeOrder({
-                        requestId: detail.request.id,
-                        durationMonths: duration === 'lifetime' ? null : Number(duration),
-                        basePrice: Number(basePrice),
-                        discountAmount: Number(discount),
-                        agreedPrice: Number(agreedPrice),
-                        currency,
-                        internalNotes: orderNotes || undefined,
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (!canEditOrder) return;
+                      runAction(async () => {
+                        const result = await saveSupportUpgradeOrder({
+                          requestId: detail.request.id,
+                          durationMonths: duration === 'lifetime' ? null : Number(duration),
+                          basePrice: Number(basePrice),
+                          discountAmount: Number(discount),
+                          agreedPrice: Number(agreedPrice),
+                          currency,
+                          internalNotes: orderNotes || undefined,
+                        });
+                        if (!result.ok) return setActionError(result.error);
+                        await refreshSelected('Order saved.');
                       });
-                      if (!result.ok) return setActionError(result.error);
-                      await refreshSelected('Order saved. Payment can now be recorded.');
-                    });
-                  }}
-                  className="rounded-xl border border-slate-200 p-4 dark:border-slate-800"
-                >
-                  <div className="mb-4 flex items-center gap-2">
-                    <Banknote className="h-4 w-4 text-emerald-500" />
-                    <h2 className="text-sm font-bold">Order</h2>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Duration">
-                      <select value={duration} onChange={(event) => setDuration(event.target.value)} disabled={!canEditOrder} className={inputClass}>
-                        <option value="1">1 month</option>
-                        <option value="3">3 months</option>
-                        <option value="6">6 months</option>
-                        <option value="12">12 months</option>
-                        <option value="lifetime">Lifetime</option>
-                      </select>
-                    </Field>
-                    <Field label="Currency">
-                      <input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={3} disabled={!canEditOrder} className={inputClass} />
-                    </Field>
-                    <MoneyField label="Base price" value={basePrice} setValue={setBasePrice} disabled={!canEditOrder} />
-                    <MoneyField label="Discount" value={discount} setValue={setDiscount} disabled={!canEditOrder} />
-                    <div className="sm:col-span-2">
-                      <MoneyField label="Final agreed price" value={agreedPrice} setValue={setAgreedPrice} disabled={!canEditOrder} />
-                    </div>
-                  </div>
-                  <Field label="Internal note">
-                    <textarea value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} disabled={!canEditOrder} rows={2} className={`${inputClass} h-auto py-2`} />
-                  </Field>
-                  <button type="submit" disabled={!canEditOrder || isPending} className="mt-3 w-full rounded-lg bg-slate-900 py-2.5 text-xs font-semibold text-white disabled:opacity-40 dark:bg-slate-700">
-                    {detail.order ? 'Update order' : 'Create order'}
-                  </button>
-                </form>
-
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!canRecordPayment) return;
-                    runAction(async () => {
-                      const result = await recordSupportUpgradePayment({
-                        requestId: detail.request.id,
-                        amount: Number(paymentAmount),
-                        currency: detail.order?.currency || currency,
-                        paymentMethod,
-                        transactionReference: paymentReference || undefined,
-                        notes: paymentNotes || undefined,
-                      });
-                      if (!result.ok) return setActionError(result.error);
-                      await refreshSelected(result.data.paid_enough ? 'Payment confirmed. Request is ready to activate.' : 'Partial payment recorded.');
-                    });
-                  }}
-                  className="rounded-xl border border-slate-200 p-4 dark:border-slate-800"
-                >
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <BadgeCheck className="h-4 w-4 text-blue-500" />
-                      <h2 className="text-sm font-bold">Payment</h2>
-                    </div>
-                    {detail.order && <span className="text-xs font-semibold text-slate-500">Due {formatMoney(detail.order.amount_due, detail.order.currency)}</span>}
-                  </div>
-                  <MoneyField label="Amount received" value={paymentAmount} setValue={setPaymentAmount} disabled={!canRecordPayment} />
-                  <Field label="Payment method">
-                    <input value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} disabled={!canRecordPayment} placeholder="InstaPay" className={inputClass} />
-                  </Field>
-                  <Field label="Transaction reference">
-                    <input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} disabled={!canRecordPayment} className={inputClass} />
-                  </Field>
-                  <Field label="Payment note">
-                    <textarea value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} disabled={!canRecordPayment} rows={2} className={`${inputClass} h-auto py-2`} />
-                  </Field>
-                  <button type="submit" disabled={!canRecordPayment || isPending} className="mt-3 w-full rounded-lg bg-blue-600 py-2.5 text-xs font-semibold text-white disabled:opacity-40">
-                    Confirm payment
-                  </button>
-                </form>
-              </div>
-
-              {detail.payments.length > 0 && (
-                <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-                  <h2 className="mb-3 text-sm font-bold">Payment history</h2>
-                  <div className="space-y-2">
-                    {detail.payments.map((payment) => (
-                      <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs dark:bg-slate-950">
-                        <span className="font-semibold">{formatMoney(payment.amount, payment.currency)}</span>
-                        <span className="text-slate-500">{payment.payment_method}{payment.transaction_reference ? ` · ${payment.transaction_reference}` : ''}</span>
-                        <span className="text-slate-400">{formatDate(payment.paid_at)}</span>
+                    }}
+                    className="rounded-2xl border border-slate-800 bg-[#0a1424] p-4"
+                  >
+                    <div className="mb-4 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Banknote className="h-4 w-4 text-purple-400" />
+                        <h2 className="text-sm font-black text-white">Order details</h2>
                       </div>
-                    ))}
-                  </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Sale</span>
+                    </div>
+                    <div className="grid gap-x-3 sm:grid-cols-2">
+                      <Field label="Duration">
+                        <select value={duration} onChange={(event) => setDuration(event.target.value)} disabled={!canEditOrder} className={inputClass}>
+                          <option value="1">1 month</option>
+                          <option value="3">3 months</option>
+                          <option value="6">6 months</option>
+                          <option value="12">12 months</option>
+                          <option value="lifetime">Lifetime</option>
+                        </select>
+                      </Field>
+                      <Field label="Currency">
+                        <input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={3} disabled={!canEditOrder} className={inputClass} />
+                      </Field>
+                      <MoneyField label="Base price" value={basePrice} setValue={setBasePrice} disabled={!canEditOrder} />
+                      <MoneyField label="Discount" value={discount} setValue={setDiscount} disabled={!canEditOrder} />
+                      <div className="sm:col-span-2"><MoneyField label="Final agreed price" value={agreedPrice} setValue={setAgreedPrice} disabled={!canEditOrder} /></div>
+                    </div>
+                    <Field label="Internal note">
+                      <textarea value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} disabled={!canEditOrder} rows={2} className={`${inputClass} h-auto py-2`} />
+                    </Field>
+                    {canEditOrder && (
+                      <button type="submit" disabled={isPending} className="mt-1 h-11 w-full rounded-xl bg-purple-600 text-xs font-black text-white hover:bg-purple-500 disabled:opacity-40">
+                        {detail.order ? 'Save order changes' : 'Create order'}
+                      </button>
+                    )}
+                  </form>
+
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (!canRecordPayment) return;
+                      runAction(async () => {
+                        const result = await recordSupportUpgradePayment({
+                          requestId: detail.request.id,
+                          amount: Number(paymentAmount),
+                          currency: detail.order?.currency || currency,
+                          paymentMethod,
+                          transactionReference: paymentReference || undefined,
+                          notes: paymentNotes || undefined,
+                        });
+                        if (!result.ok) return setActionError(result.error);
+                        await refreshSelected(result.data.paid_enough ? 'Payment confirmed. Ready to activate.' : 'Partial payment recorded.');
+                      });
+                    }}
+                    className="rounded-2xl border border-slate-800 bg-[#0a1424] p-4"
+                  >
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-blue-400" /><h2 className="text-sm font-black text-white">Payment details</h2></div>
+                      <span className={`text-xs font-black ${amountDue <= 0 ? 'text-emerald-300' : 'text-amber-300'}`}>Due {formatMoney(detail.order?.amount_due, detail.order?.currency || currency)}</span>
+                    </div>
+                    {!detail.order ? (
+                      <div className="rounded-xl border border-slate-800 bg-[#081120] p-5 text-sm font-medium text-slate-400">Create the order first. Payment fields will unlock here.</div>
+                    ) : (
+                      <>
+                        <MoneyField label="Amount received" value={paymentAmount} setValue={setPaymentAmount} disabled={!canRecordPayment} />
+                        <Field label="Payment method"><input value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} disabled={!canRecordPayment} placeholder="InstaPay" className={inputClass} /></Field>
+                        <Field label="Transaction reference"><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} disabled={!canRecordPayment} placeholder="Optional reference" className={inputClass} /></Field>
+                        <Field label="Payment note"><textarea value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} disabled={!canRecordPayment} rows={2} className={`${inputClass} h-auto py-2`} /></Field>
+                        {canRecordPayment && <button type="submit" disabled={isPending} className="mt-1 h-11 w-full rounded-xl bg-blue-600 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-40">Confirm payment</button>}
+                      </>
+                    )}
+                  </form>
                 </div>
-              )}
 
-              <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-5 dark:border-slate-800">
-                <button
-                  type="button"
-                  disabled={!canActivate || isPending}
-                  onClick={() => runAction(async () => {
-                    const result = await activateSupportUpgrade(detail.request.id);
-                    if (!result.ok) return setActionError(result.error);
-                    await refreshSelected(result.data.already_activated ? 'Access was already activated.' : 'Payment verified and Royal access activated.');
-                  })}
-                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  Activate access
-                </button>
+                {canActivate && (
+                  <button
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => runAction(async () => {
+                      const result = await activateSupportUpgrade(detail.request.id);
+                      if (!result.ok) return setActionError(result.error);
+                      await refreshSelected(result.data.already_activated ? 'Access was already active.' : 'Payment verified and Royal access activated.');
+                    })}
+                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-black text-white hover:bg-emerald-500 disabled:opacity-40"
+                  >
+                    {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+                    Activate Royal access
+                  </button>
+                )}
 
-                {!['paid', 'activated', 'cancelled'].includes(detail.request.status) && (
-                  <div className="flex min-w-[260px] flex-1 gap-2">
+                {detail.request.status === 'activated' && (
+                  <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-4 text-emerald-100">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                    <div><p className="text-sm font-black">Access activated</p><p className="mt-0.5 text-xs font-medium text-emerald-200/80">Grant #{detail.request.access_grant_id} is active for this customer.</p></div>
+                  </div>
+                )}
+
+                {detail.payments.length > 0 && (
+                  <div className="rounded-2xl border border-slate-800 bg-[#0a1424] p-4">
+                    <h2 className="mb-3 text-sm font-black text-white">Payment history</h2>
+                    <div className="space-y-2">
+                      {detail.payments.map((payment) => (
+                        <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-[#081120] px-3 py-3 text-xs">
+                          <span className="font-black text-slate-100">{formatMoney(payment.amount, payment.currency)}</span>
+                          <span className="font-medium text-slate-400">{payment.payment_method}{payment.transaction_reference ? ` · ${payment.transaction_reference}` : ''}</span>
+                          <span className="font-medium text-slate-500">{new Date(payment.paid_at).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {['pending', 'contacted'].includes(detail.request.status) && (
+                  <div className="flex flex-col gap-2 border-t border-slate-800 pt-4 sm:flex-row">
                     <input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="Cancellation reason" className={inputClass} />
                     <button
                       type="button"
@@ -456,23 +453,16 @@ export function SupportActivationClient() {
                         if (!result.ok) return setActionError(result.error);
                         await refreshSelected('Upgrade request cancelled.');
                       })}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 px-3 text-xs font-semibold text-red-600 disabled:opacity-40 dark:border-red-900 dark:text-red-300"
+                      className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-red-500/30 px-4 text-xs font-black text-red-300 hover:bg-red-500/10 disabled:opacity-40"
                     >
-                      <XCircle className="h-4 w-4" />
-                      Cancel
+                      <XCircle className="h-4 w-4" /> Cancel request
                     </button>
                   </div>
                 )}
               </div>
-
-              {detail.request.status === 'activated' && detail.request.access_grant_id && (
-                <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-                  Active grant #{detail.request.access_grant_id}. user_access_grants remains the entitlement authority.
-                </div>
-              )}
-            </div>
-          )}
-        </section>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   );
