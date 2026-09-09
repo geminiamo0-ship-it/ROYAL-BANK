@@ -16,193 +16,52 @@ export interface QuestionBankItem {
   id: number;
   pathwayId: number;
   name: string;
-  code: string;
-  edition: string;
-  questionCount: number;
-  mockExamCount: number;
-  textbookArticleCount: number;
   description: string;
-  features: string[];
+  questionCount: number;
+  textbookArticleCount: number;
   isFreeTrialAvailable: boolean;
+  freeTrialBlockLimit: number;
+  freeTrialQuestionLimit: number;
+  freeTrialArticleLimit: number;
   isUnlocked: boolean;
   hasPremiumAccess: boolean;
-  thumbnailUrl?: string;
-  badge?: string;
 }
 
 export interface PathwayDetail {
   id: number;
   slug: string;
   name: string;
-  code: string;
-  category: string;
   description: string;
+  iconUrl: string | null;
   totalQuestions: number;
+  isFreeTrialAvailable: boolean;
   isUnlocked: boolean;
   hasFullAccess: boolean;
   activeAccess: ActiveAccessGrant[];
   banks: QuestionBankItem[];
 }
 
-type StaticQuestionBank = Omit<QuestionBankItem, 'isUnlocked' | 'hasPremiumAccess'>;
-type StaticPathway = Omit<PathwayDetail, 'isUnlocked' | 'hasFullAccess' | 'activeAccess' | 'banks'> & {
-  banks: StaticQuestionBank[];
-};
+interface PathwayRow {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  icon_url: string | null;
+  is_free_trial_available: boolean | null;
+  display_order: number | null;
+}
 
-const PATHWAYS_DATA: Record<string, StaticPathway> = {
-  'mrcp-part-1': {
-    id: 1,
-    slug: 'mrcp-part-1',
-    name: 'MRCP Part 1',
-    code: 'MRCP-1',
-    category: 'Internal Medicine',
-    description: 'Royal College of Physicians Examination Part 1. Choose from our specialized banks with full clinical explanations and isolated analytics.',
-    totalQuestions: 13444,
-    banks: [
-      {
-        id: 1,
-        pathwayId: 1,
-        name: 'MRCP Part 1 — PassMedicine Edition',
-        code: 'PASSMED',
-        edition: 'PassMedicine Core Bank',
-        questionCount: 5444,
-        mockExamCount: 3,
-        textbookArticleCount: 650,
-        description: 'Over 5,444 Single Best Answer questions + 3 full mock exams + high-yield MRCP textbook with peer percentage bars.',
-        features: [
-          '5,444 Verified Clinical Questions',
-          '650 High-Yield Textbook Chapters',
-          'Peer Answer Percentages (Live Benchmark)',
-          'AI-Optimized Question Sequencing',
-          'Saved Concepts (Important / Less Important)'
-        ],
-        isFreeTrialAvailable: true,
-        badge: 'Recommended'
-      },
-      {
-        id: 2,
-        pathwayId: 1,
-        name: 'MRCP Part 1 — Pastest Edition',
-        code: 'PASTEST',
-        edition: 'Pastest Practice Bank',
-        questionCount: 4200,
-        mockExamCount: 4,
-        textbookArticleCount: 450,
-        description: 'Over 4,200 past-paper aligned questions focusing on diagnostic data interpretation, ECGs, and imaging vignettes.',
-        features: [
-          '4,200 High-Yield Exam Vignettes',
-          'Comprehensive Past-Paper Explanations',
-          'Extended Clinical Sciences Library',
-          'Topic-Specific Revision Sets'
-        ],
-        isFreeTrialAvailable: false,
-        badge: 'Popular'
-      },
-      {
-        id: 3,
-        pathwayId: 1,
-        name: 'MRCP Part 1 — 1Exam / OnExamination Edition',
-        code: 'ONEXAM',
-        edition: 'BMJ OnExamination Bank',
-        questionCount: 3800,
-        mockExamCount: 2,
-        textbookArticleCount: 320,
-        description: 'Over 3,800 questions emphasizing clinical pharmacology, statistics, and subspecialty internal medicine scenarios.',
-        features: [
-          '3,800 Curated Assessment Questions',
-          'Detailed Clinical Guidelines & NICE Pathways',
-          'Timed Benchmark Simulation Mode'
-        ],
-        isFreeTrialAvailable: false,
-        badge: 'Advanced'
-      },
-    ],
-  },
-  'mrcog-part-1': {
-    id: 2,
-    slug: 'mrcog-part-1',
-    name: 'MRCOG Part 1',
-    code: 'MRCOG-1',
-    category: 'Obstetrics & Gynaecology',
-    description: 'Royal College of Obstetricians and Gynaecologists Part 1 Examination.',
-    totalQuestions: 3200,
-    banks: [
-      {
-        id: 4,
-        pathwayId: 2,
-        name: 'MRCOG Part 1 — Comprehensive Bank',
-        code: 'MRCOG-MAIN',
-        edition: 'O&G Core Bank',
-        questionCount: 3200,
-        mockExamCount: 2,
-        textbookArticleCount: 280,
-        description: 'Over 3,200 questions covering core basic sciences in embryology, anatomy, reproductive physiology, and pharmacology.',
-        features: [
-          '3,200 Syllabus-Matched Questions',
-          'Core Basic Sciences Revision Modules',
-          'Full Exam Simulation'
-        ],
-        isFreeTrialAvailable: false,
-      }
-    ],
-  },
-  'mrcs-part-a': {
-    id: 3,
-    slug: 'mrcs-part-a',
-    name: 'MRCS Part A',
-    code: 'MRCS-A',
-    category: 'Surgery',
-    description: 'Intercollegiate MRCS Part A Examination preparation.',
-    totalQuestions: 4100,
-    banks: [
-      {
-        id: 5,
-        pathwayId: 3,
-        name: 'MRCS Part A — Surgical Principles Bank',
-        code: 'MRCS-MAIN',
-        edition: 'Surgery Core Bank',
-        questionCount: 4100,
-        mockExamCount: 3,
-        textbookArticleCount: 350,
-        description: 'Surgical anatomy, physiology, critical care, and principles of surgery in general.',
-        features: [
-          '4,100 Applied Surgical Questions',
-          'Cadaveric Anatomy & Imaging Tracings',
-          'Paper 1 & Paper 2 Format'
-        ],
-        isFreeTrialAvailable: false,
-      }
-    ],
-  },
-  'plab-ukmla': {
-    id: 4,
-    slug: 'plab-ukmla',
-    name: 'PLAB 1 / UKMLA',
-    code: 'PLAB-1',
-    category: 'General Clinical Practice',
-    description: 'GMC General Medical Council Licensing Examination (UKMLA).',
-    totalQuestions: 4800,
-    banks: [
-      {
-        id: 6,
-        pathwayId: 4,
-        name: 'PLAB 1 / UKMLA — Clinical Practice Bank',
-        code: 'PLAB-MAIN',
-        edition: 'UKMLA Core Bank',
-        questionCount: 4800,
-        mockExamCount: 4,
-        textbookArticleCount: 400,
-        description: 'High-yield clinical vignettes, emergency protocols, and UK healthcare ethical scenarios.',
-        features: [
-          '4,800 UKMLA Focused Questions',
-          'GMC Good Medical Practice Protocols',
-          'Full Gold-Standard Mock Exams'
-        ],
-        isFreeTrialAvailable: false,
-      }
-    ],
-  },
-};
+interface BankRow {
+  id: number;
+  pathway_id: number;
+  name: string;
+  description: string | null;
+  display_order: number | null;
+  is_free_trial: boolean | null;
+  free_trial_block_limit: number | null;
+  free_trial_question_limit: number | null;
+  free_trial_article_limit: number | null;
+}
 
 interface ResolvedBankAccess {
   unlocked: boolean;
@@ -216,6 +75,7 @@ async function resolveBankAccess(bankIds: number[]): Promise<{
   const access = new Map<number, ResolvedBankAccess>(
     bankIds.map((id) => [id, { unlocked: false, premium: false }])
   );
+
   if (bankIds.length === 0) return { access, grants: [] };
 
   const supabase = await createClient();
@@ -248,68 +108,117 @@ async function resolveBankAccess(bankIds: number[]): Promise<{
   };
 }
 
+async function countBankContent(bankId: number) {
+  const supabase = await createClient();
+  const [questionResult, articleResult] = await Promise.all([
+    supabase
+      .from('question_bank_questions')
+      .select('question_id', { count: 'exact', head: true })
+      .eq('question_bank_id', bankId),
+    supabase
+      .from('question_bank_library_articles')
+      .select('article_id', { count: 'exact', head: true })
+      .eq('question_bank_id', bankId),
+  ]);
+
+  return {
+    questionCount: questionResult.error ? 0 : questionResult.count ?? 0,
+    textbookArticleCount: articleResult.error ? 0 : articleResult.count ?? 0,
+  };
+}
+
+async function buildPathway(pathway: PathwayRow, bankRows: BankRow[]): Promise<PathwayDetail> {
+  const matchingBanks = bankRows
+    .filter((bank) => bank.pathway_id === pathway.id)
+    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.id - b.id);
+
+  const [resolved, counts] = await Promise.all([
+    resolveBankAccess(matchingBanks.map((bank) => bank.id)),
+    Promise.all(matchingBanks.map((bank) => countBankContent(bank.id))),
+  ]);
+
+  const banks: QuestionBankItem[] = matchingBanks.map((bank, index) => ({
+    id: bank.id,
+    pathwayId: bank.pathway_id,
+    name: bank.name,
+    description: bank.description || '',
+    questionCount: counts[index]?.questionCount ?? 0,
+    textbookArticleCount: counts[index]?.textbookArticleCount ?? 0,
+    isFreeTrialAvailable: bank.is_free_trial === true,
+    freeTrialBlockLimit: bank.free_trial_block_limit ?? 0,
+    freeTrialQuestionLimit: bank.free_trial_question_limit ?? 0,
+    freeTrialArticleLimit: bank.free_trial_article_limit ?? 0,
+    isUnlocked: resolved.access.get(bank.id)?.unlocked === true,
+    hasPremiumAccess: resolved.access.get(bank.id)?.premium === true,
+  }));
+
+  const bankIds = new Set(banks.map((bank) => bank.id));
+  const activeAccess = resolved.grants.filter((grant) =>
+    grant.scope_type === 'global'
+    || (grant.scope_type === 'pathway' && grant.pathway_id === pathway.id)
+    || (grant.scope_type === 'bank' && grant.question_bank_id !== null && bankIds.has(grant.question_bank_id))
+  );
+  const directFullGrant = activeAccess.some(
+    (grant) => grant.scope_type === 'global' || (grant.scope_type === 'pathway' && grant.pathway_id === pathway.id)
+  );
+
+  return {
+    id: pathway.id,
+    slug: pathway.slug,
+    name: pathway.name,
+    description: pathway.description || '',
+    iconUrl: pathway.icon_url,
+    totalQuestions: banks.reduce((sum, bank) => sum + bank.questionCount, 0),
+    isFreeTrialAvailable: pathway.is_free_trial_available === true,
+    isUnlocked: banks.some((bank) => bank.isUnlocked),
+    hasFullAccess: directFullGrant || (banks.length > 0 && banks.every((bank) => bank.hasPremiumAccess)),
+    activeAccess,
+    banks,
+  };
+}
+
+async function loadCatalogRows() {
+  const supabase = await createClient();
+  const [pathwaysResult, banksResult] = await Promise.all([
+    supabase
+      .from('pathways')
+      .select('id, slug, name, description, icon_url, is_free_trial_available, display_order')
+      .order('display_order', { ascending: true })
+      .order('id', { ascending: true }),
+    supabase
+      .from('question_banks')
+      .select('id, pathway_id, name, description, display_order, is_free_trial, free_trial_block_limit, free_trial_question_limit, free_trial_article_limit')
+      .order('display_order', { ascending: true })
+      .order('id', { ascending: true }),
+  ]);
+
+  if (pathwaysResult.error) throw pathwaysResult.error;
+  if (banksResult.error) throw banksResult.error;
+
+  return {
+    pathways: (pathwaysResult.data || []) as PathwayRow[],
+    banks: (banksResult.data || []) as BankRow[],
+  };
+}
+
+export async function getCatalogPathways(): Promise<PathwayDetail[]> {
+  const { pathways, banks } = await loadCatalogRows();
+  return Promise.all(pathways.map((pathway) => buildPathway(pathway, banks)));
+}
+
 export async function getPathwayDetails(slug: string): Promise<PathwayDetail | null> {
-  const pathway = PATHWAYS_DATA[slug];
+  const { pathways, banks } = await loadCatalogRows();
+  const pathway = pathways.find((candidate) => candidate.slug === slug);
   if (!pathway) return null;
-
-  const banks = pathway.banks.map((bank) => ({ ...bank, features: [...bank.features] }));
-
-  try {
-    const resolved = await resolveBankAccess(banks.map((bank) => bank.id));
-    const resolvedBanks: QuestionBankItem[] = banks.map((bank) => ({
-      ...bank,
-      isUnlocked: resolved.access.get(bank.id)?.unlocked === true,
-      hasPremiumAccess: resolved.access.get(bank.id)?.premium === true,
-    }));
-    const bankIds = new Set(resolvedBanks.map((bank) => bank.id));
-    const activeAccess = resolved.grants.filter((grant) =>
-      grant.scope_type === 'global'
-      || (grant.scope_type === 'pathway' && grant.pathway_id === pathway.id)
-      || (grant.scope_type === 'bank' && grant.question_bank_id !== null && bankIds.has(grant.question_bank_id))
-    );
-    const directFullGrant = activeAccess.some(
-      (grant) => grant.scope_type === 'global' || (grant.scope_type === 'pathway' && grant.pathway_id === pathway.id)
-    );
-
-    return {
-      ...pathway,
-      isUnlocked: resolvedBanks.some((bank) => bank.isUnlocked),
-      hasFullAccess: directFullGrant || (resolvedBanks.length > 0 && resolvedBanks.every((bank) => bank.hasPremiumAccess)),
-      activeAccess,
-      banks: resolvedBanks,
-    };
-  } catch {
-    return {
-      ...pathway,
-      isUnlocked: false,
-      hasFullAccess: false,
-      activeAccess: [],
-      banks: banks.map((bank) => ({ ...bank, isUnlocked: false, hasPremiumAccess: false })),
-    };
-  }
+  return buildPathway(pathway, banks);
 }
 
 export async function getBankDetails(bankId: number): Promise<QuestionBankItem | null> {
-  const bank = Object.values(PATHWAYS_DATA)
-    .flatMap((pathway) => pathway.banks)
-    .find((candidate) => candidate.id === bankId);
-
+  const { pathways, banks } = await loadCatalogRows();
+  const bank = banks.find((candidate) => candidate.id === bankId);
   if (!bank) return null;
-
-  try {
-    const resolved = await resolveBankAccess([bankId]);
-    return {
-      ...bank,
-      features: [...bank.features],
-      isUnlocked: resolved.access.get(bankId)?.unlocked === true,
-      hasPremiumAccess: resolved.access.get(bankId)?.premium === true,
-    };
-  } catch {
-    return {
-      ...bank,
-      features: [...bank.features],
-      isUnlocked: false,
-      hasPremiumAccess: false,
-    };
-  }
+  const pathway = pathways.find((candidate) => candidate.id === bank.pathway_id);
+  if (!pathway) return null;
+  const detail = await buildPathway(pathway, [bank]);
+  return detail.banks[0] ?? null;
 }

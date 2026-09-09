@@ -1,211 +1,70 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
 
-import React, { useState } from 'react';
-import { Search, Ban } from 'lucide-react';
-
-interface UserRecord {
+interface ProfileRow {
   id: string;
-  name: string;
-  email: string;
-  role: 'student' | 'admin' | 'support';
-  tier: 'free_trial' | 'premium_individual' | 'premium_full';
-  status: 'active' | 'suspended';
-  lastIp: string;
-  deviceCount: number;
-  registeredAt: string;
+  full_name: string | null;
+  email: string | null;
+  role: string | null;
+  subscription_tier: string | null;
+  is_active: boolean | null;
+  last_login_at: string | null;
+  last_login_ip: string | null;
+  created_at: string;
 }
 
-const INITIAL_USERS: UserRecord[] = [
-  {
-    id: 'u1',
-    name: 'Dr. Ahmed Mansour',
-    email: 'ahmed.mansour@gmail.com',
-    role: 'student',
-    tier: 'free_trial',
-    status: 'active',
-    lastIp: '197.34.12.89',
-    deviceCount: 1,
-    registeredAt: '2026-08-25',
-  },
-  {
-    id: 'u2',
-    name: 'Dr. Sarah Khalil',
-    email: 'sarah.khalil@yahoo.com',
-    role: 'student',
-    tier: 'premium_individual',
-    status: 'active',
-    lastIp: '156.204.11.45',
-    deviceCount: 2,
-    registeredAt: '2026-08-20',
-  },
-  {
-    id: 'u3',
-    name: 'Dr. Mahmoud Elsayed',
-    email: 'mahmoud.elsayed@gmail.com',
-    role: 'student',
-    tier: 'premium_full',
-    status: 'suspended',
-    lastIp: '41.233.10.12',
-    deviceCount: 4,
-    registeredAt: '2026-08-15',
-  },
-];
+function formatDate(value: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
 
-export default function AdminUsersPage() {
-  const [users, setUsers] = useState<UserRecord[]>(INITIAL_USERS);
-  const [search, setSearch] = useState('');
-  const [tierFilter, setTierFilter] = useState('all');
+export default async function AdminUsersPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login?redirect=/admin/users');
 
-  const filteredUsers = users.filter((u) => {
-    const matchesSearch =
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase()) ||
-      u.lastIp.includes(search);
-    const matchesTier = tierFilter === 'all' || u.tier === tierFilter;
-    return matchesSearch && matchesTier;
-  });
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id,full_name,email,role,subscription_tier,is_active,last_login_at,last_login_ip,created_at')
+    .order('created_at', { ascending: false })
+    .limit(250);
 
-  const toggleUserStatus = (id: string) => {
-    setUsers(
-      users.map((u) =>
-        u.id === id
-          ? { ...u, status: u.status === 'active' ? 'suspended' : 'active' }
-          : u
-      )
-    );
-  };
-
-  const promoteUser = (id: string, newTier: 'premium_individual' | 'premium_full') => {
-    setUsers(users.map((u) => (u.id === id ? { ...u, tier: newTier } : u)));
-  };
+  if (error) throw new Error(error.message);
+  const users = (data || []) as ProfileRow[];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">
-            User Accounts & Subscriptions
-          </h1>
-          <p className="text-xs text-slate-500">
-            Monitor student registrations, active devices, and manage account privileges
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, email, or IP..."
-              className="pl-9 pr-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white w-64 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-
-          <select
-            value={tierFilter}
-            onChange={(e) => setTierFilter(e.target.value)}
-            className="p-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-          >
-            <option value="all">All Tiers</option>
-            <option value="free_trial">Free Trial</option>
-            <option value="premium_individual">Individual</option>
-            <option value="premium_full">Full Access</option>
-          </select>
-        </div>
+    <div className="mx-auto max-w-7xl space-y-6 pb-16">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-purple-600">Live profiles</p>
+        <h1 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">User Accounts</h1>
+        <p className="mt-1 text-xs text-slate-500">Read-only production profile view. Premium entitlement is still determined by user_access_grants, not the profile tier label.</p>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                <th className="py-3 px-4">Student</th>
-                <th className="py-3 px-4">Subscription</th>
-                <th className="py-3 px-4">Last IP & Devices</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Joined</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredUsers.map((user) => (
-                <tr key={user.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="py-3 px-4">
-                    <p className="font-semibold text-slate-900 dark:text-white">{user.name}</p>
-                    <p className="text-slate-500 text-xs">{user.email}</p>
-                  </td>
-
-                  <td className="py-3 px-4">
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                        user.tier === 'free_trial'
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                          : user.tier === 'premium_individual'
-                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                          : 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
-                      }`}
-                    >
-                      {user.tier === 'free_trial'
-                        ? 'Free Trial'
-                        : user.tier === 'premium_individual'
-                        ? 'MRCP 1 Only'
-                        : 'Full Access'}
-                    </span>
-                  </td>
-
-                  <td className="py-3 px-4">
-                    <p className="font-mono text-xs text-slate-700 dark:text-slate-300">{user.lastIp}</p>
-                    <span className={`text-[11px] ${user.deviceCount > 2 ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
-                      {user.deviceCount} device(s)
-                    </span>
-                  </td>
-
-                  <td className="py-3 px-4">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                        user.status === 'active'
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                          : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
-                      }`}
-                    >
-                      {user.status}
-                    </span>
-                  </td>
-
-                  <td className="py-3 px-4 text-slate-500 text-xs">{user.registeredAt}</td>
-
-                  <td className="py-3 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {user.tier === 'free_trial' && (
-                        <button
-                          onClick={() => promoteUser(user.id, 'premium_individual')}
-                          className="px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 text-xs font-semibold"
-                          title="Upgrade to Premium"
-                        >
-                          Upgrade
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => toggleUserStatus(user.id)}
-                        className={`p-1.5 rounded text-xs font-semibold ${
-                          user.status === 'active'
-                            ? 'text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950'
-                            : 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950'
-                        }`}
-                        title={user.status === 'active' ? 'Suspend Account' : 'Reactivate Account'}
-                      >
-                        <Ban className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-slate-200 px-5 py-3 text-xs font-semibold text-slate-500 dark:border-slate-800">{users.length} most recent profiles</div>
+        {users.length === 0 ? (
+          <div className="p-10 text-center text-sm text-slate-500">No profiles are visible to this admin account.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-xs">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-800/50"><tr><th className="px-4 py-3">User</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">UI tier</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Last login</th><th className="px-4 py-3">Last IP</th><th className="px-4 py-3">Joined</th></tr></thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {users.map((profile) => (
+                  <tr key={profile.id}>
+                    <td className="px-4 py-3"><p className="font-semibold text-slate-900 dark:text-white">{profile.full_name || 'Unnamed user'}</p><p className="mt-0.5 text-slate-500">{profile.email || profile.id}</p></td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{profile.role || 'student'}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{profile.subscription_tier || '—'}</td>
+                    <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${profile.is_active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300'}`}>{profile.is_active ? 'Active' : 'Inactive'}</span></td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(profile.last_login_at)}</td>
+                    <td className="px-4 py-3 font-mono text-slate-600 dark:text-slate-300">{profile.last_login_ip || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(profile.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
