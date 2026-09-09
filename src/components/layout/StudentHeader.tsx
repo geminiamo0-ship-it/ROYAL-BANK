@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUIStore } from '@/stores/uiStore';
 import { logout } from '@/actions/auth';
-import { Crown, Menu, LogOut, Search, UserCircle } from 'lucide-react';
+import { Crown, Menu, LogOut, Search, TicketCheck, UserCircle } from 'lucide-react';
 
 interface StudentHeaderProps {
   userEmail?: string;
@@ -55,6 +55,14 @@ export function StudentHeader({
         >
           <Crown className="h-3.5 w-3.5" />
           Upgrade
+        </Link>
+        <Link
+          href="/partner"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#9aa3aa] hover:bg-[#343434] hover:text-white"
+          title="My Royal Coupon"
+          aria-label="My Royal Coupon"
+        >
+          <TicketCheck className="h-4 w-4" />
         </Link>
         <div className="hidden text-right leading-tight md:block">
           <p className="max-w-[95px] truncate text-[11px] font-semibold text-white">{userName}</p>
