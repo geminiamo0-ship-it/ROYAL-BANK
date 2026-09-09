@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BarChart3, Flame, Target } from 'lucide-react';
+import { BarChart3, ChevronDown, Flame, Target } from 'lucide-react';
 import type {
   BankActivityDay,
   BankPerformanceDifficulty,
@@ -140,36 +140,45 @@ export function BankPerformanceDashboard({ performance }: { performance: BankPer
         </OverviewPanel>
       </div>
 
-      <div className="border-t border-[#2a3035] px-[14px] py-[12px]">
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h3 className="text-[12px] font-semibold text-white">Performance by Category</h3>
-            <p className="mt-1 text-[10px] text-[#8f9ba4]">Difficulty-adjusted score compared with the empirical correct-answer percentage for the same questions.</p>
-          </div>
-          <div className="flex gap-4 text-[10px] text-[#a9b3ba]"><span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#59bd78]" />Your score</span><span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#9475d8]" />Peer average</span></div>
-        </div>
+      <details className="group border-t border-[#2a3035]">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-[14px] py-[12px] text-[12px] font-semibold text-white marker:content-none">
+          <span>
+            Performance by Category
+            <span className="ml-2 text-[10px] font-normal text-[#8f9ba4]">Click to show category progress</span>
+          </span>
+          <ChevronDown className="h-4 w-4 text-[#9ea9b1] transition-transform group-open:rotate-180" />
+        </summary>
 
-        {performance.categories.length === 0 ? (
-          <div className="rounded-[4px] border border-[#495159] bg-[#2e3439] px-4 py-8 text-center text-[12px] text-[#a9b3ba]">Answer questions to build your live category performance.</div>
-        ) : (
-          <div className="space-y-3">
-            {performance.categories.map((row) => {
-              const yours = row.user_score ?? 0;
-              const peers = row.peer_average ?? 0;
-              return (
-                <div key={row.category} className="grid gap-2 md:grid-cols-[185px_1fr_124px] md:items-center">
-                  <div className="truncate text-[11px] font-medium text-[#dce3e8]" title={row.category}>{row.category}</div>
-                  <div className="space-y-[3px]">
-                    <div className="h-[7px] overflow-hidden rounded-full bg-[#252b30]"><div className="h-full bg-[#59bd78]" style={{ width: `${Math.max(0, Math.min(100, yours))}%` }} /></div>
-                    <div className="h-[5px] overflow-hidden rounded-full bg-[#252b30]"><div className="h-full bg-[#9475d8]" style={{ width: `${Math.max(0, Math.min(100, peers))}%` }} /></div>
-                  </div>
-                  <div className="flex justify-between text-[10px] text-[#9ea9b1]"><span>{pct(yours, 0)} / {pct(peers, 0)}</span><span>P{row.estimated_percentile == null ? '—' : Math.round(row.estimated_percentile)}</span></div>
-                </div>
-              );
-            })}
+        <div className="border-t border-[#2a3035] px-[14px] pb-[14px] pt-[12px]">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+            <p className="text-[10px] text-[#8f9ba4]">Difficulty-adjusted score compared with the empirical correct-answer percentage for the same questions.</p>
+            <div className="flex gap-4 text-[10px] text-[#a9b3ba]"><span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#59bd78]" />Your score</span><span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#9475d8]" />Peer average</span></div>
           </div>
-        )}
-      </div>
+
+          {performance.categories.length === 0 ? (
+            <div className="rounded-[4px] border border-[#495159] bg-[#2e3439] px-4 py-8 text-center text-[12px] text-[#a9b3ba]">Answer questions to build your live category performance.</div>
+          ) : (
+            <div className="space-y-3">
+              {performance.categories.map((row) => {
+                const yours = row.user_score ?? row.accuracy;
+                const peers = row.peer_average;
+                const yoursWidth = yours == null ? 0 : Math.max(0, Math.min(100, yours));
+                const peerWidth = peers == null ? 0 : Math.max(0, Math.min(100, peers));
+                return (
+                  <div key={row.category} className="grid gap-2 md:grid-cols-[185px_1fr_124px] md:items-center">
+                    <div className="truncate text-[11px] font-medium text-[#dce3e8]" title={row.category}>{row.category}</div>
+                    <div className="space-y-[3px]">
+                      <div className="h-[7px] overflow-hidden rounded-full bg-[#252b30]"><div className="h-full bg-[#59bd78]" style={{ width: `${yoursWidth}%` }} /></div>
+                      <div className="h-[5px] overflow-hidden rounded-full bg-[#252b30]"><div className="h-full bg-[#9475d8]" style={{ width: `${peerWidth}%` }} /></div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-[#9ea9b1]"><span>{pct(yours, 0)} / {pct(peers, 0)}</span><span>P{row.estimated_percentile == null ? '—' : Math.round(row.estimated_percentile)}</span></div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </details>
     </section>
   );
 }
