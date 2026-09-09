@@ -1,13 +1,14 @@
 'use client';
 
 import React from 'react';
-import { ArrowLeft, ArrowRight, ChevronDown, Clock3, Flag, Lightbulb, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronDown, Clock3, Eye, Flag, Lightbulb, X } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
 
 interface ExamHeaderProps {
   currentIndex: number;
   elapsedSeconds: number;
   isFlagged: boolean;
+  isReviewMode?: boolean;
   questionCount: number;
   showClues: boolean;
   onSuspend: () => void;
@@ -22,6 +23,7 @@ export function ExamHeader({
   currentIndex,
   elapsedSeconds,
   isFlagged,
+  isReviewMode = false,
   questionCount,
   showClues,
   onSuspend,
@@ -41,15 +43,22 @@ export function ExamHeader({
             <span className="h-[23px] w-[5px] bg-[#47d41f]" />
           </div>
           <span className="text-[15px] font-semibold tracking-[-0.2px] text-[#f5f5f5]">RoyalBank</span>
+          {isReviewMode ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#745b91] bg-[#3a3045] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#d9b7ff]">
+              <Eye className="h-3 w-3" /> Completed review
+            </span>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-5 text-[12px] text-[#cf95ff]">
           <button type="button" onClick={onSuspend} className="hover:text-white">
-            Suspend
+            {isReviewMode ? 'Exit review' : 'Suspend'}
           </button>
-          <button type="button" onClick={onEndBlock} className="hover:text-white">
-            End block
-          </button>
+          {!isReviewMode ? (
+            <button type="button" onClick={onEndBlock} className="hover:text-white">
+              End block
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -73,7 +82,7 @@ export function ExamHeader({
             type="button"
             onClick={onSuspend}
             className="flex h-[32px] w-[32px] items-center justify-center text-[#ff2f3e]"
-            title="Suspend and exit"
+            title={isReviewMode ? 'Exit review' : 'Suspend and exit'}
           >
             <X className="h-4 w-4" />
           </button>
@@ -122,10 +131,17 @@ export function ExamHeader({
             <span>{showClues ? 'Clues on' : 'Clues'}</span>
           </button>
 
-          <div className="inline-flex h-[30px] items-center gap-2 rounded-[4px] border border-[#5a5f64] bg-[#363636] px-3 text-[12px] text-[#eaeaea]">
-            <Clock3 className="h-3.5 w-3.5 text-[#a7adb3]" />
-            <span className="font-mono">{formatTime(elapsedSeconds)}</span>
-          </div>
+          {isReviewMode ? (
+            <div className="inline-flex h-[30px] items-center gap-2 rounded-[4px] border border-[#745b91] bg-[#3a3045] px-3 text-[12px] text-[#d9b7ff]">
+              <Eye className="h-3.5 w-3.5" />
+              <span>Read only</span>
+            </div>
+          ) : (
+            <div className="inline-flex h-[30px] items-center gap-2 rounded-[4px] border border-[#5a5f64] bg-[#363636] px-3 text-[12px] text-[#eaeaea]">
+              <Clock3 className="h-3.5 w-3.5 text-[#a7adb3]" />
+              <span className="font-mono">{formatTime(elapsedSeconds)}</span>
+            </div>
+          )}
         </div>
       </div>
     </header>

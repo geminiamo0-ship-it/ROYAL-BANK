@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getExamSessionBootstrapDirect, getExamSessionWindowDirect } from '@/lib/exam-client-api';
+import {
+  getCompletedExamReviewBootstrapDirect,
+  getCompletedExamReviewWindowDirect,
+  getExamSessionBootstrapDirect,
+  getExamSessionWindowDirect,
+} from '@/lib/exam-client-api';
 import {
   getExamLaunchCache,
   mergeExamLaunchWindow,
@@ -12,10 +17,12 @@ import type { ExamBootstrap, ExamBootstrapSession, ExamClientQuestion } from '@/
 
 export function useWindowedExamSession({
   sessionId,
+  reviewMode = false,
   onBootstrap,
   onError,
 }: {
   sessionId: string;
+  reviewMode?: boolean;
   onBootstrap: (bootstrap: ExamBootstrap) => void;
   onError: (message: string) => void;
 }) {
@@ -39,15 +46,17 @@ export function useWindowedExamSession({
     for (const question of questions) nextRef[question.id] = question;
     questionsByIdRef.current = nextRef;
     setQuestionsById(nextRef);
-    mergeExamLaunchWindow(sessionId, questions);
-  }, [sessionId]);
+    if (!reviewMode) mergeExamLaunchWindow(sessionId, questions);
+  }, [reviewMode, sessionId]);
 
   const loadWindow = useCallback(async (start: number, count: number) => {
     if (count <= 0 || start >= questionIdsRef.current.length) return [];
-    const questions = await getExamSessionWindowDirect(sessionId, start, count);
+    const questions = reviewMode
+      ? await getCompletedExamReviewWindowDirect(sessionId, start, count)
+      : await getExamSessionWindowDirect(sessionId, start, count);
     addQuestions(questions);
     return questions;
-  }, [addQuestions, sessionId]);
+  }, [addQuestions, reviewMode, sessionId]);
 
   const queuePrefetch = useCallback((count = 2) => {
     prefetchChainRef.current = prefetchChainRef.current
@@ -77,18 +86,20 @@ export function useWindowedExamSession({
     bootstrap: ExamBootstrap,
     cachedQuestions?: Record<number, ExamClientQuestion>,
   ) => {
-    if (bootstrap.status === 'completed' || bootstrap.session.is_completed) {
-      router.replace(`/bank/${bootstrap.session.question_bank_id}/fixed-sets`);
+    if ((bootstrap.status === 'completed' || bootstrap.session.is_completed) && !reviewMode) {
+      router.replace(`/bank/${bootstrap.session.question_bank_id}/sessions`);
       return;
     }
 
     const loaded: Record<number, ExamClientQuestion> = { ...(cachedQuestions || {}) };
     for (const question of bootstrap.questions) loaded[question.id] = question;
 
-    const safeIndex = Math.min(
-      Math.max(0, bootstrap.currentIndex),
-      Math.max(bootstrap.questionIds.length - 1, 0),
-    );
+    const safeIndex = reviewMode
+      ? 0
+      : Math.min(
+          Math.max(0, bootstrap.currentIndex),
+          Math.max(bootstrap.questionIds.length - 1, 0),
+        );
 
     setSession(bootstrap.session);
     setQuestionIds(bootstrap.questionIds);
@@ -100,11 +111,11 @@ export function useWindowedExamSession({
     onBootstrap(bootstrap);
     setIsBootstrapping(false);
     queuePrefetch(2);
-  }, [onBootstrap, queuePrefetch, router]);
+  }, [onBootstrap, queuePrefetch, reviewMode, router]);
 
   useEffect(() => {
     let cancelled = false;
-    const cached = getExamLaunchCache(sessionId);
+    const cached = reviewMode ? null : getExamLaunchCache(sessionId);
 
     void Promise.resolve().then(async () => {
       if (cancelled) return;
@@ -117,9 +128,11 @@ export function useWindowedExamSession({
       setIsBootstrapping(true);
 
       try {
-        const bootstrap = await getExamSessionBootstrapDirect(sessionId);
+        const bootstrap = reviewMode
+          ? await getCompletedExamReviewBootstrapDirect(sessionId)
+          : await getExamSessionBootstrapDirect(sessionId);
         if (cancelled) return;
-        primeExamLaunchCache(bootstrap);
+        if (!reviewMode) primeExamLaunchCache(bootstrap);
         applyBootstrap(bootstrap);
       } catch (error) {
         if (cancelled) return;
@@ -136,7 +149,7 @@ export function useWindowedExamSession({
     return () => {
       cancelled = true;
     };
-  }, [applyBootstrap, onError, router, sessionId]);
+  }, [applyBootstrap, onError, reviewMode, router, sessionId]);
 
   const goToIndex = useCallback(async (targetIndex: number) => {
     const ids = questionIdsRef.current;

@@ -250,7 +250,7 @@ export function QuestionBankPageClient({
           <p className="mt-5 text-[12px] text-[#edf1f4]">Welcome to the main question bank.</p>
           <p className="mt-8 text-[12px] text-[#edf1f4]">
             You&apos;ve answered {totalAttempted} questions with an average score of {averageScore}%.{' '}
-            <Link href={`/bank/${bankId}/performance`} className="font-semibold text-[#cda9ff] hover:underline">
+            <Link href={`/bank/${bankId}`} className="font-semibold text-[#cda9ff] hover:underline">
               More
             </Link>
           </p>

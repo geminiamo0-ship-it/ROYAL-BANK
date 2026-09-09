@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUIStore } from '@/stores/uiStore';
-import { BarChart2, BookOpen, Home, Layers, Library, RotateCcw } from 'lucide-react';
+import { BookOpen, History, Home, Layers, Library, RotateCcw } from 'lucide-react';
 
 interface SidebarProps {
   currentPathwayName?: string;
@@ -44,8 +44,8 @@ export function PassMedicineSidebar({ currentPathwayName }: SidebarProps) {
 
         <SidebarSection title="Questions">
           <Link href={questionBankBase} className={navClass(questionBankBase)}><Layers className="h-[13px] w-[13px]" /><span>Question bank</span></Link>
+          <Link href={`${bankBase}/sessions`} className={navClass(`${bankBase}/sessions`)}><History className="h-[13px] w-[13px]" /><span>Previous sessions</span></Link>
           <Link href={`${bankBase}/review`} className={navClass(`${bankBase}/review`)}><RotateCcw className="h-[13px] w-[13px]" /><span>Review questions</span></Link>
-          <Link href={`${bankBase}/performance`} className={navClass(`${bankBase}/performance`)}><BarChart2 className="h-[13px] w-[13px]" /><span>Performance</span></Link>
         </SidebarSection>
 
         <SidebarSection title="Library">

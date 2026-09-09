@@ -10,6 +10,7 @@ import { useExamKeyboardShortcuts } from '@/components/exam/useExamKeyboardShort
 import { useWindowedExamSession } from '@/components/exam/useWindowedExamSession';
 import {
   completeExamSessionDirect,
+  getCompletedExamReviewFeedbackDirect,
   getExamQuestionFeedbackDirect,
   setQuestionFlagDirect,
   submitExamAnswerDirect,
@@ -26,9 +27,13 @@ import type {
 
 interface WindowedExamPageClientProps {
   sessionId: string;
+  reviewMode?: boolean;
 }
 
-export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProps) {
+export function WindowedExamPageClient({
+  sessionId,
+  reviewMode = false,
+}: WindowedExamPageClientProps) {
   const router = useRouter();
   const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>({});
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
@@ -71,12 +76,15 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     getQuestionById,
   } = useWindowedExamSession({
     sessionId,
+    reviewMode,
     onBootstrap: applyBootstrapState,
     onError: reportPersistenceError,
   });
 
+  const isReviewMode = reviewMode && session?.is_completed === true;
   const sessionType = String(session?.session_type || 'standard');
-  const isTimedMode = sessionType === 'timed' || sessionType === 'fixed_timed';
+  const isTimedSession = sessionType === 'timed' || sessionType === 'fixed_timed';
+  const isTimedMode = isTimedSession && !isReviewMode;
   const bankId = Number(session?.question_bank_id || 0);
   const timeLimitSeconds = Number(session?.time_limit_minutes || 0) * 60;
   const {
@@ -109,6 +117,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   }, [sessionId]);
 
   const selectOption = useCallback((questionId: number, option: ExamClientOption) => {
+    if (isReviewMode) return;
     if (!isTimedMode && answers[questionId]) return;
 
     setPendingSelections((previous) => ({ ...previous, [questionId]: option.id }));
@@ -124,10 +133,10 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
 
     setAnswers((previous) => ({ ...previous, [questionId]: answer }));
     queueTimedAnswerSave(answer);
-  }, [answers, elapsedSeconds, isTimedMode, queueTimedAnswerSave]);
+  }, [answers, elapsedSeconds, isReviewMode, isTimedMode, queueTimedAnswerSave]);
 
   const submitAnswer = useCallback(async (questionId: number) => {
-    if (isTimedMode || answers[questionId] || savingQuestionIds.has(questionId)) return;
+    if (isReviewMode || isTimedMode || answers[questionId] || savingQuestionIds.has(questionId)) return;
 
     const selectedOptionId = pendingSelections[questionId];
     if (!selectedOptionId) return;
@@ -160,7 +169,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
         return next;
       });
     }
-  }, [answers, elapsedSeconds, getQuestionById, isTimedMode, pendingSelections, queuePrefetch, savingQuestionIds, sessionId]);
+  }, [answers, elapsedSeconds, getQuestionById, isReviewMode, isTimedMode, pendingSelections, queuePrefetch, savingQuestionIds, sessionId]);
 
   const toggleFlag = useCallback((questionId: number) => {
     const nextFlagged = !flaggedQuestionIds.has(questionId);
@@ -185,16 +194,17 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   }, [flaggedQuestionIds]);
 
   const toggleStrikeOut = useCallback((optionId: number) => {
+    if (isReviewMode) return;
     setStruckOutOptionIds((previous) => {
       const next = new Set(previous);
       if (next.has(optionId)) next.delete(optionId);
       else next.add(optionId);
       return next;
     });
-  }, []);
+  }, [isReviewMode]);
 
   const flushTimedAnswers = useCallback(async () => {
-    if (!isTimedMode) return;
+    if (!isTimedMode || isReviewMode) return;
     await Promise.all(Object.values(answerSaveChains.current));
 
     for (const answer of Object.values(answers)) {
@@ -209,9 +219,14 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
       });
       persistedSelectionRef.current[answer.questionId] = answer.selectedOptionId;
     }
-  }, [answers, isTimedMode, sessionId]);
+  }, [answers, isReviewMode, isTimedMode, sessionId]);
 
   const handleSuspend = useCallback(async () => {
+    if (isReviewMode) {
+      router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
+      return;
+    }
+
     if (!window.confirm('Suspend this block and return later?')) return;
 
     setIsSubmitting(true);
@@ -219,14 +234,19 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     try {
       await flushTimedAnswers();
       await Promise.all(Object.values(flagSaveChains.current));
-      router.push(bankId > 0 ? `/bank/${bankId}/question-bank` : '/dashboard');
+      router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
     } catch (error) {
       setPersistenceError(error instanceof Error ? error.message : 'Unable to suspend the block safely.');
       setIsSubmitting(false);
     }
-  }, [bankId, flushTimedAnswers, router]);
+  }, [bankId, flushTimedAnswers, isReviewMode, router]);
 
   const handleEndBlock = useCallback(async (forceSubmit = false) => {
+    if (isReviewMode) {
+      router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
+      return;
+    }
+
     if (!forceSubmit && !window.confirm('End this block? Unanswered timed questions will be marked incorrect.')) {
       return;
     }
@@ -237,14 +257,16 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
       await flushTimedAnswers();
       await Promise.all(Object.values(flagSaveChains.current));
       await completeExamSessionDirect(sessionId);
-      router.push(bankId > 0 ? `/bank/${bankId}/performance` : '/dashboard');
+      router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
     } catch (error) {
       setPersistenceError(error instanceof Error ? error.message : 'Unable to complete the block.');
       setIsSubmitting(false);
     }
-  }, [bankId, flushTimedAnswers, router, sessionId]);
+  }, [bankId, flushTimedAnswers, isReviewMode, router, sessionId]);
 
   useEffect(() => {
+    if (isReviewMode) return;
+
     const timerId = window.setInterval(() => {
       setElapsedSeconds((value) => {
         const nextValue = value + 1;
@@ -262,7 +284,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     }, 1000);
 
     return () => window.clearInterval(timerId);
-  }, [handleEndBlock, isSubmitting, isTimedMode, timeLimitSeconds]);
+  }, [handleEndBlock, isReviewMode, isSubmitting, isTimedMode, timeLimitSeconds]);
 
   useExamKeyboardShortcuts({
     question: currentQ,
@@ -288,11 +310,16 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   );
 
   useEffect(() => {
-    if (!currentQ || isTimedMode || !answers[currentQ.id]) return;
+    if (!currentQ || isTimedMode) return;
+    if (!isReviewMode && !answers[currentQ.id]) return;
     if (feedbackByQuestionId[currentQ.id] || feedbackFetchingIds.current.has(currentQ.id)) return;
 
     feedbackFetchingIds.current.add(currentQ.id);
-    getExamQuestionFeedbackDirect(sessionId, currentQ.id)
+    const feedbackRequest = isReviewMode
+      ? getCompletedExamReviewFeedbackDirect(sessionId, currentQ.id)
+      : getExamQuestionFeedbackDirect(sessionId, currentQ.id);
+
+    feedbackRequest
       .then((feedback) => {
         setFeedbackByQuestionId((previous) => ({ ...previous, [currentQ.id]: feedback }));
         setAnswers((previous) => {
@@ -313,12 +340,12 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
         setPersistenceError(error instanceof Error ? error.message : 'Unable to load answer feedback.');
       })
       .finally(() => feedbackFetchingIds.current.delete(currentQ.id));
-  }, [answers, currentQ, feedbackByQuestionId, isTimedMode, sessionId]);
+  }, [answers, currentQ, feedbackByQuestionId, isReviewMode, isTimedMode, sessionId]);
 
   if (isBootstrapping) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#282828] text-[#d9dce0]">
-        <p className="animate-pulse text-[12px] font-medium">Loading question...</p>
+        <p className="animate-pulse text-[12px] font-medium">{reviewMode ? 'Loading review...' : 'Loading question...'}</p>
       </div>
     );
   }
@@ -346,7 +373,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   const updatedExplanation = rewriteExamMediaHtml(currentFeedback?.explanationHtml || '', mediaUrl);
   const explanationPanels = extractExplanationPanels(updatedExplanation, isCurrentConceptBookmarked);
   const currentAnswer = answers[currentQ.id];
-  const isAnswered = Boolean(currentAnswer);
+  const isAnswered = isReviewMode || Boolean(currentAnswer);
   const selectedOptionId = currentAnswer?.selectedOptionId ?? pendingSelections[currentQ.id] ?? null;
   const correctOptionId = currentFeedback?.correctOptionId ?? currentAnswer?.correctOptionId ?? null;
   const optionPercentages = currentFeedback?.optionPercentages || {};
@@ -378,6 +405,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
             : elapsedSeconds
         }
         isFlagged={flaggedQuestionIds.has(currentQ.id)}
+        isReviewMode={isReviewMode}
         questionCount={questionIds.length}
         showClues={showClues}
         onSuspend={() => void handleSuspend()}
@@ -404,6 +432,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
           hasFeedback={Boolean(currentFeedback)}
           showClues={showClues}
           isAnswered={isAnswered}
+          isReviewMode={isReviewMode}
           isTimedMode={isTimedMode}
           selectedOptionId={selectedOptionId}
           struckOutOptionIds={struckOutOptionIds}
