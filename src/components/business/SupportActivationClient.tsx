@@ -5,7 +5,6 @@ import {
   BadgeCheck,
   Banknote,
   CheckCircle2,
-  ChevronRight,
   Loader2,
   RefreshCw,
   Search,
@@ -26,19 +25,16 @@ import {
   Field,
   InfoCard,
   MoneyField,
+  ProgressStrip,
   RequestHeader,
-  StatusBadge,
   SuccessBox,
-  formatDate,
   formatMoney,
   formatPromoDiscount,
   inputClass,
+  visibleStatus,
 } from '@/components/business/SupportActivationParts';
-import type {
-  SupportUpgradeDetail,
-  SupportUpgradeQueueItem,
-  UpgradeRequestStatus,
-} from '@/types/business';
+import { SupportRequestQueue } from '@/components/business/SupportRequestQueue';
+import type { SupportUpgradeDetail, SupportUpgradeQueueItem } from '@/types/business';
 
 type QueueFilter = 'pending' | 'paid' | 'activated' | 'cancelled' | 'all';
 
@@ -49,55 +45,6 @@ const FILTERS: Array<{ value: QueueFilter; label: string }> = [
   { value: 'cancelled', label: 'Cancelled' },
   { value: 'all', label: 'All' },
 ];
-
-function visibleStatus(status: UpgradeRequestStatus): Exclude<UpgradeRequestStatus, 'contacted'> {
-  return status === 'contacted' ? 'pending' : status;
-}
-
-function statusStep(status: UpgradeRequestStatus) {
-  const shown = visibleStatus(status);
-  if (shown === 'activated') return 2;
-  if (shown === 'paid') return 1;
-  return 0;
-}
-
-function ProgressStrip({ status }: { status: UpgradeRequestStatus }) {
-  if (status === 'cancelled') {
-    return (
-      <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200">
-        This request is cancelled.
-      </div>
-    );
-  }
-
-  const active = statusStep(status);
-  const steps = ['Pending', 'Paid', 'Activated'];
-
-  return (
-    <div className="grid grid-cols-3 gap-2 rounded-xl border border-slate-800 bg-[#081120] p-3">
-      {steps.map((step, index) => {
-        const complete = index <= active;
-        return (
-          <div key={step} className="flex items-center gap-2">
-            <span
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-black ${
-                complete
-                  ? index === 2 && active === 2
-                    ? 'border-emerald-400 bg-emerald-500 text-white'
-                    : 'border-purple-400 bg-purple-500/20 text-purple-200'
-                  : 'border-slate-700 bg-[#0d1728] text-slate-500'
-              }`}
-            >
-              {complete && index === active ? '✓' : index + 1}
-            </span>
-            <span className={`text-xs font-bold ${complete ? 'text-slate-100' : 'text-slate-500'}`}>{step}</span>
-            {index < steps.length - 1 && <span className="ml-auto hidden h-px flex-1 bg-slate-700 sm:block" />}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 export function SupportActivationClient() {
   const [status, setStatus] = useState<QueueFilter>('pending');
@@ -133,9 +80,10 @@ export function SupportActivationClient() {
       ]);
       if (!pendingResult.ok) return setQueueError(pendingResult.error);
       if (!legacyContactedResult.ok) return setQueueError(legacyContactedResult.error);
-      const merged = [...pendingResult.data, ...legacyContactedResult.data]
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      setItems(merged);
+      setItems(
+        [...pendingResult.data, ...legacyContactedResult.data]
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      );
       return;
     }
 
@@ -229,8 +177,7 @@ export function SupportActivationClient() {
 
   async function refreshSelected(message?: string) {
     if (!detail) return;
-    const requestId = detail.request.id;
-    const result = await getSupportUpgradeRequest(requestId);
+    const result = await getSupportUpgradeRequest(detail.request.id);
     await loadQueue();
     if (!result.ok) return setActionError(result.error);
     setDetail(result.data);
@@ -332,46 +279,12 @@ export function SupportActivationClient() {
         {actionError && <ErrorBox message={actionError} />}
 
         <div className="grid gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-          <section className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0b1627] shadow-2xl shadow-black/20">
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-4">
-              <h2 className="text-sm font-black text-white">Requests</h2>
-              <span className="text-xs font-bold text-slate-500">{items.length}</span>
-            </div>
-            <div className="max-h-[760px] space-y-2 overflow-y-auto p-2">
-              {items.length === 0 && !queueError ? (
-                <div className="p-8 text-center text-sm font-medium text-slate-500">No matching requests.</div>
-              ) : (
-                items.map((item) => (
-                  <button
-                    key={item.request_id}
-                    type="button"
-                    onClick={() => void openRequest(item.request_id)}
-                    className={`w-full rounded-xl border p-3.5 text-left transition ${
-                      detail?.request.id === item.request_id
-                        ? 'border-purple-500 bg-purple-500/10'
-                        : 'border-transparent bg-[#0e1a2d] hover:border-slate-700 hover:bg-[#111f34]'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-mono text-xs font-black text-purple-400">{item.public_code}</p>
-                        <p className="mt-1 truncate text-sm font-bold text-white">{item.full_name || item.email}</p>
-                        <p className="mt-0.5 truncate text-xs font-medium text-slate-400">{item.email}</p>
-                      </div>
-                      <StatusBadge status={item.request_status} />
-                    </div>
-                    <div className="mt-3 flex items-end justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-xs font-bold text-slate-200">{item.product_name}</p>
-                        <p className="mt-1 text-[10px] font-medium text-slate-500">{formatDate(item.created_at)}</p>
-                      </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-600" />
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
+          <SupportRequestQueue
+            items={items}
+            selectedId={detail?.request.id}
+            queueError={queueError}
+            onOpen={(requestId) => void openRequest(requestId)}
+          />
 
           <section className="min-h-[620px] rounded-2xl border border-slate-800 bg-[#0b1627] p-5 shadow-2xl shadow-black/20 sm:p-6">
             {loadingDetail ? (
@@ -430,7 +343,11 @@ export function SupportActivationClient() {
                     <div className="grid gap-x-3 sm:grid-cols-2">
                       <Field label="Duration">
                         <select value={duration} onChange={(event) => setDuration(event.target.value)} disabled={!canEditOrder} className={inputClass}>
-                          <option value="1">1 month</option><option value="3">3 months</option><option value="6">6 months</option><option value="12">12 months</option><option value="lifetime">Lifetime</option>
+                          <option value="1">1 month</option>
+                          <option value="3">3 months</option>
+                          <option value="6">6 months</option>
+                          <option value="12">12 months</option>
+                          <option value="lifetime">Lifetime</option>
                         </select>
                       </Field>
                       <Field label="Currency">
@@ -518,7 +435,7 @@ export function SupportActivationClient() {
                         <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-[#081120] px-3 py-3 text-xs">
                           <span className="font-black text-slate-100">{formatMoney(payment.amount, payment.currency)}</span>
                           <span className="font-medium text-slate-400">{payment.payment_method}{payment.transaction_reference ? ` · ${payment.transaction_reference}` : ''}</span>
-                          <span className="font-medium text-slate-500">{formatDate(payment.paid_at)}</span>
+                          <span className="font-medium text-slate-500">{new Date(payment.paid_at).toLocaleString()}</span>
                         </div>
                       ))}
                     </div>
