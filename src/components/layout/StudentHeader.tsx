@@ -1,9 +1,11 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useUIStore } from '@/stores/uiStore';
 import { logout } from '@/actions/auth';
-import { Menu, LogOut, Search, UserCircle } from 'lucide-react';
+import { Crown, Menu, LogOut, Search, UserCircle } from 'lucide-react';
 
 interface StudentHeaderProps {
   userEmail?: string;
@@ -15,6 +17,9 @@ export function StudentHeader({
   userName = 'Doctor',
 }: StudentHeaderProps) {
   const { toggleSidebar } = useUIStore();
+  const pathname = usePathname();
+  const bankMatch = pathname.match(/^\/bank\/(\d+)/);
+  const upgradeHref = bankMatch ? `/upgrade?bank=${bankMatch[1]}` : '/upgrade';
 
   return (
     <header className="sticky top-0 z-30 flex h-[58px] items-center justify-between bg-[#282828] px-6 text-white">
@@ -43,7 +48,14 @@ export function StudentHeader({
         </button>
       </div>
 
-      <div className="flex w-24 items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-3">
+        <Link
+          href={upgradeHref}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md bg-amber-400 px-2.5 text-[11px] font-bold text-[#2c2512] hover:bg-amber-300"
+        >
+          <Crown className="h-3.5 w-3.5" />
+          Upgrade
+        </Link>
         <div className="hidden text-right leading-tight md:block">
           <p className="max-w-[95px] truncate text-[11px] font-semibold text-white">{userName}</p>
           <p className="max-w-[95px] truncate text-[10px] text-[#b7c0c8]">{userEmail}</p>
