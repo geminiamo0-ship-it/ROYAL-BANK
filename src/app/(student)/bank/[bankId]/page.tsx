@@ -38,7 +38,7 @@ export default async function QuestionBankHomePage({
         </section>
       ) : null}
 
-      <BankPerformanceDashboard performance={performance} />
+      <BankPerformanceDashboard bankId={parsedBankId} performance={performance} />
     </div>
   );
 }
