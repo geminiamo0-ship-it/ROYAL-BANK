@@ -1,6 +1,7 @@
 -- Live bank performance and session history.
 -- All metrics are derived from persisted user answers, question difficulty,
--- and the empirical option percentages bundled with the question bank.
+-- and empirical correct-option percentages. Missing benchmark percentages are
+-- excluded from peer/percentile math rather than replaced with invented values.
 
 CREATE OR REPLACE FUNCTION public.get_question_bank_performance(p_bank_id bigint)
 RETURNS jsonb
@@ -20,7 +21,12 @@ BEGIN
         RAISE EXCEPTION 'Question bank access denied';
     END IF;
 
-    WITH question_reference AS (
+    WITH bank_meta AS (
+        SELECT qb.name, qb.description
+        FROM public.question_banks qb
+        WHERE qb.id = p_bank_id
+    ),
+    question_reference AS (
         SELECT
             q.id AS question_id,
             COALESCE(NULLIF(BTRIM(q.category), ''), 'Uncategorized') AS category,
@@ -31,13 +37,16 @@ BEGIN
                 WHEN COALESCE(NULLIF(BTRIM(q.difficulty), ''), '2') IN ('3', 'hard', 'Hard', 'HARD') THEN 1.10::numeric
                 ELSE 1.00::numeric
             END AS difficulty_weight,
-            LEAST(
-                0.99::numeric,
-                GREATEST(
-                    0.01::numeric,
-                    COALESCE(MAX(o.percentage) FILTER (WHERE o.is_correct = TRUE), 50)::numeric / 100.0
+            CASE
+                WHEN COUNT(*) FILTER (WHERE o.is_correct = TRUE AND o.percentage IS NOT NULL) = 0 THEN NULL
+                ELSE LEAST(
+                    0.99::numeric,
+                    GREATEST(
+                        0.01::numeric,
+                        MAX(o.percentage) FILTER (WHERE o.is_correct = TRUE AND o.percentage IS NOT NULL)::numeric / 100.0
+                    )
                 )
-            ) AS peer_probability
+            END AS peer_probability
         FROM public.question_bank_questions qbq
         JOIN public.questions q ON q.id = qbq.question_id
         LEFT JOIN public.options o ON o.question_id = q.id
@@ -66,24 +75,25 @@ BEGIN
             COUNT(*)::int AS answered_count,
             COUNT(*) FILTER (WHERE is_correct)::int AS correct_count,
             COUNT(*) FILTER (WHERE NOT is_correct)::int AS incorrect_count,
-            COALESCE(SUM(difficulty_weight), 0)::numeric AS weight_sum,
-            COALESCE(SUM(difficulty_weight * CASE WHEN is_correct THEN 1 ELSE 0 END), 0)::numeric AS weighted_correct,
-            COALESCE(SUM(difficulty_weight * peer_probability), 0)::numeric AS weighted_expected,
-            COALESCE(SUM(difficulty_weight * difficulty_weight * peer_probability * (1 - peer_probability)), 0)::numeric AS weighted_variance
+            COUNT(*) FILTER (WHERE peer_probability IS NOT NULL)::int AS benchmark_count,
+            COALESCE(SUM(difficulty_weight) FILTER (WHERE peer_probability IS NOT NULL), 0)::numeric AS benchmark_weight_sum,
+            COALESCE(SUM(difficulty_weight * CASE WHEN is_correct THEN 1 ELSE 0 END) FILTER (WHERE peer_probability IS NOT NULL), 0)::numeric AS weighted_correct,
+            COALESCE(SUM(difficulty_weight * peer_probability) FILTER (WHERE peer_probability IS NOT NULL), 0)::numeric AS weighted_expected,
+            COALESCE(SUM(difficulty_weight * difficulty_weight * peer_probability * (1 - peer_probability)) FILTER (WHERE peer_probability IS NOT NULL), 0)::numeric AS weighted_variance
         FROM answered
     ),
     overall_scores AS (
         SELECT
             overall.*,
             CASE WHEN answered_count > 0 THEN ROUND((correct_count::numeric / answered_count) * 100, 1) ELSE NULL END AS raw_accuracy,
-            CASE WHEN weight_sum > 0 THEN ROUND((weighted_correct / weight_sum) * 100, 1) ELSE NULL END AS user_score,
-            CASE WHEN weight_sum > 0 THEN ROUND((weighted_expected / weight_sum) * 100, 1) ELSE NULL END AS peer_average,
+            CASE WHEN benchmark_weight_sum > 0 THEN ROUND((weighted_correct / benchmark_weight_sum) * 100, 1) ELSE NULL END AS user_score,
+            CASE WHEN benchmark_weight_sum > 0 THEN ROUND((weighted_expected / benchmark_weight_sum) * 100, 1) ELSE NULL END AS peer_average,
             CASE
-                WHEN answered_count = 0 OR weighted_variance <= 0 THEN NULL
+                WHEN benchmark_count = 0 OR weighted_variance <= 0 THEN NULL
                 ELSE
                     (weighted_correct - weighted_expected)
                     / SQRT(weighted_variance)
-                    * SQRT(answered_count::numeric / (answered_count + 10)::numeric)
+                    * SQRT(benchmark_count::numeric / (benchmark_count + 10)::numeric)
             END AS adjusted_z
         FROM overall
     ),
@@ -93,10 +103,11 @@ BEGIN
             COUNT(*)::int AS answered_count,
             COUNT(*) FILTER (WHERE is_correct)::int AS correct_count,
             COUNT(*) FILTER (WHERE NOT is_correct)::int AS incorrect_count,
-            SUM(difficulty_weight)::numeric AS weight_sum,
-            SUM(difficulty_weight * CASE WHEN is_correct THEN 1 ELSE 0 END)::numeric AS weighted_correct,
-            SUM(difficulty_weight * peer_probability)::numeric AS weighted_expected,
-            SUM(difficulty_weight * difficulty_weight * peer_probability * (1 - peer_probability))::numeric AS weighted_variance
+            COUNT(*) FILTER (WHERE peer_probability IS NOT NULL)::int AS benchmark_count,
+            COALESCE(SUM(difficulty_weight) FILTER (WHERE peer_probability IS NOT NULL), 0)::numeric AS benchmark_weight_sum,
+            COALESCE(SUM(difficulty_weight * CASE WHEN is_correct THEN 1 ELSE 0 END) FILTER (WHERE peer_probability IS NOT NULL), 0)::numeric AS weighted_correct,
+            COALESCE(SUM(difficulty_weight * peer_probability) FILTER (WHERE peer_probability IS NOT NULL), 0)::numeric AS weighted_expected,
+            COALESCE(SUM(difficulty_weight * difficulty_weight * peer_probability * (1 - peer_probability)) FILTER (WHERE peer_probability IS NOT NULL), 0)::numeric AS weighted_variance
         FROM answered
         GROUP BY category
     ),
@@ -106,15 +117,16 @@ BEGIN
             answered_count,
             correct_count,
             incorrect_count,
+            benchmark_count,
             ROUND((correct_count::numeric / NULLIF(answered_count, 0)) * 100, 1) AS raw_accuracy,
-            ROUND((weighted_correct / NULLIF(weight_sum, 0)) * 100, 1) AS user_score,
-            ROUND((weighted_expected / NULLIF(weight_sum, 0)) * 100, 1) AS peer_average,
+            CASE WHEN benchmark_weight_sum > 0 THEN ROUND((weighted_correct / benchmark_weight_sum) * 100, 1) ELSE NULL END AS user_score,
+            CASE WHEN benchmark_weight_sum > 0 THEN ROUND((weighted_expected / benchmark_weight_sum) * 100, 1) ELSE NULL END AS peer_average,
             CASE
-                WHEN answered_count = 0 OR weighted_variance <= 0 THEN NULL
+                WHEN benchmark_count = 0 OR weighted_variance <= 0 THEN NULL
                 ELSE
                     (weighted_correct - weighted_expected)
                     / SQRT(weighted_variance)
-                    * SQRT(answered_count::numeric / (answered_count + 8)::numeric)
+                    * SQRT(benchmark_count::numeric / (benchmark_count + 8)::numeric)
             END AS adjusted_z
         FROM category_rollup
     ),
@@ -126,6 +138,7 @@ BEGIN
                     'answered', answered_count,
                     'correct', correct_count,
                     'incorrect', incorrect_count,
+                    'benchmark_questions', benchmark_count,
                     'accuracy', raw_accuracy,
                     'user_score', user_score,
                     'peer_average', peer_average,
@@ -157,7 +170,7 @@ BEGIN
                     'answered', answered_count,
                     'correct', correct_count,
                     'accuracy', CASE WHEN answered_count > 0 THEN ROUND(correct_count::numeric / answered_count * 100, 1) ELSE NULL END,
-                    'peer_average', ROUND(peer_average, 1)
+                    'peer_average', CASE WHEN benchmark_count > 0 THEN ROUND(peer_average, 1) ELSE NULL END
                 )
                 ORDER BY difficulty
             ),
@@ -168,7 +181,8 @@ BEGIN
                 difficulty,
                 COUNT(*)::int AS answered_count,
                 COUNT(*) FILTER (WHERE is_correct)::int AS correct_count,
-                AVG(peer_probability * 100)::numeric AS peer_average
+                COUNT(*) FILTER (WHERE peer_probability IS NOT NULL)::int AS benchmark_count,
+                AVG(peer_probability * 100) FILTER (WHERE peer_probability IS NOT NULL)::numeric AS peer_average
             FROM answered
             GROUP BY difficulty
         ) difficulty_rows
@@ -241,7 +255,6 @@ BEGIN
     state_totals AS (
         SELECT
             COUNT(*)::int AS total_questions,
-            COUNT(*) FILTER (WHERE answer_state IS NOT NULL)::int AS answered_questions,
             COUNT(*) FILTER (WHERE is_flagged)::int AS flagged_questions,
             COUNT(*) FILTER (WHERE is_suspended)::int AS suspended_questions
         FROM states
@@ -252,10 +265,13 @@ BEGIN
         WHERE activity_date = CURRENT_DATE
     )
     SELECT jsonb_build_object(
+        'bank_name', bank_meta.name,
+        'bank_description', bank_meta.description,
         'total_questions', state_totals.total_questions,
         'answered', overall_scores.answered_count,
         'correct', overall_scores.correct_count,
         'incorrect', overall_scores.incorrect_count,
+        'benchmark_questions', overall_scores.benchmark_count,
         'flagged', state_totals.flagged_questions,
         'suspended', state_totals.suspended_questions,
         'completion_percentage', CASE
@@ -283,10 +299,11 @@ BEGIN
         'categories', category_payload.payload,
         'difficulty', difficulty_payload.payload,
         'activity', activity_payload.payload,
-        'method', 'Empirical correct-option percentages are the peer benchmark; difficulty weights are 0.9/1.0/1.1; percentile is a shrunk normal-performance estimate mapped through a logistic CDF.'
+        'method', 'Empirical correct-option percentages are the peer benchmark; question difficulty weights are 0.9/1.0/1.1; percentile is a small-sample-shrunk performance estimate mapped through a logistic normal-CDF approximation. Questions without an empirical correct percentage are excluded from benchmark math.'
     )
     INTO v_result
-    FROM overall_scores
+    FROM bank_meta
+    CROSS JOIN overall_scores
     CROSS JOIN state_totals
     CROSS JOIN category_payload
     CROSS JOIN difficulty_payload
