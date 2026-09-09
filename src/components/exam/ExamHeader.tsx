@@ -44,9 +44,6 @@ export function ExamHeader({
         </div>
 
         <div className="flex items-center gap-5 text-[12px] text-[#cf95ff]">
-          <button type="button" className="hidden hover:text-white md:block">
-            Reference ranges
-          </button>
           <button type="button" onClick={onSuspend} className="hover:text-white">
             Suspend
           </button>
