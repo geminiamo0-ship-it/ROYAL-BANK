@@ -7,6 +7,7 @@ export interface BankPerformanceCategory {
   answered: number;
   correct: number;
   incorrect: number;
+  benchmark_questions?: number;
   accuracy: number | null;
   user_score: number | null;
   peer_average: number | null;
@@ -29,10 +30,13 @@ export interface BankActivityDay {
 }
 
 export interface BankPerformanceSummary {
+  bank_name: string;
+  bank_description: string | null;
   total_questions: number;
   answered: number;
   correct: number;
   incorrect: number;
+  benchmark_questions: number;
   flagged: number;
   suspended: number;
   completion_percentage: number;
@@ -88,10 +92,13 @@ export async function getLiveBankPerformance(bankId: number): Promise<BankPerfor
 
   const value = (data || {}) as Partial<BankPerformanceSummary>;
   return {
+    bank_name: String(value.bank_name || 'Question Bank'),
+    bank_description: value.bank_description == null ? null : String(value.bank_description),
     total_questions: Number(value.total_questions || 0),
     answered: Number(value.answered || 0),
     correct: Number(value.correct || 0),
     incorrect: Number(value.incorrect || 0),
+    benchmark_questions: Number(value.benchmark_questions || 0),
     flagged: Number(value.flagged || 0),
     suspended: Number(value.suspended || 0),
     completion_percentage: Number(value.completion_percentage || 0),
