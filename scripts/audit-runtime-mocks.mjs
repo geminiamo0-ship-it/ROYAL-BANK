@@ -16,6 +16,8 @@ const forbidden = [
   'CONTENT_MAP_DATA',
   'MOCK_EXAMS',
   'SAMPLE_SAVED',
+  'INITIAL_BLOCKED',
+  'INITIAL_USERS',
   '/exam/review-',
   '/exam/mock-',
   'session-demo-',
