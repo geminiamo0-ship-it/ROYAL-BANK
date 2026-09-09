@@ -80,8 +80,30 @@ export function SupportActivationClient() {
   }, [search, status]);
 
   useEffect(() => {
-    void refreshQueue();
-  }, [refreshQueue]);
+    let cancelled = false;
+
+    void listSupportUpgradeRequests({
+      status: status === 'all' ? null : status,
+      search,
+      limit: 100,
+      offset: 0,
+    }).then((result) => {
+      if (cancelled) return;
+
+      if (!result.ok) {
+        setItems([]);
+        setQueueError(result.error);
+        return;
+      }
+
+      setQueueError(null);
+      setItems(result.data);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [search, status]);
 
   const syncForms = useCallback((next: SupportUpgradeDetail) => {
     if (next.order) {
