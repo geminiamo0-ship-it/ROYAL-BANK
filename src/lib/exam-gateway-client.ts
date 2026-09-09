@@ -1,12 +1,4 @@
-export type ExamGatewayAction =
-  | 'create'
-  | 'bootstrap'
-  | 'window'
-  | 'submit'
-  | 'submitRaw'
-  | 'feedback'
-  | 'flag'
-  | 'complete';
+import type { ExamGatewayAction } from '@/types/exam-gateway';
 
 export const EXAM_RATE_LIMIT_EVENT = 'royal:exam-rate-limit';
 export const EXAM_RATE_LIMIT_STORAGE_KEY = 'royal.exam-rate-limit-until';
