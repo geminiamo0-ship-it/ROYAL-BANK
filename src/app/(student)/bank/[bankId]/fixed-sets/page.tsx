@@ -1,14 +1,17 @@
 import React from 'react';
-import { createClient } from '@/lib/supabase/server';
 import { notFound, redirect } from 'next/navigation';
-import { OldBlocksClient, type OldBlockSession } from '@/components/bank/OldBlocksClient';
+import {
+  PreviousSessionsClient,
+  type PreviousSession,
+} from '@/components/bank/PreviousSessionsClient';
+import { createClient } from '@/lib/supabase/server';
 
 interface TestSessionRow {
   id: string;
   started_at: string;
   categories: string[] | null;
   total_questions: number;
-  session_type: OldBlockSession['session_type'];
+  session_type: PreviousSession['session_type'];
   is_completed: boolean;
   score_percentage: number | null;
 }
@@ -30,7 +33,9 @@ export default async function FixedSetsPage({
   }
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
     redirect(`/login?redirect=/bank/${parsedBankId}/fixed-sets`);
@@ -73,7 +78,7 @@ export default async function FixedSetsPage({
     }
   }
 
-  const mappedSessions: OldBlockSession[] = sessionRows.map((session) => ({
+  const mappedSessions: PreviousSession[] = sessionRows.map((session) => ({
     id: session.id,
     created_at: session.started_at,
     categories: session.categories,
@@ -89,7 +94,7 @@ export default async function FixedSetsPage({
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-[#111827]">Previous Sessions</h1>
       </div>
-      <OldBlocksClient sessions={mappedSessions} bankId={parsedBankId} />
+      <PreviousSessionsClient sessions={mappedSessions} bankId={parsedBankId} />
     </div>
   );
 }
