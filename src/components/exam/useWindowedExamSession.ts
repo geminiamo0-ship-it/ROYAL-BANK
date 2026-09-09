@@ -106,21 +106,22 @@ export function useWindowedExamSession({
     let cancelled = false;
     const cached = getExamLaunchCache(sessionId);
 
-    if (cached) {
-      applyBootstrap(cached.bootstrap, cached.questionsById);
-      return () => {
-        cancelled = true;
-      };
-    }
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
 
-    setIsBootstrapping(true);
-    getExamSessionBootstrapDirect(sessionId)
-      .then((bootstrap) => {
+      if (cached) {
+        applyBootstrap(cached.bootstrap, cached.questionsById);
+        return;
+      }
+
+      setIsBootstrapping(true);
+
+      try {
+        const bootstrap = await getExamSessionBootstrapDirect(sessionId);
         if (cancelled) return;
         primeExamLaunchCache(bootstrap);
         applyBootstrap(bootstrap);
-      })
-      .catch((error) => {
+      } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : 'Unable to load the exam session.';
         if (/not authenticated|jwt|authentication/i.test(message)) {
@@ -129,7 +130,8 @@ export function useWindowedExamSession({
         }
         onError(message);
         setIsBootstrapping(false);
-      });
+      }
+    });
 
     return () => {
       cancelled = true;
