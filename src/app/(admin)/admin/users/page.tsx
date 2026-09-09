@@ -1,16 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { 
-  Users, 
-  Search, 
-  ShieldAlert, 
-  UserCheck, 
-  Ban, 
-  MoreVertical, 
-  Check, 
-  Filter
-} from 'lucide-react';
+import { Search, Ban } from 'lucide-react';
 
 interface UserRecord {
   id: string;
@@ -85,14 +76,11 @@ export default function AdminUsersPage() {
   };
 
   const promoteUser = (id: string, newTier: 'premium_individual' | 'premium_full') => {
-    setUsers(
-      users.map((u) => (u.id === id ? { ...u, tier: newTier } : u))
-    );
+    setUsers(users.map((u) => (u.id === id ? { ...u, tier: newTier } : u)));
   };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">
@@ -103,7 +91,6 @@ export default function AdminUsersPage() {
           </p>
         </div>
 
-        {/* Search & Filter */}
         <div className="flex items-center gap-2">
           <div className="relative">
             <Search className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" />
@@ -129,7 +116,6 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {/* Users Table */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
