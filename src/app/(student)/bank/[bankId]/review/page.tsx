@@ -2,26 +2,13 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { 
-  RotateCcw, 
-  Flag, 
-  XCircle, 
-  Play, 
-  CheckCircle2, 
-  Layers,
-  ChevronRight
-} from 'lucide-react';
+import { RotateCcw, Flag, XCircle, Play, Layers } from 'lucide-react';
 
 export default function ReviewQuestionsPage() {
-  const params = useParams();
-  const bankId = params.bankId || '1';
-
   const [selectedFilter, setSelectedFilter] = useState<'incorrect' | 'flagged' | 'all_attempted'>('incorrect');
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      {/* Header Banner */}
       <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 flex items-center justify-center font-bold">
@@ -46,7 +33,6 @@ export default function ReviewQuestionsPage() {
         </Link>
       </div>
 
-      {/* Filter Tabs */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <button
           onClick={() => setSelectedFilter('incorrect')}
