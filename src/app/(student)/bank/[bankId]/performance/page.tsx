@@ -1,19 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { 
-  BarChart2, 
-  TrendingUp, 
-  Target, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  Award,
-  ChevronRight,
-  ArrowUpRight
-} from 'lucide-react';
+import { BarChart2, ChevronRight } from 'lucide-react';
 
 interface CategoryPerf {
   category: string;
@@ -45,7 +35,6 @@ export default function PerformancePage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      {/* Header Banner */}
       <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold">
@@ -70,7 +59,6 @@ export default function PerformancePage() {
         </Link>
       </div>
 
-      {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-1">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Overall Accuracy</span>
@@ -110,7 +98,6 @@ export default function PerformancePage() {
         </div>
       </div>
 
-      {/* Category Accuracy Table */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="p-4 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <h2 className="font-bold text-slate-900 dark:text-white text-xs uppercase tracking-wider">
@@ -133,7 +120,6 @@ export default function PerformancePage() {
                   </span>
                 </div>
 
-                {/* Progress Bar & Benchmark */}
                 <div className="w-full sm:w-1/2 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-semibold">
                     <span className={userAcc >= 70 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
@@ -143,15 +129,13 @@ export default function PerformancePage() {
                   </div>
 
                   <div className="h-2.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden relative">
-                    {/* User bar */}
-                    <div 
+                    <div
                       className={`h-full rounded-full transition-all duration-500 ${
                         userAcc >= 70 ? 'bg-emerald-500' : userAcc >= 60 ? 'bg-blue-500' : 'bg-amber-500'
                       }`}
                       style={{ width: `${userAcc}%` }}
                     />
-                    {/* Peer marker */}
-                    <div 
+                    <div
                       className="absolute top-0 bottom-0 w-0.5 bg-slate-900 dark:bg-white"
                       style={{ left: `${item.peerAverage}%` }}
                       title={`Peer average: ${item.peerAverage}%`}
@@ -161,8 +145,8 @@ export default function PerformancePage() {
 
                 <div className="shrink-0">
                   <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                    isAbovePeer 
-                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' 
+                    isAbovePeer
+                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
                       : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
                   }`}>
                     {isAbovePeer ? `+${userAcc - item.peerAverage}% Above` : `${userAcc - item.peerAverage}% Below`}
