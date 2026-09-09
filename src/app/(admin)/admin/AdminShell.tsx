@@ -4,11 +4,13 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  Activity,
   ArrowLeft,
   BadgePercent,
   BarChart3,
   CircleDollarSign,
   Headphones,
+  KeyRound,
   ShieldAlert,
   Stethoscope,
   Users,
@@ -20,10 +22,12 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   const navItems = [
     { name: 'Business Overview', href: '/admin', icon: BarChart3 },
+    { name: 'Users & Subscriptions', href: '/admin/users', icon: Users },
+    { name: 'Access Management', href: '/admin/access', icon: KeyRound },
+    { name: 'Support Performance', href: '/admin/support-performance', icon: Activity },
     { name: 'Revenue', href: '/admin/revenue', icon: CircleDollarSign },
     { name: 'Promo Codes', href: '/admin/promos', icon: BadgePercent },
     { name: 'Commissions', href: '/admin/commissions', icon: WalletCards },
-    { name: 'Users & Subscriptions', href: '/admin/users', icon: Users },
     { name: 'Security & IP Block', href: '/admin/security', icon: ShieldAlert },
     { name: 'Support Activation', href: '/support', icon: Headphones },
   ];
