@@ -3,7 +3,7 @@ name: Verify DB
 on:
   push:
     branches:
-      - audit/core-hardening
+      - main
     paths:
       - 'supabase/**'
       - '.github/workflows/verify-db.yml'
