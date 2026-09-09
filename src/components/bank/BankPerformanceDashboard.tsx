@@ -1,5 +1,13 @@
 import Link from 'next/link';
-import { BarChart3, ChevronDown, Flame, Target } from 'lucide-react';
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronRight,
+  Flame,
+  Info,
+  SlidersHorizontal,
+  Target,
+} from 'lucide-react';
 import type {
   BankActivityDay,
   BankPerformanceDifficulty,
@@ -8,6 +16,23 @@ import type {
 
 function pct(value: number | null, digits = 0) {
   return value == null || !Number.isFinite(value) ? '—' : `${value.toFixed(digits)}%`;
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+}
+
+function ordinalParts(value: number) {
+  const rounded = Math.round(value);
+  const mod100 = Math.abs(rounded) % 100;
+  let suffix = 'th';
+  if (mod100 < 11 || mod100 > 13) {
+    const mod10 = Math.abs(rounded) % 10;
+    if (mod10 === 1) suffix = 'st';
+    else if (mod10 === 2) suffix = 'nd';
+    else if (mod10 === 3) suffix = 'rd';
+  }
+  return { value: rounded, suffix };
 }
 
 function difficultyLabel(value: string) {
@@ -88,103 +113,345 @@ export function BankHero({
   );
 }
 
-export function BankPerformanceDashboard({ performance }: { performance: BankPerformanceSummary }) {
+export function BankPerformanceDashboard({
+  bankId,
+  performance,
+}: {
+  bankId: number;
+  performance: BankPerformanceSummary;
+}) {
   const answered = performance.answered;
+  const totalQuestions = performance.total_questions;
   const correctPct = answered > 0 ? (performance.correct / answered) * 100 : 0;
   const incorrectPct = answered > 0 ? (performance.incorrect / answered) * 100 : 0;
+  const completionPct = totalQuestions > 0 ? clampPercent(performance.completion_percentage) : 0;
+  const remainingQuestions = Math.max(0, totalQuestions - answered);
+  const remainingPct = totalQuestions > 0 ? Math.max(0, 100 - completionPct) : 0;
 
   return (
-    <section className="rounded-[4px] bg-[#353c42] shadow-[0_1px_3px_rgba(0,0,0,0.28)]">
-      <div className="border-b border-[#2a3035] px-[14px] py-[11px]">
-        <h2 className="text-[13px] font-semibold text-white">Question Bank Overview</h2>
-        <p className="mt-1 text-[11px] text-[#9eabb4]">Everything below is calculated from your persisted answers, empirical option percentages and question difficulty.</p>
+    <div className="space-y-[14px]">
+      <div className="grid gap-[14px] xl:grid-cols-2">
+        <QuestionBankOverviewCard
+          bankId={bankId}
+          correct={performance.correct}
+          incorrect={performance.incorrect}
+          correctPct={correctPct}
+          incorrectPct={incorrectPct}
+          completed={answered}
+          remaining={remainingQuestions}
+          completionPct={completionPct}
+          remainingPct={remainingPct}
+          hasAnswers={answered > 0}
+          hasQuestions={totalQuestions > 0}
+        />
+
+        <EstimatedPercentileCard
+          percentile={performance.estimated_percentile}
+          adjustedScore={performance.difficulty_adjusted_score}
+          peerAverage={performance.peer_average}
+        />
       </div>
 
-      <div className="grid gap-3 p-[14px] lg:grid-cols-3">
-        <OverviewPanel title="Correct vs Incorrect">
-          <div className="mt-4 h-[7px] overflow-hidden rounded-full bg-[#252b30]">
-            <div className="flex h-full w-full">
-              <span className="h-full bg-[#38b871]" style={{ width: `${correctPct}%` }} />
-              <span className="h-full bg-[#ef5c5c]" style={{ width: `${incorrectPct}%` }} />
-            </div>
-          </div>
-          <div className="mt-4 flex justify-between text-[12px]">
-            <div><span className="font-bold text-[#59d18c]">{performance.correct}</span><span className="ml-1 text-[#a9b3ba]">correct ({correctPct.toFixed(0)}%)</span></div>
-            <div><span className="font-bold text-[#ff7777]">{performance.incorrect}</span><span className="ml-1 text-[#a9b3ba]">incorrect ({incorrectPct.toFixed(0)}%)</span></div>
-          </div>
-        </OverviewPanel>
+      <CategoryPerformance performance={performance} />
+    </div>
+  );
+}
 
-        <OverviewPanel title="Completed Questions">
-          <div className="mt-4 text-center">
-            <p className="text-[28px] font-bold text-white">{performance.answered.toLocaleString()}</p>
-            <p className="text-[11px] text-[#9eabb4]">of {performance.total_questions.toLocaleString()} questions</p>
-          </div>
-          <div className="mt-4 h-[7px] overflow-hidden rounded-full bg-[#252b30]">
-            <div className="h-full bg-[#6f8bd7]" style={{ width: `${Math.min(100, performance.completion_percentage)}%` }} />
-          </div>
-          <p className="mt-3 text-center text-[11px] font-semibold text-[#c7d2ff]">{pct(performance.completion_percentage, 1)} complete</p>
-        </OverviewPanel>
+function QuestionBankOverviewCard({
+  bankId,
+  correct,
+  incorrect,
+  correctPct,
+  incorrectPct,
+  completed,
+  remaining,
+  completionPct,
+  remainingPct,
+  hasAnswers,
+  hasQuestions,
+}: {
+  bankId: number;
+  correct: number;
+  incorrect: number;
+  correctPct: number;
+  incorrectPct: number;
+  completed: number;
+  remaining: number;
+  completionPct: number;
+  remainingPct: number;
+  hasAnswers: boolean;
+  hasQuestions: boolean;
+}) {
+  return (
+    <section className="overflow-hidden rounded-[10px] border border-[#334654] bg-[#1e2d3a] shadow-[0_3px_10px_rgba(0,0,0,0.3)]">
+      <CardHeader title="Question Bank" />
 
-        <OverviewPanel title="Estimated Percentile">
-          <PercentileCurve percentile={performance.estimated_percentile} />
-          <div className="mt-1 grid grid-cols-2 gap-3 text-center">
-            <div>
-              <p className="text-[10px] uppercase text-[#8e9aa3]">Your adjusted score</p>
-              <p className="mt-1 font-bold text-white">{pct(performance.difficulty_adjusted_score, 1)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase text-[#8e9aa3]">Peer benchmark</p>
-              <p className="mt-1 font-bold text-[#cdb2ff]">{pct(performance.peer_average, 1)}</p>
-            </div>
-          </div>
-        </OverviewPanel>
+      <div className="px-5 pb-5 pt-4 sm:px-6">
+        <h2 className="text-[16px] font-semibold text-white">Overview</h2>
+
+        <MetricBlock title="Correct vs Incorrect">
+          <SegmentedMetricBar
+            leftPct={correctPct}
+            rightPct={incorrectPct}
+            leftLabel={`${Math.round(correctPct)}% • ${correct.toLocaleString()}`}
+            rightLabel={`${Math.round(incorrectPct)}% • ${incorrect.toLocaleString()}`}
+            leftClassName="bg-[#17bf8e]"
+            rightClassName="bg-[#f44755]"
+            leftFallbackClassName="text-[#38d5a6]"
+            rightFallbackClassName="text-[#ff7680]"
+            populated={hasAnswers}
+          />
+        </MetricBlock>
+
+        <MetricBlock title="Completed Questions">
+          <SegmentedMetricBar
+            leftPct={completionPct}
+            rightPct={remainingPct}
+            leftLabel={`${Math.round(completionPct)}% • ${completed.toLocaleString()}`}
+            rightLabel={`${Math.round(remainingPct)}% • ${remaining.toLocaleString()}`}
+            leftClassName="bg-[#316ce7]"
+            rightClassName="bg-[#172531]"
+            leftFallbackClassName="text-[#7da7ff]"
+            rightFallbackClassName="text-[#9bb1c3]"
+            populated={hasQuestions}
+          />
+        </MetricBlock>
       </div>
 
-      <details className="group border-t border-[#2a3035]">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-[14px] py-[12px] text-[12px] font-semibold text-white marker:content-none">
-          <span>
-            Performance by Category
-            <span className="ml-2 text-[10px] font-normal text-[#8f9ba4]">Click to show category progress</span>
-          </span>
-          <ChevronDown className="h-4 w-4 text-[#9ea9b1] transition-transform group-open:rotate-180" />
-        </summary>
-
-        <div className="border-t border-[#2a3035] px-[14px] pb-[14px] pt-[12px]">
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-            <p className="text-[10px] text-[#8f9ba4]">Difficulty-adjusted score compared with the empirical correct-answer percentage for the same questions.</p>
-            <div className="flex gap-4 text-[10px] text-[#a9b3ba]"><span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#59bd78]" />Your score</span><span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#9475d8]" />Peer average</span></div>
-          </div>
-
-          {performance.categories.length === 0 ? (
-            <div className="rounded-[4px] border border-[#495159] bg-[#2e3439] px-4 py-8 text-center text-[12px] text-[#a9b3ba]">Answer questions to build your live category performance.</div>
-          ) : (
-            <div className="space-y-3">
-              {performance.categories.map((row) => {
-                const yours = row.user_score ?? row.accuracy;
-                const peers = row.peer_average;
-                const yoursWidth = yours == null ? 0 : Math.max(0, Math.min(100, yours));
-                const peerWidth = peers == null ? 0 : Math.max(0, Math.min(100, peers));
-                return (
-                  <div key={row.category} className="grid gap-2 md:grid-cols-[185px_1fr_124px] md:items-center">
-                    <div className="truncate text-[11px] font-medium text-[#dce3e8]" title={row.category}>{row.category}</div>
-                    <div className="space-y-[3px]">
-                      <div className="h-[7px] overflow-hidden rounded-full bg-[#252b30]"><div className="h-full bg-[#59bd78]" style={{ width: `${yoursWidth}%` }} /></div>
-                      <div className="h-[5px] overflow-hidden rounded-full bg-[#252b30]"><div className="h-full bg-[#9475d8]" style={{ width: `${peerWidth}%` }} /></div>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-[#9ea9b1]"><span>{pct(yours, 0)} / {pct(peers, 0)}</span><span>P{row.estimated_percentile == null ? '—' : Math.round(row.estimated_percentile)}</span></div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </details>
+      <div className="mx-5 border-t border-[#304350] sm:mx-6" />
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-[12px] sm:px-6">
+        <Link href={`/bank/${bankId}/question-bank`} className="inline-flex items-center gap-1 font-semibold text-[#19bbff] hover:text-[#70d4ff]">
+          Practice questions <ChevronRight className="h-3.5 w-3.5" />
+        </Link>
+        <Link href={`/bank/${bankId}/sessions`} className="text-[#82acd0] hover:text-[#b8d6ef]">
+          View previous sessions
+        </Link>
+      </div>
     </section>
   );
 }
 
-function OverviewPanel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <article className="rounded-[4px] border border-[#495159] bg-[#2e3439] p-4"><h3 className="text-[11px] font-semibold uppercase tracking-[0.2px] text-[#b0bbc3]">{title}</h3>{children}</article>;
+function EstimatedPercentileCard({
+  percentile,
+  adjustedScore,
+  peerAverage,
+}: {
+  percentile: number | null;
+  adjustedScore: number | null;
+  peerAverage: number | null;
+}) {
+  const clamped = percentile == null ? null : Math.max(1, Math.min(99, percentile));
+  const ordinal = clamped == null ? null : ordinalParts(clamped);
+
+  return (
+    <section className="overflow-hidden rounded-[10px] border border-[#334654] bg-[#1e2d3a] shadow-[0_3px_10px_rgba(0,0,0,0.3)]">
+      <CardHeader title="Your Estimated Percentile" />
+
+      <div className="px-5 pb-4 pt-4 sm:px-6">
+        <div className="text-center">
+          <div className="inline-flex items-center gap-1 text-[12px] text-[#83acd0]">
+            <span>Your estimated percentile</span>
+            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+          </div>
+          <div className="mt-1 flex items-start justify-center text-[#19bbff]">
+            {ordinal ? (
+              <>
+                <span className="text-[40px] font-bold leading-none tracking-[-1.5px]">{ordinal.value}</span>
+                <span className="mt-[-1px] text-[22px] font-bold leading-none">{ordinal.suffix}</span>
+              </>
+            ) : (
+              <span className="text-[40px] font-bold leading-none">—</span>
+            )}
+          </div>
+          <p className="mt-1 text-[11px] font-semibold text-[#dbe7f0]">percentile</p>
+        </div>
+
+        <PercentileHistogram percentile={clamped} />
+
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-[#304350] pt-3 text-center">
+          <div>
+            <p className="text-[9px] uppercase tracking-[0.45px] text-[#7894aa]">Adjusted score</p>
+            <p className="mt-1 text-[12px] font-bold text-white">{pct(adjustedScore, 1)}</p>
+          </div>
+          <div>
+            <p className="text-[9px] uppercase tracking-[0.45px] text-[#7894aa]">Peer benchmark</p>
+            <p className="mt-1 text-[12px] font-bold text-[#c8a9ff]">{pct(peerAverage, 1)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-[#304350] px-5 py-3 text-center text-[12px] text-[#e1eaf0] sm:px-6">
+        {ordinal
+          ? <>Estimated higher than <strong className="text-white">{ordinal.value}%</strong> of the benchmark distribution</>
+          : 'Answer benchmarked questions to estimate your percentile'}
+      </div>
+    </section>
+  );
+}
+
+function CardHeader({ title }: { title: string }) {
+  return (
+    <div className="mx-5 flex items-center justify-between border-b border-[#304350] py-4 sm:mx-6">
+      <h2 className="text-[12px] font-bold uppercase tracking-[0.55px] text-[#19bbff]">{title}</h2>
+      <SlidersHorizontal className="h-4 w-4 text-[#7890a2]" aria-hidden="true" />
+    </div>
+  );
+}
+
+function MetricBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-5">
+      <p className="mb-2 text-[12px] font-semibold text-[#dbe7f0]">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function SegmentedMetricBar({
+  leftPct,
+  rightPct,
+  leftLabel,
+  rightLabel,
+  leftClassName,
+  rightClassName,
+  leftFallbackClassName,
+  rightFallbackClassName,
+  populated,
+}: {
+  leftPct: number;
+  rightPct: number;
+  leftLabel: string;
+  rightLabel: string;
+  leftClassName: string;
+  rightClassName: string;
+  leftFallbackClassName: string;
+  rightFallbackClassName: string;
+  populated: boolean;
+}) {
+  const left = populated ? clampPercent(leftPct) : 0;
+  const right = populated ? clampPercent(rightPct) : 0;
+  const showLeftInside = populated && left >= 14;
+  const showRightInside = populated && right >= 14;
+
+  return (
+    <div>
+      <div className="flex h-[36px] w-full overflow-hidden rounded-[5px] border border-[#334c60] bg-[#172531]">
+        {populated ? (
+          <>
+            <div className={`flex h-full items-center px-3 ${leftClassName}`} style={{ width: `${left}%` }}>
+              {showLeftInside ? <span className="whitespace-nowrap text-[11px] font-bold text-white">{leftLabel}</span> : null}
+            </div>
+            <div className={`flex h-full flex-1 items-center justify-end px-3 ${rightClassName}`} style={{ width: `${right}%` }}>
+              {showRightInside ? <span className="whitespace-nowrap text-[11px] font-bold text-white">{rightLabel}</span> : null}
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {(!showLeftInside || !showRightInside) ? (
+        <div className="mt-2 flex min-h-[15px] items-center justify-between gap-3 text-[10px] font-semibold">
+          <span className={showLeftInside ? 'invisible' : leftFallbackClassName}>{leftLabel}</span>
+          <span className={`${showRightInside ? 'invisible' : rightFallbackClassName} text-right`}>{rightLabel}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const DISTRIBUTION_BARS = Array.from({ length: 41 }, (_, index) => {
+  const position = (index / 40) * 100;
+  const z = (position - 50) / 18;
+  return {
+    position,
+    height: Math.max(4, Math.exp(-0.5 * z * z) * 100),
+  };
+});
+
+function distributionBarClass(position: number) {
+  if (position < 25) return 'bg-[#ee4054]';
+  if (position < 40) return 'bg-[#f05c35]';
+  if (position < 52) return 'bg-[#ff7a00]';
+  if (position < 64) return 'bg-[#f4c400]';
+  if (position < 75) return 'bg-[#79bd13]';
+  if (position < 88) return 'bg-[#22ad62]';
+  return 'bg-[#12b990]';
+}
+
+function PercentileHistogram({ percentile }: { percentile: number | null }) {
+  return (
+    <div className="mt-4" aria-label="Estimated percentile benchmark distribution">
+      <div className="relative h-[116px] border-b border-[#385165]">
+        <div className="absolute inset-x-1 bottom-0 flex h-[103px] items-end gap-[2px]">
+          {DISTRIBUTION_BARS.map((bar) => (
+            <span
+              key={bar.position}
+              className={`min-w-0 flex-1 ${distributionBarClass(bar.position)}`}
+              style={{ height: `${bar.height}%` }}
+            />
+          ))}
+        </div>
+
+        {percentile != null ? (
+          <div
+            className="absolute bottom-0 top-0 z-10 w-px -translate-x-1/2 bg-white"
+            style={{ left: `${percentile}%` }}
+          >
+            <span className="absolute -left-[5px] top-0 h-[11px] w-[11px] rounded-full border-2 border-[#142432] bg-white shadow-[0_0_0_1px_rgba(255,255,255,0.2)]" />
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-2 flex justify-between text-[9px] text-[#7390a7]">
+        {[0, 20, 40, 60, 80, 100].map((value) => <span key={value}>{value}%</span>)}
+      </div>
+    </div>
+  );
+}
+
+function CategoryPerformance({ performance }: { performance: BankPerformanceSummary }) {
+  return (
+    <details className="group overflow-hidden rounded-[8px] border border-[#334654] bg-[#1e2d3a] shadow-[0_2px_7px_rgba(0,0,0,0.24)]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-[14px] text-[12px] font-semibold text-white marker:content-none sm:px-6">
+        <span>
+          Performance by Category
+          <span className="ml-2 text-[10px] font-normal text-[#7894aa]">Click to expand</span>
+        </span>
+        <ChevronDown className="h-4 w-4 text-[#8fa5b5] transition-transform group-open:rotate-180" />
+      </summary>
+
+      <div className="border-t border-[#304350] px-5 pb-5 pt-4 sm:px-6">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+          <p className="text-[10px] text-[#7894aa]">Difficulty-adjusted score compared with the empirical correct-answer percentage for the same questions.</p>
+          <div className="flex gap-4 text-[10px] text-[#9fb0bc]">
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#59bd78]" />Your score</span>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-[#9475d8]" />Peer average</span>
+          </div>
+        </div>
+
+        {performance.categories.length === 0 ? (
+          <div className="rounded-[4px] border border-[#3b4e5d] bg-[#182632] px-4 py-8 text-center text-[12px] text-[#9fb0bc]">Answer questions to build your live category performance.</div>
+        ) : (
+          <div className="space-y-3">
+            {performance.categories.map((row) => {
+              const yours = row.user_score ?? row.accuracy;
+              const peers = row.peer_average;
+              const yoursWidth = yours == null ? 0 : clampPercent(yours);
+              const peerWidth = peers == null ? 0 : clampPercent(peers);
+              return (
+                <div key={row.category} className="grid gap-2 md:grid-cols-[185px_1fr_124px] md:items-center">
+                  <div className="truncate text-[11px] font-medium text-[#e3ebf0]" title={row.category}>{row.category}</div>
+                  <div className="space-y-[3px]">
+                    <div className="h-[7px] overflow-hidden rounded-full bg-[#172531]"><div className="h-full bg-[#59bd78]" style={{ width: `${yoursWidth}%` }} /></div>
+                    <div className="h-[5px] overflow-hidden rounded-full bg-[#172531]"><div className="h-full bg-[#9475d8]" style={{ width: `${peerWidth}%` }} /></div>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-[#91a4b2]"><span>{pct(yours, 0)} / {pct(peers, 0)}</span><span>P{row.estimated_percentile == null ? '—' : Math.round(row.estimated_percentile)}</span></div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </details>
+  );
 }
 
 function StatPill({ value, tone, icon }: { value: string; tone: 'amber' | 'green'; icon: React.ReactNode }) {
@@ -231,23 +498,6 @@ function ActivityHeatmap({ title, days, mode }: { title: string; days: BankActiv
           {cells.map(({ key, data }) => <span key={key} title={`${key}: ${data?.answered || 0} answered${mode === 'accuracy' && data?.accuracy != null ? `, ${data.accuracy.toFixed(1)}% accuracy` : ''}`} className={`h-[12px] w-[12px] rounded-[1px] border border-[#dce3e8] ${cellClass(data)}`} />)}
         </div>
       </div>
-    </div>
-  );
-}
-
-function PercentileCurve({ percentile }: { percentile: number | null }) {
-  const value = percentile == null ? 50 : Math.max(1, Math.min(99, percentile));
-  const x = 18 + (value / 100) * 164;
-  const y = 68 - 50 * Math.exp(-Math.pow((value - 50) / 24, 2));
-  return (
-    <div className="mt-2">
-      <svg viewBox="0 0 200 82" className="h-[78px] w-full" aria-label="Estimated percentile curve">
-        <path d="M10 70 C35 70 39 22 72 20 C100 8 125 16 139 36 C153 56 166 69 190 70" fill="none" stroke="#72818d" strokeWidth="2" />
-        <line x1="10" y1="70" x2="190" y2="70" stroke="#4f5a63" strokeWidth="1" />
-        {percentile != null ? <><line x1={x} y1={70} x2={x} y2={y} stroke="#cfa7ff" strokeDasharray="3 2" /><circle cx={x} cy={y} r="4" fill="#cfa7ff" /></> : null}
-      </svg>
-      <p className="-mt-2 text-center text-[22px] font-bold text-white">{percentile == null ? '—' : `${Math.round(percentile)}th`}</p>
-      <p className="text-center text-[10px] text-[#8f9ba4]">Estimated percentile</p>
     </div>
   );
 }
