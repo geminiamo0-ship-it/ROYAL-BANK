@@ -2,10 +2,10 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { removeSavedConcept, saveConceptVote } from '@/actions/exam';
 import { ExamHeader } from '@/components/exam/ExamHeader';
 import { WindowedExamQuestionPane } from '@/components/exam/WindowedExamQuestionPane';
 import { WindowedExamSidebarWidgets } from '@/components/exam/WindowedExamSidebarWidgets';
+import { useExamConceptBookmark } from '@/components/exam/useExamConceptBookmark';
 import { useExamKeyboardShortcuts } from '@/components/exam/useExamKeyboardShortcuts';
 import {
   completeExamSessionDirect,
@@ -36,16 +36,6 @@ interface WindowedExamPageClientProps {
   sessionId: string;
 }
 
-function htmlToPlainText(html: string) {
-  if (typeof document === 'undefined') {
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  }
-
-  const element = document.createElement('div');
-  element.innerHTML = html;
-  return element.textContent?.replace(/\s+/g, ' ').trim() || html;
-}
-
 export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProps) {
   const router = useRouter();
   const [session, setSession] = useState<ExamBootstrapSession | null>(null);
@@ -58,8 +48,6 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   const [struckOutOptionIds, setStruckOutOptionIds] = useState<Set<number>>(new Set());
   const [showClues, setShowClues] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [bookmarkedConceptKeys, setBookmarkedConceptKeys] = useState<Set<string>>(new Set());
-  const [pendingConceptKey, setPendingConceptKey] = useState<string | null>(null);
   const [savingQuestionIds, setSavingQuestionIds] = useState<Set<number>>(new Set());
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -191,6 +179,10 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   const currentQuestionId = questionIds[currentIndex];
   const currentQ = currentQuestionId ? questionsById[currentQuestionId] : undefined;
   const timeLimitSeconds = Number(session?.time_limit_minutes || 0) * 60;
+  const {
+    isBookmarked: isCurrentConceptBookmarked,
+    toggleBookmark: toggleConceptBookmark,
+  } = useExamConceptBookmark(currentQ);
 
   const goToIndex = useCallback(async (targetIndex: number) => {
     const ids = questionIdsRef.current;
@@ -478,8 +470,6 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     );
   }
 
-  const currentConceptKey = currentQ.concept_id || String(currentQ.id);
-  const isCurrentConceptBookmarked = bookmarkedConceptKeys.has(currentConceptKey);
   const currentFeedback = feedbackByQuestionId[currentQ.id];
   const mediaUrl = process.env.NEXT_PUBLIC_R2_MEDIA_URL || 'offline_media';
   const updatedExplanation = rewriteExamMediaHtml(currentFeedback?.explanationHtml || '', mediaUrl);
@@ -494,45 +484,6 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     ? rewriteExamMediaHtml(explanationPanels.conceptHtml, mediaUrl)
     : null;
 
-  const handleConceptBookmark = async () => {
-    if (!conceptHtml || pendingConceptKey) return;
-    setPendingConceptKey(currentConceptKey);
-
-    if (isCurrentConceptBookmarked) {
-      setBookmarkedConceptKeys((previous) => {
-        const next = new Set(previous);
-        next.delete(currentConceptKey);
-        return next;
-      });
-
-      try {
-        await removeSavedConcept(currentQ.id);
-      } catch {
-        setBookmarkedConceptKeys((previous) => new Set(previous).add(currentConceptKey));
-      } finally {
-        setPendingConceptKey(null);
-      }
-      return;
-    }
-
-    setBookmarkedConceptKeys((previous) => new Set(previous).add(currentConceptKey));
-    try {
-      await saveConceptVote({
-        questionId: currentQ.id,
-        conceptText: htmlToPlainText(conceptHtml),
-        isImportant: true,
-      });
-    } catch {
-      setBookmarkedConceptKeys((previous) => {
-        const next = new Set(previous);
-        next.delete(currentConceptKey);
-        return next;
-      });
-    } finally {
-      setPendingConceptKey(null);
-    }
-  };
-
   const handleExplanationClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     const bookmarkButton = target.closest('[data-concept-bookmark]');
@@ -540,7 +491,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
 
     if (bookmarkButton) {
       event.preventDefault();
-      void handleConceptBookmark();
+      void toggleConceptBookmark(conceptHtml);
       return;
     }
     if (deepDiveButton) event.preventDefault();
