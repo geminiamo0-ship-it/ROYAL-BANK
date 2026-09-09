@@ -3,19 +3,11 @@
 import React from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { logout } from '@/actions/auth';
-import { 
-  Menu, 
-  LogOut, 
-  Search,
-  UserCircle
-} from 'lucide-react';
+import { Menu, LogOut, Search, UserCircle } from 'lucide-react';
 
 interface StudentHeaderProps {
   userEmail?: string;
   userName?: string;
-  subscriptionTier?: string;
-  isAdmin?: boolean;
-  isSupport?: boolean;
 }
 
 export function StudentHeader({
