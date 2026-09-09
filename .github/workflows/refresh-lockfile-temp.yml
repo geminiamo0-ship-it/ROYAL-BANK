@@ -6,7 +6,7 @@ on:
       - refactor/architecture-cleanup-phase-1
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   refresh-lockfile:
@@ -21,11 +21,26 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Synchronize lockfile with package manifest
+        run: npm install --package-lock-only --ignore-scripts
+
       - name: Refresh vulnerable transitive dependencies
         run: npm audit fix --package-lock-only --omit=dev
 
       - name: Verify production dependency audit
         run: npm audit --omit=dev --audit-level=high
+
+      - name: Commit refreshed lockfile
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json is already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore: refresh dependency lockfile"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Upload lockfile candidate
         uses: actions/upload-artifact@v4
