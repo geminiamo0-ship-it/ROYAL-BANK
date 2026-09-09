@@ -2,54 +2,54 @@ import type React from 'react';
 import type { SupportUpgradeDetail, UpgradeRequestStatus } from '@/types/business';
 
 export const inputClass =
-  'h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-purple-500 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:disabled:bg-slate-900';
+  'h-11 w-full rounded-lg border border-slate-700 bg-[#07101e] px-3 text-sm font-medium text-slate-100 outline-none placeholder:text-slate-500 focus:border-purple-500 focus:ring-1 focus:ring-purple-500/30 disabled:cursor-not-allowed disabled:bg-[#0b1424] disabled:text-slate-500';
+
+function visibleStatus(status: UpgradeRequestStatus) {
+  return status === 'contacted' ? 'pending' : status;
+}
 
 export function RequestHeader({ detail }: { detail: SupportUpgradeDetail }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5 dark:border-slate-800">
-      <div>
+    <div className="flex flex-wrap items-start justify-between gap-5 border-b border-slate-800 pb-5">
+      <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <p className="font-mono text-sm font-bold text-purple-600">{detail.request.public_code}</p>
+          <p className="font-mono text-sm font-black tracking-wide text-purple-400">{detail.request.public_code}</p>
           <StatusBadge status={detail.request.status} />
         </div>
-        <h2 className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
-          {detail.user.full_name || 'Royal user'}
+        <h2 className="mt-2 truncate text-xl font-bold text-white">
+          {detail.user.full_name || detail.user.email}
         </h2>
-        <p className="text-sm text-slate-500">{detail.user.email}</p>
+        <p className="mt-1 text-sm font-medium text-slate-300">{detail.user.email}</p>
       </div>
-      <div className="text-right">
-        <p className="text-xs uppercase text-slate-400">Requested</p>
-        <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-200">
-          {detail.request.product_name}
-        </p>
+      <div className="text-left sm:text-right">
+        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Requested product</p>
+        <p className="mt-1 text-sm font-bold text-slate-100">{detail.request.product_name}</p>
       </div>
     </div>
   );
 }
 
 export function StatusBadge({ status }: { status: UpgradeRequestStatus }) {
-  const classes: Record<UpgradeRequestStatus, string> = {
-    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-    contacted: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-    paid: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
-    activated: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-    cancelled: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  const shown = visibleStatus(status);
+  const classes: Record<ReturnType<typeof visibleStatus>, string> = {
+    pending: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    paid: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+    activated: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+    cancelled: 'border-red-500/30 bg-red-500/10 text-red-300',
   };
 
   return (
-    <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${classes[status]}`}>
-      {status}
+    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${classes[shown]}`}>
+      {shown}
     </span>
   );
 }
 
 export function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-slate-50 px-3 py-3 dark:bg-slate-950">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-1 truncate text-sm font-semibold capitalize text-slate-800 dark:text-slate-200">
-        {value}
-      </p>
+    <div className="rounded-xl border border-slate-800 bg-[#081120] px-4 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-1.5 truncate text-sm font-bold capitalize text-slate-100">{value}</p>
     </div>
   );
 }
@@ -57,7 +57,7 @@ export function InfoCard({ label, value }: { label: string; value: string }) {
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="mb-3 block">
-      <span className="mb-1.5 block text-[11px] font-semibold text-slate-500">{label}</span>
+      <span className="mb-1.5 block text-[11px] font-bold text-slate-300">{label}</span>
       {children}
     </label>
   );
@@ -119,7 +119,7 @@ export function formatPromoDiscount(promo: NonNullable<SupportUpgradeDetail['pro
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200">
       {message}
     </div>
   );
@@ -127,7 +127,7 @@ export function ErrorBox({ message }: { message: string }) {
 
 export function SuccessBox({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-200">
       {message}
     </div>
   );
