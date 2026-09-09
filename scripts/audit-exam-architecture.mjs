@@ -10,15 +10,16 @@ const removedLegacyPaths = [
   'src/components/exam/ExamPageClient.tsx',
   'src/components/exam/ExamSidebarWidgets.tsx',
   'src/components/exam/RichNotesEditor.tsx',
+  'src/components/exam/useExamTimer.ts',
   'src/stores/examStore.ts',
 ];
 
 for (const relativePath of removedLegacyPaths) {
   try {
     await fs.access(path.join(root, relativePath));
-    failures.push(`${relativePath}: legacy exam implementation must remain removed`);
+    failures.push(`${relativePath}: retired exam implementation/helper must remain removed`);
   } catch {
-    // Expected: these files belonged to the retired full-load exam path.
+    // Expected: these files belong to retired or abandoned exam paths.
   }
 }
 
@@ -29,6 +30,27 @@ if (!examPage.includes("@/components/exam/WindowedExamPageClient")) {
 }
 if (examPage.includes('@/components/exam/ExamPageClient')) {
   failures.push('exam route: legacy full-load ExamPageClient reference detected');
+}
+
+const windowedClientPath = path.join(root, 'src/components/exam/WindowedExamPageClient.tsx');
+const windowedClient = await fs.readFile(windowedClientPath, 'utf8');
+if (!windowedClient.includes("@/components/exam/WindowedExamQuestionPane")) {
+  failures.push('windowed exam: question presentation must stay extracted from the controller');
+}
+if (!windowedClient.includes("@/components/exam/useExamKeyboardShortcuts")) {
+  failures.push('windowed exam: keyboard behavior must stay in the dedicated hook');
+}
+if (!windowedClient.includes("@/lib/exam-html")) {
+  failures.push('windowed exam: media/stem HTML normalization must stay centralized');
+}
+if (windowedClient.includes("@/components/exam/AnswerOptionList")) {
+  failures.push('windowed exam: controller must not render answer options directly');
+}
+
+const launchCachePath = path.join(root, 'src/lib/exam-launch-cache.ts');
+const launchCache = await fs.readFile(launchCachePath, 'utf8');
+if (!launchCache.includes('launchCache.delete(sessionId)')) {
+  failures.push('exam launch cache: bootstrap handoff must remain one-shot');
 }
 
 async function walk(dir) {
@@ -67,4 +89,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('Exam architecture audit passed: one windowed exam engine remains active.');
+console.log('Exam architecture audit passed: one windowed exam engine with bounded controller responsibilities remains active.');
