@@ -35,28 +35,6 @@ INSERT INTO public.user_access_grants (
     now() - interval '1 day', now() + interval '1 day'
 );
 
-INSERT INTO public.test_sessions (
-    id,user_id,question_bank_id,session_type,categories,difficulty_filter,
-    question_selection,total_questions,time_limit_minutes,started_at,completed_at,
-    score_percentage,is_completed,topic_filters
-) VALUES (
-    'e1000000-0000-0000-0000-000000000001',
-    'e0000000-0000-0000-0000-000000000001',11301,'standard',ARRAY['Cardiology'],
-    ARRAY['1','3'],'all',2,NULL,now() - interval '10 minutes',NULL,NULL,FALSE,'[]'::jsonb
-);
-
-INSERT INTO public.user_answers (
-    test_session_id,user_id,question_id,selected_option_id,is_correct,is_flagged,time_spent_seconds,answered_at
-) VALUES
-(
-    'e1000000-0000-0000-0000-000000000001','e0000000-0000-0000-0000-000000000001',
-    11401,115011,TRUE,FALSE,30,now() - interval '5 minutes'
-),
-(
-    'e1000000-0000-0000-0000-000000000001','e0000000-0000-0000-0000-000000000001',
-    11402,115022,FALSE,FALSE,45,now() - interval '4 minutes'
-);
-
 SELECT extensions.throws_ok(
     $$SELECT public.get_question_bank_performance(11301)$$,
     'Authentication required',
@@ -66,6 +44,23 @@ SELECT extensions.throws_ok(
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
 SELECT set_config('request.jwt.claim.sub','e0000000-0000-0000-0000-000000000001',true);
+
+CREATE TEMP TABLE perf_session(id uuid);
+INSERT INTO perf_session
+SELECT public.create_exam_session(
+    'e0000000-0000-0000-0000-000000000001',
+    11301,
+    'standard',
+    2,
+    ARRAY['1','3']::text[],
+    ARRAY['Cardiology']::text[],
+    '[]'::jsonb,
+    'all'
+);
+
+SELECT public.get_exam_session_window((SELECT id FROM perf_session),0,2);
+SELECT public.submit_exam_answer((SELECT id FROM perf_session),11401,115011,30);
+SELECT public.submit_exam_answer((SELECT id FROM perf_session),11402,115022,45);
 
 CREATE TEMP TABLE perf(payload jsonb);
 INSERT INTO perf SELECT public.get_question_bank_performance(11301);
