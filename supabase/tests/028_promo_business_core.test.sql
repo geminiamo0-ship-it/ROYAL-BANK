@@ -204,7 +204,7 @@ SELECT set_config('request.jwt.claim.sub','28000000-0000-0000-0000-000000000005'
 
 SELECT extensions.is(
     public.admin_refund_upgrade_order(
-        (SELECT id FROM public.orders WHERE user_id = '28000000-0000-0000-0000-000000000002' LIMIT 1),
+        (SELECT order_id FROM public.support_list_upgrade_requests(NULL,'buyer-two@test.local',50,0) LIMIT 1),
         'Customer full refund',
         TRUE
     )->>'status',
@@ -213,7 +213,7 @@ SELECT extensions.is(
 );
 
 SELECT extensions.is(
-    (SELECT status FROM public.commissions WHERE order_id = (SELECT id FROM public.orders WHERE user_id = '28000000-0000-0000-0000-000000000002' LIMIT 1)),
+    (SELECT status FROM public.admin_list_commissions('reversed',100,0) WHERE promo_code = 'STAR20' LIMIT 1),
     'reversed',
     'refund reverses an unpaid partner commission'
 );
