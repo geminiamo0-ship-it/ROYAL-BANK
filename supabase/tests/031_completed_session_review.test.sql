@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(7);
+SELECT extensions.plan(8);
 
 INSERT INTO auth.users (
     instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -55,6 +55,13 @@ SELECT public.create_exam_session(
 
 SELECT public.get_exam_session_window((SELECT id FROM review_session),0,1);
 SELECT public.submit_exam_answer((SELECT id FROM review_session),12401,125012,21);
+
+SELECT extensions.throws_ok(
+    format('SELECT public.get_completed_exam_review_bootstrap(%L::uuid)',(SELECT id::text FROM review_session)),
+    'Session is not completed',
+    'review bootstrap rejects unfinished session'
+);
+
 SELECT public.complete_exam_session((SELECT id FROM review_session));
 
 CREATE TEMP TABLE review_bootstrap(payload jsonb);
@@ -67,15 +74,6 @@ SELECT extensions.is(jsonb_array_length((SELECT payload->'questions' FROM review
 SELECT extensions.is(jsonb_array_length(public.get_completed_exam_review_window((SELECT id FROM review_session),0,1)),1,'review window reads completed session question');
 SELECT extensions.is((public.get_completed_exam_review_feedback((SELECT id FROM review_session),12401)->>'correct_option_id')::bigint,125011::bigint,'review feedback reveals correct option after completion');
 SELECT extensions.is((public.get_completed_exam_review_feedback((SELECT id FROM review_session),12401)->'option_percentages'->>'125011')::numeric,35::numeric,'review feedback uses real option percentage');
-
-UPDATE public.test_sessions
-SET is_completed=FALSE
-WHERE id=(SELECT id FROM review_session);
-SELECT extensions.throws_ok(
-    format('SELECT public.get_completed_exam_review_bootstrap(%L::uuid)',(SELECT id::text FROM review_session)),
-    'Session is not completed',
-    'review bootstrap rejects unfinished session'
-);
 
 SELECT * FROM extensions.finish();
 ROLLBACK;
