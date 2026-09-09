@@ -45,18 +45,21 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
 SELECT set_config('request.jwt.claim.sub','e0000000-0000-0000-0000-000000000001',true);
 
-CREATE TEMP TABLE perf_session(id uuid);
-INSERT INTO perf_session
-SELECT public.create_exam_session(
-    'e0000000-0000-0000-0000-000000000001',
+CREATE TEMP TABLE perf_bootstrap(payload jsonb);
+INSERT INTO perf_bootstrap
+SELECT public.create_exam_session_bootstrap(
     11301,
-    'standard',
+    'tutor',
     2,
     ARRAY['1','3']::text[],
     ARRAY['Cardiology']::text[],
     '[]'::jsonb,
     'all'
 );
+
+CREATE TEMP TABLE perf_session AS
+SELECT (payload->'session'->>'id')::uuid AS id
+FROM perf_bootstrap;
 
 SELECT public.get_exam_session_window((SELECT id FROM perf_session),0,2);
 SELECT public.submit_exam_answer((SELECT id FROM perf_session),11401,115011,30);
