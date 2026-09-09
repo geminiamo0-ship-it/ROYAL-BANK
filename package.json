@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "audit:client-boundary": "node scripts/audit-client-boundary.mjs",
-    "verify": "npm run lint && npm run typecheck && npm run audit:client-boundary && npm run build && npm run audit:client-boundary -- --build"
+    "audit:exam-architecture": "node scripts/audit-exam-architecture.mjs",
+    "verify": "npm run lint && npm run typecheck && npm run audit:exam-architecture && npm run audit:client-boundary && npm run build && npm run audit:client-boundary -- --build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
