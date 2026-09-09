@@ -1,14 +1,9 @@
 'use client';
 
 import React from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { GraduationCap, CheckCircle2, Search } from 'lucide-react';
+import { GraduationCap, CheckCircle2 } from 'lucide-react';
 
 export default function ReviewFactsPage() {
-  const params = useParams();
-  const bankId = params.bankId || '1';
-
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
       <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between gap-4">
