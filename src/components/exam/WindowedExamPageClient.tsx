@@ -7,28 +7,20 @@ import { WindowedExamQuestionPane } from '@/components/exam/WindowedExamQuestion
 import { WindowedExamSidebarWidgets } from '@/components/exam/WindowedExamSidebarWidgets';
 import { useExamConceptBookmark } from '@/components/exam/useExamConceptBookmark';
 import { useExamKeyboardShortcuts } from '@/components/exam/useExamKeyboardShortcuts';
+import { useWindowedExamSession } from '@/components/exam/useWindowedExamSession';
 import {
   completeExamSessionDirect,
   getExamQuestionFeedbackDirect,
-  getExamSessionBootstrapDirect,
-  getExamSessionWindowDirect,
   setQuestionFlagDirect,
   submitExamAnswerDirect,
   submitExamAnswerWithFeedbackDirect,
 } from '@/lib/exam-client-api';
 import { prepareQuestionStemHtml, rewriteExamMediaHtml } from '@/lib/exam-html';
-import {
-  getExamLaunchCache,
-  mergeExamLaunchWindow,
-  primeExamLaunchCache,
-} from '@/lib/exam-launch-cache';
 import { extractExplanationPanels } from '@/lib/explanation-panels';
 import type {
   ExamBootstrap,
-  ExamBootstrapSession,
   ExamClientAnswer,
   ExamClientOption,
-  ExamClientQuestion,
   ExamQuestionFeedback,
 } from '@/types/exam';
 
@@ -38,10 +30,6 @@ interface WindowedExamPageClientProps {
 
 export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProps) {
   const router = useRouter();
-  const [session, setSession] = useState<ExamBootstrapSession | null>(null);
-  const [questionIds, setQuestionIds] = useState<number[]>([]);
-  const [questionsById, setQuestionsById] = useState<Record<number, ExamClientQuestion>>({});
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>({});
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(new Set());
@@ -51,167 +39,50 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   const [savingQuestionIds, setSavingQuestionIds] = useState<Set<number>>(new Set());
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
-  const [loadingQuestionIndex, setLoadingQuestionIndex] = useState<number | null>(null);
   const [feedbackByQuestionId, setFeedbackByQuestionId] = useState<Record<number, ExamQuestionFeedback>>({});
 
-  const questionIdsRef = useRef<number[]>([]);
-  const questionsByIdRef = useRef<Record<number, ExamClientQuestion>>({});
-  const prefetchCursorRef = useRef(0);
-  const prefetchChainRef = useRef<Promise<void>>(Promise.resolve());
   const answerSaveChains = useRef<Record<number, Promise<void>>>({});
   const flagSaveChains = useRef<Record<number, Promise<void>>>({});
   const feedbackFetchingIds = useRef(new Set<number>());
   const persistedSelectionRef = useRef<Record<number, number | null>>({});
 
-  const addQuestions = useCallback((questions: ExamClientQuestion[]) => {
-    if (questions.length === 0) return;
-
-    const nextRef = { ...questionsByIdRef.current };
-    for (const question of questions) nextRef[question.id] = question;
-    questionsByIdRef.current = nextRef;
-    setQuestionsById(nextRef);
-    mergeExamLaunchWindow(sessionId, questions);
-  }, [sessionId]);
-
-  const loadWindow = useCallback(async (start: number, count: number) => {
-    if (count <= 0 || start >= questionIdsRef.current.length) return [];
-    const questions = await getExamSessionWindowDirect(sessionId, start, count);
-    addQuestions(questions);
-    return questions;
-  }, [addQuestions, sessionId]);
-
-  const queuePrefetch = useCallback((count = 2) => {
-    prefetchChainRef.current = prefetchChainRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        const ids = questionIdsRef.current;
-        const start = prefetchCursorRef.current;
-        if (start >= ids.length) return;
-
-        const end = Math.min(start + count, ids.length);
-        let firstMissing = -1;
-        for (let index = start; index < end; index += 1) {
-          if (!questionsByIdRef.current[ids[index]]) {
-            firstMissing = index;
-            break;
-          }
-        }
-
-        if (firstMissing >= 0) {
-          await loadWindow(firstMissing, end - firstMissing);
-        }
-        prefetchCursorRef.current = end;
-      });
-  }, [loadWindow]);
-
-  const applyBootstrap = useCallback((
-    bootstrap: ExamBootstrap,
-    cachedQuestions?: Record<number, ExamClientQuestion>,
-  ) => {
-    if (bootstrap.status === 'completed' || bootstrap.session.is_completed) {
-      router.replace(`/bank/${bootstrap.session.question_bank_id}/fixed-sets`);
-      return;
-    }
-
-    const loaded: Record<number, ExamClientQuestion> = { ...(cachedQuestions || {}) };
-    for (const question of bootstrap.questions) loaded[question.id] = question;
-
-    const safeIndex = Math.min(
-      Math.max(0, bootstrap.currentIndex),
-      Math.max(bootstrap.questionIds.length - 1, 0),
-    );
-
-    setSession(bootstrap.session);
-    setQuestionIds(bootstrap.questionIds);
-    questionIdsRef.current = bootstrap.questionIds;
-    setQuestionsById(loaded);
-    questionsByIdRef.current = loaded;
-    setCurrentIndex(safeIndex);
+  const applyBootstrapState = useCallback((bootstrap: ExamBootstrap) => {
     setAnswers(bootstrap.answers);
     setFlaggedQuestionIds(new Set(bootstrap.flaggedQuestionIds));
     persistedSelectionRef.current = Object.fromEntries(
       Object.values(bootstrap.answers).map((answer) => [answer.questionId, answer.selectedOptionId]),
     );
-    prefetchCursorRef.current = Math.min(safeIndex + 1, bootstrap.questionIds.length);
-    setIsBootstrapping(false);
+  }, []);
 
-    queuePrefetch(2);
-  }, [queuePrefetch, router]);
+  const reportPersistenceError = useCallback((message: string) => {
+    setPersistenceError(message);
+  }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const cached = getExamLaunchCache(sessionId);
-
-    if (cached) {
-      applyBootstrap(cached.bootstrap, cached.questionsById);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setIsBootstrapping(true);
-    getExamSessionBootstrapDirect(sessionId)
-      .then((bootstrap) => {
-        if (cancelled) return;
-        primeExamLaunchCache(bootstrap);
-        applyBootstrap(bootstrap);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : 'Unable to load the exam session.';
-        if (/not authenticated|jwt|authentication/i.test(message)) {
-          router.replace('/login');
-          return;
-        }
-        setPersistenceError(message);
-        setIsBootstrapping(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [applyBootstrap, router, sessionId]);
+  const {
+    session,
+    questionIds,
+    currentIndex,
+    currentQuestion: currentQ,
+    isBootstrapping,
+    loadingQuestionIndex,
+    goNext,
+    goPrev,
+    queuePrefetch,
+    getQuestionById,
+  } = useWindowedExamSession({
+    sessionId,
+    onBootstrap: applyBootstrapState,
+    onError: reportPersistenceError,
+  });
 
   const sessionType = String(session?.session_type || 'standard');
   const isTimedMode = sessionType === 'timed' || sessionType === 'fixed_timed';
   const bankId = Number(session?.question_bank_id || 0);
-  const currentQuestionId = questionIds[currentIndex];
-  const currentQ = currentQuestionId ? questionsById[currentQuestionId] : undefined;
   const timeLimitSeconds = Number(session?.time_limit_minutes || 0) * 60;
   const {
     isBookmarked: isCurrentConceptBookmarked,
     toggleBookmark: toggleConceptBookmark,
   } = useExamConceptBookmark(currentQ);
-
-  const goToIndex = useCallback(async (targetIndex: number) => {
-    const ids = questionIdsRef.current;
-    if (targetIndex < 0 || targetIndex >= ids.length) return;
-
-    const targetId = ids[targetIndex];
-    if (questionsByIdRef.current[targetId]) {
-      setCurrentIndex(targetIndex);
-      return;
-    }
-
-    setLoadingQuestionIndex(targetIndex);
-    try {
-      await loadWindow(targetIndex, Math.min(3, ids.length - targetIndex));
-      if (questionsByIdRef.current[targetId]) setCurrentIndex(targetIndex);
-    } catch (error) {
-      setPersistenceError(error instanceof Error ? error.message : 'Unable to load the question.');
-    } finally {
-      setLoadingQuestionIndex(null);
-    }
-  }, [loadWindow]);
-
-  const goNext = useCallback(() => {
-    void goToIndex(Math.min(currentIndex + 1, questionIdsRef.current.length - 1));
-  }, [currentIndex, goToIndex]);
-
-  const goPrev = useCallback(() => {
-    void goToIndex(Math.max(currentIndex - 1, 0));
-  }, [currentIndex, goToIndex]);
 
   const queueTimedAnswerSave = useCallback((answer: ExamClientAnswer) => {
     if (answer.selectedOptionId == null) return;
@@ -261,7 +132,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     const selectedOptionId = pendingSelections[questionId];
     if (!selectedOptionId) return;
 
-    const question = questionsByIdRef.current[questionId];
+    const question = getQuestionById(questionId);
     const option = question?.options?.find((item) => item.id === selectedOptionId);
     if (!option) return;
 
@@ -289,7 +160,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
         return next;
       });
     }
-  }, [answers, elapsedSeconds, isTimedMode, pendingSelections, queuePrefetch, savingQuestionIds, sessionId]);
+  }, [answers, elapsedSeconds, getQuestionById, isTimedMode, pendingSelections, queuePrefetch, savingQuestionIds, sessionId]);
 
   const toggleFlag = useCallback((questionId: number) => {
     const nextFlagged = !flaggedQuestionIds.has(questionId);
