@@ -1,0 +1,35 @@
+name: Refresh lockfile candidate
+
+on:
+  push:
+    branches:
+      - refactor/architecture-cleanup-phase-1
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Refresh vulnerable transitive dependencies
+        run: npm audit fix --package-lock-only --omit=dev
+
+      - name: Verify production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Upload lockfile candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-lock-candidate
+          path: package-lock.json
+          retention-days: 1
