@@ -165,6 +165,10 @@ export function useWindowedExamSession({
     void goToIndex(Math.max(currentIndex - 1, 0));
   }, [currentIndex, goToIndex]);
 
+  const getQuestionById = useCallback(
+    (questionId: number) => questionsByIdRef.current[questionId],
+    [],
+  );
   const currentQuestionId = questionIds[currentIndex];
   const currentQuestion = currentQuestionId ? questionsById[currentQuestionId] : undefined;
 
@@ -178,6 +182,6 @@ export function useWindowedExamSession({
     goNext,
     goPrev,
     queuePrefetch,
-    getQuestionById: (questionId: number) => questionsByIdRef.current[questionId],
+    getQuestionById,
   };
 }
