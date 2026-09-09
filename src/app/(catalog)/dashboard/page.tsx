@@ -1,72 +1,15 @@
 import React from 'react';
 import Link from 'next/link';
 import { logout, getCurrentUser } from '@/actions/auth';
-import { getPathwayDetails, type PathwayDetail } from '@/actions/pathways';
-
-interface CatalogCard {
-  title: string;
-  description: string;
-  imageUrl: string;
-  href: string;
-  pathwaySlug?: string;
-}
-
-const CATALOG_CARDS: CatalogCard[] = [
-  {
-    title: 'MRCP Part 1',
-    description: 'Over 5,100 Single Best Answer questions plus full mock exams and a high-yield MRCP textbook.',
-    imageUrl: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=700&q=80',
-    href: '/pathway/mrcp-part-1',
-    pathwaySlug: 'mrcp-part-1',
-  },
-  {
-    title: 'MRCOG Part 1',
-    description: 'Core obstetrics and gynaecology sciences with anatomy, embryology, physiology, and pharmacology practice.',
-    imageUrl: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?auto=format&fit=crop&w=700&q=80',
-    href: '/pathway/mrcog-part-1',
-    pathwaySlug: 'mrcog-part-1',
-  },
-  {
-    title: 'Medical student finals / UKMLA resource',
-    description: 'SBA questions for finals and UKMLA-style clinical practice with high-yield explanations.',
-    imageUrl: 'https://images.unsplash.com/photo-1530497610245-94d3c16cda28?auto=format&fit=crop&w=700&q=80',
-    href: '/pathway/plab-ukmla',
-    pathwaySlug: 'plab-ukmla',
-  },
-  {
-    title: 'MRCS Part A',
-    description: 'Applied surgical anatomy, physiology, pathology, and clinical principles for Part A revision.',
-    imageUrl: 'https://images.unsplash.com/photo-1551076805-e1869033e561?auto=format&fit=crop&w=700&q=80',
-    href: '/pathway/mrcs-part-a',
-    pathwaySlug: 'mrcs-part-a',
-  },
-  {
-    title: 'MRCP Part 2 Written',
-    description: 'Clinical reasoning and data interpretation practice for advanced internal medicine preparation.',
-    imageUrl: 'https://images.unsplash.com/photo-1581093458791-9f3c3900df7b?auto=format&fit=crop&w=700&q=80',
-    href: '/pathway/mrcp-part-2',
-  },
-  {
-    title: 'PLAB Part 1',
-    description: 'High-yield clinical scenarios, emergency protocols, and UK practice guidance for PLAB preparation.',
-    imageUrl: 'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=700&q=80',
-    href: '/pathway/plab-part-1',
-  },
-];
+import { getCatalogPathways } from '@/actions/pathways';
 
 export default async function DashboardPage() {
-  const pathwaySlugs = CATALOG_CARDS.flatMap((card) => card.pathwaySlug ? [card.pathwaySlug] : []);
-  const [user, ...resolvedPathways] = await Promise.all([
+  const [user, pathways] = await Promise.all([
     getCurrentUser(),
-    ...pathwaySlugs.map((slug) => getPathwayDetails(slug)),
+    getCatalogPathways(),
   ]);
 
   const isStaff = user?.role === 'admin' || user?.role === 'support';
-  const pathwayBySlug = new Map<string, PathwayDetail>(
-    resolvedPathways
-      .filter((pathway): pathway is PathwayDetail => pathway !== null)
-      .map((pathway) => [pathway.slug, pathway])
-  );
 
   return (
     <main className="min-h-screen bg-[#f4f4f4] text-[#111827]">
@@ -78,10 +21,7 @@ export default async function DashboardPage() {
 
           <nav className="flex items-center gap-4 text-[12px] text-[#333333]">
             {isStaff && (
-              <Link
-                href={user?.role === 'admin' ? '/admin' : '/support'}
-                className="text-[#0076a8] hover:underline"
-              >
+              <Link href={user?.role === 'admin' ? '/admin' : '/support'} className="text-[#0076a8] hover:underline">
                 {user?.role === 'admin' ? 'Admin' : 'Support'}
               </Link>
             )}
@@ -89,78 +29,64 @@ export default async function DashboardPage() {
               {user?.full_name || user?.email || 'Doctor'}
             </span>
             <form action={logout}>
-              <button type="submit" className="text-[#555555] hover:text-[#111827]">
-                Sign out
-              </button>
+              <button type="submit" className="text-[#555555] hover:text-[#111827]">Sign out</button>
             </form>
           </nav>
         </div>
       </header>
 
-      <section
-        className="h-[82px] bg-cover bg-center"
-        style={{
-          backgroundImage:
-            "url('https://images.unsplash.com/photo-1551190822-a9333d879b1f?auto=format&fit=crop&w=1800&q=80')",
-        }}
-      />
+      <section className="border-b border-[#d9d9d9] bg-white">
+        <div className="mx-auto max-w-[930px] px-4 py-7">
+          <h1 className="text-2xl font-semibold text-[#111827]">Your live Royal resources</h1>
+          <p className="mt-1 text-[13px] text-[#555555]">
+            Only pathways and question banks currently present in Royal are shown here.
+          </p>
+        </div>
+      </section>
 
       <section className="mx-auto max-w-[930px] px-4 py-10">
-        <div className="grid grid-cols-1 gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3">
-          {CATALOG_CARDS.map((card) => {
-            const pathway = card.pathwaySlug ? pathwayBySlug.get(card.pathwaySlug) : undefined;
-            const fullAccess = pathway?.hasFullAccess === true;
-            const actionHref = pathway
-              ? fullAccess
-                ? `${card.href}#access-details`
-                : `/upgrade?pathway=${pathway.id}`
-              : null;
+        {pathways.length === 0 ? (
+          <div className="rounded-lg border border-[#d7d7d7] bg-white p-8 text-center">
+            <h2 className="text-[16px] font-semibold text-[#111827]">No pathways are available</h2>
+            <p className="mt-2 text-[13px] text-[#666666]">The catalog will populate automatically when a pathway is added to the database.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+            {pathways.map((pathway) => {
+              const detailsHref = `/pathway/${pathway.slug}`;
+              const actionHref = pathway.hasFullAccess ? `${detailsHref}#access-details` : `/upgrade?pathway=${pathway.id}`;
+              const articleCount = pathway.banks.reduce((sum, bank) => sum + bank.textbookArticleCount, 0);
 
-            return (
-              <article
-                key={card.title}
-                className="overflow-hidden rounded-[2px] border border-[#d7d7d7] bg-white shadow-[0_1px_5px_rgba(0,0,0,0.12)]"
-              >
-                <div
-                  className="h-20 w-full bg-cover bg-center"
-                  style={{ backgroundImage: `url('${card.imageUrl}')` }}
-                />
+              return (
+                <article key={pathway.id} className="overflow-hidden rounded-[2px] border border-[#d7d7d7] bg-white shadow-[0_1px_5px_rgba(0,0,0,0.12)]">
+                  {pathway.iconUrl ? (
+                    <div className="h-20 border-b border-[#e5e5e5] bg-[#f7f7f7] bg-contain bg-center bg-no-repeat" style={{ backgroundImage: `url('${pathway.iconUrl}')` }} />
+                  ) : (
+                    <div className="h-20 border-b border-[#e5e5e5] bg-[#eef4f7]" />
+                  )}
 
-                <div className="px-4 pb-4 pt-4">
-                  <h2 className="text-[16px] font-semibold leading-5 text-black">{card.title}</h2>
-                  <p className="mt-3 min-h-[72px] text-[13px] leading-[19px] text-black">{card.description}</p>
+                  <div className="px-4 pb-4 pt-4">
+                    <h2 className="text-[16px] font-semibold leading-5 text-black">{pathway.name}</h2>
+                    <p className="mt-3 min-h-[58px] text-[13px] leading-[19px] text-[#333333]">{pathway.description || 'Royal question-bank pathway.'}</p>
 
-                  <div className="mt-3 flex items-center gap-2">
-                    {pathway && actionHref ? (
-                      <>
-                        <Link
-                          href={card.href}
-                          className="border border-[#00a2d3] px-[8px] py-[4px] text-[12px] leading-none text-[#007fa8] hover:bg-[#eaf8fc]"
-                        >
-                          Open Pathway
-                        </Link>
-                        <Link
-                          href={actionHref}
-                          className={`border px-[8px] py-[4px] text-[12px] font-medium leading-none ${
-                            fullAccess
-                              ? 'border-[#159947] bg-[#effbf3] text-[#087c31] hover:bg-[#e5f8eb]'
-                              : 'border-[#1eb34a] text-[#0a8e31] hover:bg-[#eefbf2]'
-                          }`}
-                        >
-                          {fullAccess ? 'Activated' : 'Upgrade'}
-                        </Link>
-                      </>
-                    ) : (
-                      <span className="border border-[#b9b9b9] bg-[#f7f7f7] px-[8px] py-[4px] text-[12px] leading-none text-[#666666]">
-                        Coming soon
-                      </span>
-                    )}
+                    <dl className="mt-3 grid grid-cols-3 border border-[#e5e5e5] bg-[#fafafa] text-center">
+                      <div className="border-r border-[#e5e5e5] px-2 py-2"><dt className="text-[10px] text-[#666666]">Banks</dt><dd className="text-[13px] font-semibold text-black">{pathway.banks.length}</dd></div>
+                      <div className="border-r border-[#e5e5e5] px-2 py-2"><dt className="text-[10px] text-[#666666]">Questions</dt><dd className="text-[13px] font-semibold text-black">{pathway.totalQuestions.toLocaleString()}</dd></div>
+                      <div className="px-2 py-2"><dt className="text-[10px] text-[#666666]">Articles</dt><dd className="text-[13px] font-semibold text-black">{articleCount.toLocaleString()}</dd></div>
+                    </dl>
+
+                    <div className="mt-4 flex items-center gap-2">
+                      <Link href={detailsHref} className="border border-[#00a2d3] px-[8px] py-[4px] text-[12px] leading-none text-[#007fa8] hover:bg-[#eaf8fc]">Open Pathway</Link>
+                      <Link href={actionHref} className={`border px-[8px] py-[4px] text-[12px] font-medium leading-none ${pathway.hasFullAccess ? 'border-[#159947] bg-[#effbf3] text-[#087c31]' : 'border-[#1eb34a] text-[#0a8e31]'}`}>
+                        {pathway.hasFullAccess ? 'Activated' : 'Upgrade'}
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
     </main>
   );
