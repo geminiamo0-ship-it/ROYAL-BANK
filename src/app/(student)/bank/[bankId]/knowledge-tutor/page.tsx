@@ -1,19 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { 
-  Zap, 
-  Sparkles, 
-  ChevronRight, 
-  HelpCircle, 
-  Eye, 
-  EyeOff, 
-  Check, 
-  X,
-  RotateCcw
-} from 'lucide-react';
+import { Zap, ChevronRight, Eye, EyeOff, Check } from 'lucide-react';
 
 interface FlashcardFact {
   id: number;
@@ -48,12 +36,8 @@ const SAMPLE_FACTS: FlashcardFact[] = [
 ];
 
 export default function KnowledgeTutorPage() {
-  const params = useParams();
-  const bankId = params.bankId || '1';
-
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
-
   const currentFact = SAMPLE_FACTS[currentIndex];
 
   const handleNext = () => {
@@ -63,7 +47,6 @@ export default function KnowledgeTutorPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      {/* Header Banner */}
       <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold">
@@ -84,7 +67,6 @@ export default function KnowledgeTutorPage() {
         </span>
       </div>
 
-      {/* Flashcard Card */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm space-y-6 min-h-[300px] flex flex-col justify-between">
         <div className="space-y-4">
           <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">
@@ -108,7 +90,6 @@ export default function KnowledgeTutorPage() {
           )}
         </div>
 
-        {/* Card Actions */}
         <div className="flex items-center justify-between pt-6 border-t border-slate-100 dark:border-slate-800">
           <button
             onClick={() => setShowAnswer(!showAnswer)}
