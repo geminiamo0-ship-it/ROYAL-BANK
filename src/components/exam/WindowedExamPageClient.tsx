@@ -3,9 +3,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { removeSavedConcept, saveConceptVote } from '@/actions/exam';
-import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamHeader } from '@/components/exam/ExamHeader';
+import { WindowedExamQuestionPane } from '@/components/exam/WindowedExamQuestionPane';
 import { WindowedExamSidebarWidgets } from '@/components/exam/WindowedExamSidebarWidgets';
+import { useExamKeyboardShortcuts } from '@/components/exam/useExamKeyboardShortcuts';
 import {
   completeExamSessionDirect,
   getExamQuestionFeedbackDirect,
@@ -15,6 +16,7 @@ import {
   submitExamAnswerDirect,
   submitExamAnswerWithFeedbackDirect,
 } from '@/lib/exam-client-api';
+import { prepareQuestionStemHtml, rewriteExamMediaHtml } from '@/lib/exam-html';
 import {
   getExamLaunchCache,
   mergeExamLaunchWindow,
@@ -29,7 +31,6 @@ import type {
   ExamClientQuestion,
   ExamQuestionFeedback,
 } from '@/types/exam';
-import { ChevronRight } from 'lucide-react';
 
 interface WindowedExamPageClientProps {
   sessionId: string;
@@ -116,7 +117,10 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
       });
   }, [loadWindow]);
 
-  const applyBootstrap = useCallback((bootstrap: ExamBootstrap, cachedQuestions?: Record<number, ExamClientQuestion>) => {
+  const applyBootstrap = useCallback((
+    bootstrap: ExamBootstrap,
+    cachedQuestions?: Record<number, ExamClientQuestion>,
+  ) => {
     if (bootstrap.status === 'completed' || bootstrap.session.is_completed) {
       router.replace(`/bank/${bootstrap.session.question_bank_id}/fixed-sets`);
       return;
@@ -283,8 +287,6 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
       persistedSelectionRef.current[questionId] = option.id;
       setAnswers((previous) => ({ ...previous, [questionId]: persistedAnswer }));
       setFeedbackByQuestionId((previous) => ({ ...previous, [questionId]: feedback }));
-
-      // Every submit extends the look-ahead buffer by two questions without blocking feedback.
       queuePrefetch(2);
     } catch (error) {
       setPersistenceError(error instanceof Error ? error.message : 'Unable to submit the answer.');
@@ -362,7 +364,9 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   }, [bankId, flushTimedAnswers, router]);
 
   const handleEndBlock = useCallback(async (forceSubmit = false) => {
-    if (!forceSubmit && !window.confirm('End this block? Unanswered timed questions will be marked incorrect.')) return;
+    if (!forceSubmit && !window.confirm('End this block? Unanswered timed questions will be marked incorrect.')) {
+      return;
+    }
 
     setIsSubmitting(true);
     setPersistenceError(null);
@@ -397,35 +401,18 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
     return () => window.clearInterval(timerId);
   }, [handleEndBlock, isSubmitting, isTimedMode, timeLimitSeconds]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((event.target as HTMLElement).tagName)) return;
-      if (!currentQ || isSubmitting) return;
-
-      if (event.key === 'ArrowRight') {
-        goNext();
-        return;
-      }
-      if (event.key === 'ArrowLeft') {
-        goPrev();
-        return;
-      }
-      if (event.key.toLowerCase() === 'f') {
-        toggleFlag(currentQ.id);
-        return;
-      }
-      if (['1', '2', '3', '4', '5'].includes(event.key)) {
-        const optionIndex = Number(event.key) - 1;
-        const option = currentQ.options?.[optionIndex];
-        if (option) selectOption(currentQ.id, option);
-        return;
-      }
-      if (event.key === 'Enter' && !isTimedMode) void submitAnswer(currentQ.id);
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentQ, goNext, goPrev, isSubmitting, isTimedMode, selectOption, submitAnswer, toggleFlag]);
+  useExamKeyboardShortcuts({
+    question: currentQ,
+    isSubmitting,
+    isTimedMode,
+    onNext: goNext,
+    onPrev: goPrev,
+    onToggleFlag: toggleFlag,
+    onSelectOption: selectOption,
+    onSubmitAnswer: (questionId) => {
+      void submitAnswer(questionId);
+    },
+  });
 
   const answeredCount = useMemo(
     () => questionIds.filter((questionId) => answers[questionId]).length,
@@ -468,7 +455,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   if (isBootstrapping) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#282828] text-[#d9dce0]">
-        <p className="text-[12px] font-medium animate-pulse">Loading question...</p>
+        <p className="animate-pulse text-[12px] font-medium">Loading question...</p>
       </div>
     );
   }
@@ -484,7 +471,7 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   if (!currentQ) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#282828] text-[#d9dce0]">
-        <p className="text-[12px] font-medium animate-pulse">
+        <p className="animate-pulse text-[12px] font-medium">
           {loadingQuestionIndex == null ? 'Preparing question...' : `Preparing question ${loadingQuestionIndex + 1}...`}
         </p>
       </div>
@@ -494,35 +481,17 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
   const currentConceptKey = currentQ.concept_id || String(currentQ.id);
   const isCurrentConceptBookmarked = bookmarkedConceptKeys.has(currentConceptKey);
   const currentFeedback = feedbackByQuestionId[currentQ.id];
-
-  const rawExplanation = currentFeedback?.explanationHtml || '';
   const mediaUrl = process.env.NEXT_PUBLIC_R2_MEDIA_URL || 'offline_media';
-  const updatedExplanation = rawExplanation.replace(
-    /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
-    `$1${mediaUrl}/`,
-  );
+  const updatedExplanation = rewriteExamMediaHtml(currentFeedback?.explanationHtml || '', mediaUrl);
   const explanationPanels = extractExplanationPanels(updatedExplanation, isCurrentConceptBookmarked);
-
   const currentAnswer = answers[currentQ.id];
   const isAnswered = Boolean(currentAnswer);
   const selectedOptionId = currentAnswer?.selectedOptionId ?? pendingSelections[currentQ.id] ?? null;
   const correctOptionId = currentFeedback?.correctOptionId ?? currentAnswer?.correctOptionId ?? null;
   const optionPercentages = currentFeedback?.optionPercentages || {};
-
-  const currentHtml = currentQ.text_html
-    ? currentQ.text_html
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(
-          /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
-          `$1${mediaUrl}/`,
-        )
-    : '';
-
+  const currentHtml = prepareQuestionStemHtml(currentQ.text_html || '', mediaUrl);
   const conceptHtml = explanationPanels.conceptHtml
-    ? explanationPanels.conceptHtml.replace(
-        /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi,
-        `$1${mediaUrl}/`,
-      )
+    ? rewriteExamMediaHtml(explanationPanels.conceptHtml, mediaUrl)
     : null;
 
   const handleConceptBookmark = async () => {
@@ -604,78 +573,29 @@ export function WindowedExamPageClient({ sessionId }: WindowedExamPageClientProp
       ) : null}
 
       <main className="mx-auto grid max-w-[1240px] gap-6 px-4 pb-12 pt-4 lg:grid-cols-[minmax(0,1fr)_476px]">
-        <section className="min-w-0">
-          <div
-            className={`pm-question-stem select-text text-[16px] leading-[1.55] text-white ${showClues ? 'pm-show-clues' : 'pm-hide-clues'}`}
-            dangerouslySetInnerHTML={{ __html: currentHtml }}
-          />
-
-          <AnswerOptionList
-            isAnswered={isAnswered}
-            isTimedMode={isTimedMode}
-            pendingSelectionId={selectedOptionId}
-            question={currentQ}
-            struckOutOptionIds={struckOutOptionIds}
-            submittedAnswer={currentAnswer}
-            correctOptionId={correctOptionId}
-            optionPercentages={optionPercentages}
-            onSelectOption={selectOption}
-            onToggleStrikeOut={toggleStrikeOut}
-          />
-
-          {!isTimedMode && !isAnswered ? (
-            <div className="mt-6 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void submitAnswer(currentQ.id)}
-                disabled={!selectedOptionId || savingQuestionIds.has(currentQ.id) || isSubmitting}
-                className="inline-flex h-[34px] items-center rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff] disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                {savingQuestionIds.has(currentQ.id) ? 'Submitting...' : 'Submit answer'}
-              </button>
-              {!selectedOptionId ? (
-                <span className="text-[12px] text-[#a8aeb4]">Choose one option first.</span>
-              ) : null}
-            </div>
-          ) : null}
-
-          {isTimedMode ? (
-            <p className="mt-3 text-[11px] text-[#a8aeb4]">
-              Timed selections are saved automatically and can be changed until End Block.
-            </p>
-          ) : null}
-
-          {isAnswered && !isTimedMode ? (
-            <div className="space-y-6 pt-6">
-              <div
-                className="pm-explanation-container text-[16px] leading-[1.7] text-white"
-                onClick={handleExplanationClick}
-              >
-                {currentQ.topic ? (
-                  <h2 className="mb-5 text-[16px] font-semibold text-[#23a7ff]">{currentQ.topic}</h2>
-                ) : null}
-                {currentFeedback ? (
-                  <div dangerouslySetInnerHTML={{ __html: explanationPanels.contentHtml }} />
-                ) : (
-                  <div className="text-[#80868b] animate-pulse py-4">Fetching explanation...</div>
-                )}
-              </div>
-
-              {currentIndex < questionIds.length - 1 ? (
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={goNext}
-                    className="inline-flex h-[36px] items-center gap-2 rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff]"
-                  >
-                    <span>Next question</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
+        <WindowedExamQuestionPane
+          question={currentQ}
+          currentIndex={currentIndex}
+          questionCount={questionIds.length}
+          questionHtml={currentHtml}
+          explanationHtml={explanationPanels.contentHtml}
+          hasFeedback={Boolean(currentFeedback)}
+          showClues={showClues}
+          isAnswered={isAnswered}
+          isTimedMode={isTimedMode}
+          selectedOptionId={selectedOptionId}
+          struckOutOptionIds={struckOutOptionIds}
+          submittedAnswer={currentAnswer}
+          correctOptionId={correctOptionId}
+          optionPercentages={optionPercentages}
+          isSaving={savingQuestionIds.has(currentQ.id)}
+          isSubmitting={isSubmitting}
+          onSelectOption={selectOption}
+          onToggleStrikeOut={toggleStrikeOut}
+          onSubmitAnswer={() => void submitAnswer(currentQ.id)}
+          onNext={goNext}
+          onExplanationClick={handleExplanationClick}
+        />
 
         <WindowedExamSidebarWidgets
           answers={answers}
