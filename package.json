@@ -9,10 +9,11 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "audit:client-boundary": "node scripts/audit-client-boundary.mjs",
+    "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "audit:exam-architecture": "node scripts/audit-exam-architecture.mjs",
     "audit:repo-hygiene": "node scripts/audit-repo-hygiene.mjs",
     "audit:prod-deps": "npm audit --omit=dev --audit-level=high",
-    "verify": "npm run lint && npm run typecheck && npm run audit:repo-hygiene && npm run audit:exam-architecture && npm run audit:client-boundary && npm run audit:prod-deps && npm run build && npm run audit:client-boundary -- --build"
+    "verify": "npm run lint && npm run typecheck && npm run audit:repo-hygiene && npm run audit:dependencies && npm run audit:exam-architecture && npm run audit:client-boundary && npm run audit:prod-deps && npm run build && npm run audit:client-boundary -- --build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
