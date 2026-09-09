@@ -69,6 +69,7 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/bank') ||
     pathname.startsWith('/pathway') ||
     pathname.startsWith('/exam') ||
+    pathname.startsWith('/upgrade') ||
     pathname.startsWith('/admin') ||
     pathname.startsWith('/support');
 
