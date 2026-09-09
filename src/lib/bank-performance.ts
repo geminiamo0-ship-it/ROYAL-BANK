@@ -80,8 +80,12 @@ export class BankPerformanceAuthenticationError extends Error {
 
 function mapRpcError(error: { message?: string } | null) {
   const message = error?.message || 'Unable to load bank performance';
-  if (message.includes('Authentication required')) throw new BankPerformanceAuthenticationError(message);
-  if (message.includes('Question bank access denied')) throw new BankPerformanceAccessError(message);
+  if (/authentication required/i.test(message)) {
+    throw new BankPerformanceAuthenticationError(message);
+  }
+  if (/question bank access denied/i.test(message)) {
+    throw new BankPerformanceAccessError(message);
+  }
   throw new Error(message);
 }
 
