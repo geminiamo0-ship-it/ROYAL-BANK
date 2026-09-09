@@ -30,6 +30,23 @@ export interface AdminAccessGrantDetail {
   status: 'active' | 'upcoming' | 'expired' | 'revoked';
 }
 
+export interface AdminAccessLedgerRow {
+  id: number;
+  user_id: string;
+  full_name: string | null;
+  email: string;
+  scope_type: 'global' | 'pathway' | 'bank';
+  scope_name: string;
+  starts_at: string;
+  expires_at: string | null;
+  status: 'active' | 'upcoming' | 'expired' | 'revoked';
+  granted_by: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  revoke_reason: string | null;
+  created_at: string;
+}
+
 export interface AdminUserAuditRow {
   id: number;
   actor_user_id: string | null;
