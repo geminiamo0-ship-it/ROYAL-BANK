@@ -57,7 +57,7 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
   };
 
   const request = (async () => {
-    const data = await callExamGateway<RawExamBootstrap>('create', args);
+    const data = await callExamGateway<RawExamBootstrap, 'create'>('create', args);
     if (!data || typeof data !== 'object') {
       throw new Error('Exam bootstrap returned no result.');
     }
@@ -76,7 +76,9 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
 }
 
 export async function getExamSessionBootstrapDirect(sessionId: string): Promise<ExamBootstrap> {
-  const data = await callExamGateway<RawExamBootstrap>('bootstrap', { p_session_id: sessionId });
+  const data = await callExamGateway<RawExamBootstrap, 'bootstrap'>('bootstrap', {
+    p_session_id: sessionId,
+  });
   if (!data || typeof data !== 'object') throw new Error('Exam bootstrap returned no result.');
   return normalizeExamBootstrap(data);
 }
@@ -86,7 +88,7 @@ export async function getExamSessionWindowDirect(
   start: number,
   count = 3,
 ): Promise<ExamClientQuestion[]> {
-  const data = await callExamGateway<ExamClientQuestion[]>('window', {
+  const data = await callExamGateway<ExamClientQuestion[], 'window'>('window', {
     p_session_id: sessionId,
     p_start: Math.max(0, Math.floor(start)),
     p_count: Math.min(5, Math.max(1, Math.floor(count))),
@@ -102,7 +104,7 @@ export async function submitExamAnswerWithFeedbackDirect(input: {
   selectedOptionId: number;
   timeSpentSeconds?: number;
 }): Promise<{ answer: ExamClientAnswer; feedback: ExamQuestionFeedback }> {
-  const raw = await callExamGateway<RawExamInlineFeedbackResult>('submit', {
+  const raw = await callExamGateway<RawExamInlineFeedbackResult, 'submit'>('submit', {
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,
@@ -129,7 +131,7 @@ export async function submitExamAnswerDirect(input: {
   selectedOptionId: number;
   timeSpentSeconds?: number;
 }): Promise<ExamClientAnswer> {
-  const data = await callExamGateway<RawExamSubmitResult>('submitRaw', {
+  const data = await callExamGateway<RawExamSubmitResult, 'submitRaw'>('submitRaw', {
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,
@@ -144,7 +146,7 @@ export async function getExamQuestionFeedbackDirect(
   sessionId: string,
   questionId: number,
 ): Promise<ExamQuestionFeedback> {
-  const data = await callExamGateway<RawExamQuestionFeedback>('feedback', {
+  const data = await callExamGateway<RawExamQuestionFeedback, 'feedback'>('feedback', {
     p_session_id: sessionId,
     p_question_id: questionId,
   });
@@ -154,12 +156,12 @@ export async function getExamQuestionFeedbackDirect(
 }
 
 export async function setQuestionFlagDirect(questionId: number, flagged: boolean): Promise<void> {
-  await callExamGateway<unknown>('flag', {
+  await callExamGateway<unknown, 'flag'>('flag', {
     p_question_id: questionId,
     p_flagged: flagged,
   });
 }
 
 export async function completeExamSessionDirect(sessionId: string): Promise<void> {
-  await callExamGateway<unknown>('complete', { p_session_id: sessionId });
+  await callExamGateway<unknown, 'complete'>('complete', { p_session_id: sessionId });
 }
