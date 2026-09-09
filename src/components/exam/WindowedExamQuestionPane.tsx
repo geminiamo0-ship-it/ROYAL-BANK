@@ -18,6 +18,7 @@ interface WindowedExamQuestionPaneProps {
   hasFeedback: boolean;
   showClues: boolean;
   isAnswered: boolean;
+  isReviewMode?: boolean;
   isTimedMode: boolean;
   selectedOptionId: number | null;
   struckOutOptionIds: Set<number>;
@@ -42,6 +43,7 @@ export function WindowedExamQuestionPane({
   hasFeedback,
   showClues,
   isAnswered,
+  isReviewMode = false,
   isTimedMode,
   selectedOptionId,
   struckOutOptionIds,
@@ -78,7 +80,7 @@ export function WindowedExamQuestionPane({
         onToggleStrikeOut={onToggleStrikeOut}
       />
 
-      {!isTimedMode && !isAnswered ? (
+      {!isReviewMode && !isTimedMode && !isAnswered ? (
         <div className="mt-6 flex items-center gap-3">
           <button
             type="button"
@@ -94,7 +96,7 @@ export function WindowedExamQuestionPane({
         </div>
       ) : null}
 
-      {isTimedMode ? (
+      {!isReviewMode && isTimedMode ? (
         <p className="mt-3 text-[11px] text-[#a8aeb4]">
           Timed selections are saved automatically and can be changed until End Block.
         </p>
@@ -112,7 +114,9 @@ export function WindowedExamQuestionPane({
             {hasFeedback ? (
               <div dangerouslySetInnerHTML={{ __html: explanationHtml }} />
             ) : (
-              <div className="py-4 text-[#80868b] animate-pulse">Fetching explanation...</div>
+              <div className="animate-pulse py-4 text-[#80868b]">
+                {isReviewMode ? 'Loading review details...' : 'Fetching explanation...'}
+              </div>
             )}
           </div>
 
@@ -123,7 +127,7 @@ export function WindowedExamQuestionPane({
                 onClick={onNext}
                 className="inline-flex h-[36px] items-center gap-2 rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff]"
               >
-                <span>Next question</span>
+                <span>{isReviewMode ? 'Next review question' : 'Next question'}</span>
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
