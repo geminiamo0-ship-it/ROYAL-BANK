@@ -24,15 +24,24 @@ function getTelegramSupportUrl(): string | null {
   return null;
 }
 
+function positiveInt(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export default async function UpgradePage({
   searchParams,
 }: {
-  searchParams: Promise<{ bank?: string | string[] }>;
+  searchParams: Promise<{
+    bank?: string | string[];
+    pathway?: string | string[];
+  }>;
 }) {
   const params = await searchParams;
-  const rawBank = Array.isArray(params.bank) ? params.bank[0] : params.bank;
-  const parsedBank = rawBank ? Number(rawBank) : undefined;
-  const defaultBankId = Number.isInteger(parsedBank) && Number(parsedBank) > 0 ? Number(parsedBank) : undefined;
+  const requestedBankId = positiveInt(params.bank);
+  const requestedPathwayId = positiveInt(params.pathway);
 
   const supabase = await createClient();
   const [pathwaysResult, banksResult] = await Promise.all([
@@ -52,6 +61,16 @@ export default async function UpgradePage({
   const banks = (banksResult.data || []) as UpgradeCatalogBank[];
   const catalogError = pathwaysResult.error || banksResult.error;
 
+  const selectedBank = requestedBankId
+    ? banks.find((bank) => bank.id === requestedBankId)
+    : undefined;
+  const selectedPathway = selectedBank
+    ? pathways.find((pathway) => pathway.id === selectedBank.pathway_id)
+    : requestedPathwayId
+      ? pathways.find((pathway) => pathway.id === requestedPathwayId)
+      : undefined;
+  const restrictPathwayId = selectedPathway?.id;
+
   return (
     <div className="mx-auto max-w-5xl py-5">
       {catalogError || pathways.length === 0 || banks.length === 0 ? (
@@ -62,7 +81,9 @@ export default async function UpgradePage({
         <UpgradeRequestClient
           pathways={pathways}
           banks={banks}
-          defaultBankId={defaultBankId}
+          defaultBankId={selectedBank?.id}
+          defaultPathwayId={selectedPathway?.id}
+          restrictPathwayId={restrictPathwayId}
           telegramSupportUrl={getTelegramSupportUrl()}
         />
       )}
