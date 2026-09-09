@@ -5,13 +5,6 @@ import {
   BankPerformanceAuthenticationError,
   getLiveBankPerformance,
 } from '@/lib/bank-performance';
-import { createClient } from '@/lib/supabase/server';
-
-interface BankRow {
-  id: number;
-  name: string;
-  description: string | null;
-}
 
 export default async function QuestionBankHomePage({
   params,
@@ -35,24 +28,13 @@ export default async function QuestionBankHomePage({
     throw error;
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('question_banks')
-    .select('id,name,description')
-    .eq('id', parsedBankId)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  if (!data) notFound();
-  const bank = data as BankRow;
-
   return (
     <div className="mx-auto max-w-[1048px] space-y-[18px] pb-14 text-[12px] text-white">
-      <BankHero bankId={parsedBankId} bankName={bank.name} performance={performance} />
+      <BankHero bankId={parsedBankId} bankName={performance.bank_name} performance={performance} />
 
-      {bank.description ? (
+      {performance.bank_description ? (
         <section className="rounded-[4px] border border-[#414a52] bg-[#30373d] px-4 py-3 text-[11px] leading-5 text-[#c5ced4]">
-          {bank.description}
+          {performance.bank_description}
         </section>
       ) : null}
 
