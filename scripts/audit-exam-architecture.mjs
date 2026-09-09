@@ -34,23 +34,41 @@ if (examPage.includes('@/components/exam/ExamPageClient')) {
 
 const windowedClientPath = path.join(root, 'src/components/exam/WindowedExamPageClient.tsx');
 const windowedClient = await fs.readFile(windowedClientPath, 'utf8');
-if (!windowedClient.includes("@/components/exam/WindowedExamQuestionPane")) {
-  failures.push('windowed exam: question presentation must stay extracted from the controller');
+const requiredWindowedBoundaries = [
+  ['@/components/exam/WindowedExamQuestionPane', 'question presentation'],
+  ['@/components/exam/useExamKeyboardShortcuts', 'keyboard behavior'],
+  ['@/components/exam/useExamConceptBookmark', 'concept bookmark behavior'],
+  ['@/components/exam/useWindowedExamSession', 'session loading/window navigation'],
+  ['@/lib/exam-html', 'media/stem HTML normalization'],
+];
+for (const [modulePath, responsibility] of requiredWindowedBoundaries) {
+  if (!windowedClient.includes(modulePath)) {
+    failures.push(`windowed exam: ${responsibility} must stay extracted from the controller`);
+  }
 }
-if (!windowedClient.includes("@/components/exam/useExamKeyboardShortcuts")) {
-  failures.push('windowed exam: keyboard behavior must stay in the dedicated hook');
-}
-if (!windowedClient.includes("@/lib/exam-html")) {
-  failures.push('windowed exam: media/stem HTML normalization must stay centralized');
-}
-if (windowedClient.includes("@/components/exam/AnswerOptionList")) {
+if (windowedClient.includes('@/components/exam/AnswerOptionList')) {
   failures.push('windowed exam: controller must not render answer options directly');
+}
+if (windowedClient.includes('getExamSessionBootstrapDirect')) {
+  failures.push('windowed exam: bootstrap loading must stay inside useWindowedExamSession');
+}
+if (windowedClient.includes('getExamSessionWindowDirect')) {
+  failures.push('windowed exam: question window loading must stay inside useWindowedExamSession');
 }
 
 const launchCachePath = path.join(root, 'src/lib/exam-launch-cache.ts');
 const launchCache = await fs.readFile(launchCachePath, 'utf8');
 if (!launchCache.includes('launchCache.delete(sessionId)')) {
   failures.push('exam launch cache: bootstrap handoff must remain one-shot');
+}
+
+const gatewayRoutePath = path.join(root, 'src/app/api/exam/route.ts');
+const gatewayRoute = await fs.readFile(gatewayRoutePath, 'utf8');
+if (!gatewayRoute.includes("@/lib/exam-gateway-server")) {
+  failures.push('exam gateway: auth/proof/error helpers must stay outside the route orchestrator');
+}
+if (gatewayRoute.includes("from 'node:crypto'")) {
+  failures.push('exam gateway: crypto/proof implementation must stay in the server helper module');
 }
 
 async function walk(dir) {
