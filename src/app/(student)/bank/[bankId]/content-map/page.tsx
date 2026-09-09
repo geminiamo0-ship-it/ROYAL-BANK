@@ -3,14 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { 
-  Map, 
-  Search, 
-  ChevronRight, 
-  Activity, 
-  Stethoscope, 
-  Layers 
-} from 'lucide-react';
+import { Map, Search, ChevronRight, Activity } from 'lucide-react';
 
 interface ContentMapNode {
   symptom: string;
@@ -64,7 +57,6 @@ export default function ContentMapPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      {/* Header Banner */}
       <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-bold">
@@ -97,7 +89,6 @@ export default function ContentMapPage() {
         </div>
       </div>
 
-      {/* Map Nodes */}
       <div className="space-y-4">
         {filtered.map((node, idx) => (
           <div
