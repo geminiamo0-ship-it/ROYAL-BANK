@@ -3,6 +3,13 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import {
+  toClientExamAnswer,
+  toClientExamFeedback,
+  type RawExamQuestionFeedback,
+  type RawExamSessionAnswer,
+  type RawExamSubmitResult,
+} from '@/lib/exam-wire';
 import { decodeTopicFilter } from '@/lib/topic-filters';
 import { getLiveQuestionBankCategories } from '@/lib/question-bank';
 import type {
@@ -15,38 +22,6 @@ import type {
 } from '@/types/exam';
 
 export type { CategorySummary, StartExamInput } from '@/types/exam';
-
-type RawSubmitResult = {
-  question_id: number;
-  selected_option_id: number | null;
-  is_correct: boolean | null;
-  time_spent_seconds: number | null;
-};
-
-type RawSessionAnswer = RawSubmitResult & {
-  correct_option_id: number | null;
-};
-
-type RawQuestionFeedback = {
-  question_id: number;
-  selected_option_id: number | null;
-  is_correct: boolean;
-  correct_option_id: number | null;
-  explanation_html: string | null;
-  option_percentages: Record<string, number> | null;
-};
-
-function toClientAnswer(row: RawSessionAnswer | RawSubmitResult): ExamClientAnswer {
-  return {
-    questionId: Number(row.question_id),
-    selectedOptionId: row.selected_option_id == null ? null : Number(row.selected_option_id),
-    isCorrect: typeof row.is_correct === 'boolean' ? row.is_correct : null,
-    correctOptionId: 'correct_option_id' in row && row.correct_option_id != null
-      ? Number(row.correct_option_id)
-      : null,
-    timeSpentSeconds: Math.max(0, Number(row.time_spent_seconds || 0)),
-  };
-}
 
 export async function getQuestionBankCategories(bankId: number): Promise<CategorySummary[]> {
   return getLiveQuestionBankCategories(bankId);
@@ -132,7 +107,7 @@ export async function saveUserAnswer(input: {
 
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error('Answer submission returned no result.');
-  return toClientAnswer(data as RawSubmitResult);
+  return toClientExamAnswer(data as RawExamSubmitResult);
 }
 
 export async function setQuestionFlag(questionId: number, flagged: boolean): Promise<void> {
@@ -219,7 +194,7 @@ export async function getExamSessionAnswers(sessionId: string) {
     p_session_id: sessionId,
   });
   if (error) throw new Error(error.message);
-  return (data || []) as RawSessionAnswer[];
+  return (data || []) as RawExamSessionAnswer[];
 }
 
 export async function getExamQuestionFeedback(
@@ -237,20 +212,7 @@ export async function getExamQuestionFeedback(
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error('Question feedback was not returned.');
 
-  const raw = data as RawQuestionFeedback;
-  const optionPercentages: Record<number, number> = {};
-  for (const [optionId, percentage] of Object.entries(raw.option_percentages || {})) {
-    optionPercentages[Number(optionId)] = Number(percentage || 0);
-  }
-
-  return {
-    questionId: Number(raw.question_id),
-    selectedOptionId: raw.selected_option_id == null ? null : Number(raw.selected_option_id),
-    isCorrect: Boolean(raw.is_correct),
-    correctOptionId: raw.correct_option_id == null ? null : Number(raw.correct_option_id),
-    explanationHtml: raw.explanation_html || '',
-    optionPercentages,
-  };
+  return toClientExamFeedback(data as RawExamQuestionFeedback);
 }
 
 export async function getExamSession(sessionId: string) {
@@ -340,7 +302,7 @@ export async function getFullExamSession(sessionId: string) {
     status: 'active' as const,
     session: safeSession,
     initialQuestions,
-    rawAnswers: (answerRows || []) as RawSessionAnswer[],
+    rawAnswers: (answerRows || []) as RawExamSessionAnswer[],
     flaggedQuestionIds,
   };
 }
