@@ -1,87 +1,50 @@
-'use client';
-
-import React, { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
-import { RotateCcw, Flag, XCircle, Play, Layers } from 'lucide-react';
+import { notFound, redirect } from 'next/navigation';
+import { RotateCcw, Flag, XCircle, Layers } from 'lucide-react';
+import {
+  getLiveQuestionBankOutline,
+  QuestionBankAccessError,
+  QuestionBankAuthenticationError,
+} from '@/lib/question-bank';
 
-export default function ReviewQuestionsPage() {
-  const [selectedFilter, setSelectedFilter] = useState<'incorrect' | 'flagged' | 'all_attempted'>('incorrect');
+export default async function ReviewQuestionsPage({ params }: { params: Promise<{ bankId: string }> }) {
+  const { bankId } = await params;
+  const parsedBankId = Number(bankId);
+  if (!Number.isInteger(parsedBankId) || parsedBankId <= 0) notFound();
+
+  let categories;
+  try {
+    categories = await getLiveQuestionBankOutline(parsedBankId);
+  } catch (error) {
+    if (error instanceof QuestionBankAuthenticationError) redirect(`/login?redirect=/bank/${parsedBankId}/review`);
+    if (error instanceof QuestionBankAccessError) redirect(`/upgrade?bank=${parsedBankId}`);
+    throw error;
+  }
+
+  const incorrect = categories.reduce((sum, category) => sum + category.incorrectCount, 0);
+  const flagged = categories.reduce((sum, category) => sum + category.flaggedCount, 0);
+  const attempted = categories.reduce((sum, category) => sum + category.attempted, 0);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-16 text-xs sm:text-sm">
-      <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div className="mx-auto max-w-6xl space-y-6 pb-16 text-xs sm:text-sm">
+      <div className="flex flex-col gap-4 rounded-xl border border-slate-700 bg-[#353c42] p-5 shadow-xs sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 flex items-center justify-center font-bold">
-            <RotateCcw className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-slate-900 dark:text-white">
-              Targeted Question Review
-            </h1>
-            <p className="text-xs text-slate-500">
-              Spaced repetition queue targeting questions you previously got wrong or flagged
-            </p>
-          </div>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-950/60 text-red-300"><RotateCcw className="h-5 w-5" /></div>
+          <div><h1 className="text-lg font-bold text-white">Question Review</h1><p className="text-xs text-slate-300">Live review counts from your actual answers and flags.</p></div>
         </div>
-
-        <Link
-          href={`/exam/review-${selectedFilter}`}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors"
-        >
-          <Play className="h-3.5 w-3.5 fill-current" />
-          <span>Start Review Session</span>
-        </Link>
+        <Link href={`/bank/${parsedBankId}/question-bank`} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700">Open selection controls</Link>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <button
-          onClick={() => setSelectedFilter('incorrect')}
-          className={`p-5 rounded-xl border text-left transition-all cursor-pointer ${
-            selectedFilter === 'incorrect'
-              ? 'border-red-500 bg-red-50/20 dark:bg-red-950/20 ring-1 ring-red-500'
-              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <XCircle className="h-5 w-5 text-red-500" />
-            <span className="font-extrabold text-xl text-slate-900 dark:text-white">12</span>
-          </div>
-          <h3 className="font-bold text-slate-900 dark:text-white text-sm">Previously Incorrect</h3>
-          <p className="text-xs text-slate-500 mt-1">Questions you answered wrong during previous tests</p>
-        </button>
-
-        <button
-          onClick={() => setSelectedFilter('flagged')}
-          className={`p-5 rounded-xl border text-left transition-all cursor-pointer ${
-            selectedFilter === 'flagged'
-              ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20 ring-1 ring-amber-500'
-              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <Flag className="h-5 w-5 text-amber-500" />
-            <span className="font-extrabold text-xl text-slate-900 dark:text-white">8</span>
-          </div>
-          <h3 className="font-bold text-slate-900 dark:text-white text-sm">Flagged for Review</h3>
-          <p className="text-xs text-slate-500 mt-1">Questions you marked with 🚩 while practicing</p>
-        </button>
-
-        <button
-          onClick={() => setSelectedFilter('all_attempted')}
-          className={`p-5 rounded-xl border text-left transition-all cursor-pointer ${
-            selectedFilter === 'all_attempted'
-              ? 'border-blue-500 bg-blue-50/20 dark:bg-blue-950/20 ring-1 ring-blue-500'
-              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <Layers className="h-5 w-5 text-blue-500" />
-            <span className="font-extrabold text-xl text-slate-900 dark:text-white">45</span>
-          </div>
-          <h3 className="font-bold text-slate-900 dark:text-white text-sm">All Attempted Questions</h3>
-          <p className="text-xs text-slate-500 mt-1">Full bank revision of every answered case</p>
-        </button>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <ReviewCard icon={<XCircle className="h-5 w-5 text-red-400" />} title="Previously Incorrect" value={incorrect} description="Use Incorrect in the live Question Bank selection." />
+        <ReviewCard icon={<Flag className="h-5 w-5 text-amber-400" />} title="Flagged for Review" value={flagged} description="Use Flagged in the live Question Bank selection." />
+        <ReviewCard icon={<Layers className="h-5 w-5 text-blue-400" />} title="All Attempted" value={attempted} description="Use All and your mapped filters to revisit answered questions." />
       </div>
     </div>
   );
+}
+
+function ReviewCard({ icon, title, value, description }: { icon: React.ReactNode; title: string; value: number; description: string }) {
+  return <div className="rounded-xl border border-slate-700 bg-[#353c42] p-5"><div className="flex items-center justify-between">{icon}<span className="text-xl font-extrabold text-white">{value.toLocaleString()}</span></div><h2 className="mt-3 font-bold text-white">{title}</h2><p className="mt-1 text-xs text-slate-400">{description}</p></div>;
 }
