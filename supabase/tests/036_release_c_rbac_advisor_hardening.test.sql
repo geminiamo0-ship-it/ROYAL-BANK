@@ -44,27 +44,26 @@ SELECT extensions.ok(
     'authenticated clients cannot bypass topic-count RPCs with direct materialized-view reads'
 );
 SELECT extensions.ok(
-    EXISTS (
+    NOT EXISTS (
         SELECT 1
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'public'
           AND p.proname = 'get_category_topic_counts'
-          AND p.proconfig @> ARRAY['search_path=public, pg_temp']::text[]
+          AND NOT (COALESCE(p.proconfig, ARRAY[]::text[]) @> ARRAY['search_path=public, pg_temp']::text[])
     ),
-    'category topic count function has a pinned search path'
+    'all category topic count overloads have a pinned search path'
 );
 SELECT extensions.ok(
-    EXISTS (
+    NOT EXISTS (
         SELECT 1
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'public'
           AND p.proname = 'get_category_topic_counts_json'
-          AND pg_get_function_identity_arguments(p.oid) = 'p_bank_id bigint'
-          AND p.proconfig @> ARRAY['search_path=public, pg_temp']::text[]
+          AND NOT (COALESCE(p.proconfig, ARRAY[]::text[]) @> ARRAY['search_path=public, pg_temp']::text[])
     ),
-    'bigint category topic count JSON function has a pinned search path'
+    'all category topic count JSON overloads have a pinned search path'
 );
 SELECT extensions.ok(
     to_regclass('public.upgrade_requests_support_queue_idx') IS NOT NULL,
