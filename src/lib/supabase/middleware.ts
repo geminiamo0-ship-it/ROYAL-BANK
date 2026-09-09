@@ -64,6 +64,7 @@ export async function updateSession(request: NextRequest) {
 
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
   const isInactiveRoute = pathname.startsWith('/inactive');
+  const isPasswordChangeRoute = pathname.startsWith('/change-password');
   const isProtectedRoute =
     pathname.startsWith('/dashboard') ||
     pathname.startsWith('/bank') ||
@@ -72,7 +73,8 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/upgrade') ||
     pathname.startsWith('/partner') ||
     pathname.startsWith('/admin') ||
-    pathname.startsWith('/support');
+    pathname.startsWith('/support') ||
+    isPasswordChangeRoute;
 
   function redirectWithSession(urlToUse: URL) {
     const redirectResponse = NextResponse.redirect(urlToUse);
@@ -109,9 +111,17 @@ export async function updateSession(request: NextRequest) {
       return redirectWithSession(redirectUrl);
     }
 
+    const mustChangePassword = user.app_metadata?.must_change_password === true;
+    if (accountIsActive && mustChangePassword && !isPasswordChangeRoute) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = '/change-password';
+      redirectUrl.search = '';
+      return redirectWithSession(redirectUrl);
+    }
+
     if (accountIsActive && (isAuthRoute || isInactiveRoute)) {
       const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = '/dashboard';
+      redirectUrl.pathname = mustChangePassword ? '/change-password' : '/dashboard';
       redirectUrl.search = '';
       return redirectWithSession(redirectUrl);
     }

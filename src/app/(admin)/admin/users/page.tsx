@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { UserPasswordResetAction } from '@/components/admin/UserPasswordResetAction';
 
 interface ProfileRow {
   id: string;
@@ -38,7 +39,9 @@ export default async function AdminUsersPage() {
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-purple-600">Live profiles</p>
         <h1 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">User Accounts</h1>
-        <p className="mt-1 text-xs text-slate-500">Read-only production profile view. Premium entitlement is still determined by user_access_grants, not the profile tier label.</p>
+        <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
+          Production profile view with administrator password recovery. Premium entitlement is still determined by user_access_grants, not the profile tier label. Temporary passwords are generated securely, never written to audit logs, and force a password change before the user can continue.
+        </p>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
@@ -47,11 +50,22 @@ export default async function AdminUsersPage() {
           <div className="p-10 text-center text-sm text-slate-500">No profiles are visible to this admin account.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-xs">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-800/50"><tr><th className="px-4 py-3">User</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">UI tier</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Last login</th><th className="px-4 py-3">Last IP</th><th className="px-4 py-3">Joined</th></tr></thead>
+            <table className="w-full min-w-[1160px] text-left text-xs">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-800/50">
+                <tr>
+                  <th className="px-4 py-3">User</th>
+                  <th className="px-4 py-3">Role</th>
+                  <th className="px-4 py-3">UI tier</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Last login</th>
+                  <th className="px-4 py-3">Last IP</th>
+                  <th className="px-4 py-3">Joined</th>
+                  <th className="px-4 py-3">Account actions</th>
+                </tr>
+              </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {users.map((profile) => (
-                  <tr key={profile.id}>
+                  <tr key={profile.id} className="align-top">
                     <td className="px-4 py-3"><p className="font-semibold text-slate-900 dark:text-white">{profile.full_name || 'Unnamed user'}</p><p className="mt-0.5 text-slate-500">{profile.email || profile.id}</p></td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{profile.role || 'student'}</td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{profile.subscription_tier || '—'}</td>
@@ -59,6 +73,13 @@ export default async function AdminUsersPage() {
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(profile.last_login_at)}</td>
                     <td className="px-4 py-3 font-mono text-slate-600 dark:text-slate-300">{profile.last_login_ip || '—'}</td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(profile.created_at)}</td>
+                    <td className="px-4 py-3">
+                      <UserPasswordResetAction
+                        userId={profile.id}
+                        email={profile.email || profile.id}
+                        disabled={profile.id === user.id}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
