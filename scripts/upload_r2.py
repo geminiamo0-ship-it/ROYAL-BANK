@@ -1,62 +1,73 @@
+"""Upload Royal Bank media to Cloudflare R2.
+
+Required environment variables:
+  R2_ENDPOINT_URL
+  R2_ACCESS_KEY_ID
+  R2_SECRET_ACCESS_KEY
+  R2_BUCKET_NAME
+  R2_MEDIA_FOLDER
+
+The script intentionally keeps credentials out of source control.
+"""
+
+from __future__ import annotations
+
 import os
+
 import boto3
-from botocore.exceptions import NoCredentialsError, ClientError
+from botocore.exceptions import ClientError
 
-# ==========================================
-# ⚠️ تنبيه: أدخل بيانات الـ Token الجديد هنا
-# تأكد أن الـ Token له صلاحية (Object Read & Write)
-# ==========================================
-ACCESS_KEY = "أدخل_الـ_Access_Key_الجديد_هنا"
-SECRET_KEY = "أدخل_الـ_Secret_Key_الجديد_هنا"
-ENDPOINT_URL = "https://00f798c44eedd58e5004a9fd606dfd5f.r2.cloudflarestorage.com"
-BUCKET_NAME = "أدخل_اسم_الـ_Bucket_هنا" # مثال: royal-bank-media
 
-# مسار مجلد الصور على جهازك
-MEDIA_FOLDER = r"E:\extractors\offline_media"
+def require_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
 
-def upload_to_r2():
-    if not os.path.exists(MEDIA_FOLDER):
-        print(f"❌ المجلد غير موجود: {MEDIA_FOLDER}")
-        return
 
-    # إنشاء اتصال مع Cloudflare R2
+def upload_to_r2() -> None:
+    endpoint_url = require_env("R2_ENDPOINT_URL")
+    access_key = require_env("R2_ACCESS_KEY_ID")
+    secret_key = require_env("R2_SECRET_ACCESS_KEY")
+    bucket_name = require_env("R2_BUCKET_NAME")
+    media_folder = os.path.abspath(require_env("R2_MEDIA_FOLDER"))
+
+    if not os.path.isdir(media_folder):
+        raise RuntimeError(f"R2_MEDIA_FOLDER is not a directory: {media_folder}")
+
     s3_client = boto3.client(
-        's3',
-        endpoint_url=ENDPOINT_URL,
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY,
-        region_name='auto' # Cloudflare R2 always uses 'auto'
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name="auto",
     )
 
-    print("🚀 بدء رفع الملفات إلى Cloudflare R2...")
-    
     success_count = 0
     error_count = 0
+    print(f"Uploading media from {media_folder} to bucket {bucket_name}...")
 
-    for root, dirs, files in os.walk(MEDIA_FOLDER):
-        for file in files:
-            local_path = os.path.join(root, file)
-            # اجعل مسار الملف داخل الـ Bucket يبدأ بـ offline_media
-            relative_path = os.path.relpath(local_path, MEDIA_FOLDER)
-            s3_path = f"offline_media/{relative_path}".replace("\\", "/")
+    for root, _dirs, files in os.walk(media_folder):
+        for filename in files:
+            local_path = os.path.join(root, filename)
+            relative_path = os.path.relpath(local_path, media_folder).replace("\\", "/")
+            object_key = f"offline_media/{relative_path}"
 
             try:
-                # الرفع
-                s3_client.upload_file(local_path, BUCKET_NAME, s3_path)
-                print(f"✅ تم الرفع: {s3_path}")
+                s3_client.upload_file(local_path, bucket_name, object_key)
                 success_count += 1
-            except ClientError as e:
-                print(f"❌ خطأ أثناء الرفع ({s3_path}): {e}")
+                print(f"[OK] {object_key}")
+            except ClientError as exc:
                 error_count += 1
-            except Exception as e:
-                print(f"❌ خطأ غير متوقع ({s3_path}): {e}")
+                print(f"[ERROR] {object_key}: {exc}")
+            except Exception as exc:
                 error_count += 1
+                print(f"[ERROR] {object_key}: {exc}")
 
-    print("====================================")
-    print(f"🎉 اكتمل الرفع!")
-    print(f"✅ نجاح: {success_count} ملف")
-    if error_count > 0:
-        print(f"❌ فشل: {error_count} ملف")
+    print(f"Upload complete: {success_count} succeeded, {error_count} failed.")
+    if error_count:
+        raise RuntimeError(f"R2 upload completed with {error_count} failed file(s).")
+
 
 if __name__ == "__main__":
     upload_to_r2()
