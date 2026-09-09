@@ -4,8 +4,53 @@ import type { SupportUpgradeDetail, UpgradeRequestStatus } from '@/types/busines
 export const inputClass =
   'h-11 w-full rounded-lg border border-slate-700 bg-[#07101e] px-3 text-sm font-medium text-slate-100 outline-none placeholder:text-slate-500 focus:border-purple-500 focus:ring-1 focus:ring-purple-500/30 disabled:cursor-not-allowed disabled:bg-[#0b1424] disabled:text-slate-500';
 
-function visibleStatus(status: UpgradeRequestStatus) {
+export function visibleStatus(status: UpgradeRequestStatus): Exclude<UpgradeRequestStatus, 'contacted'> {
   return status === 'contacted' ? 'pending' : status;
+}
+
+function statusStep(status: UpgradeRequestStatus) {
+  const shown = visibleStatus(status);
+  if (shown === 'activated') return 2;
+  if (shown === 'paid') return 1;
+  return 0;
+}
+
+export function ProgressStrip({ status }: { status: UpgradeRequestStatus }) {
+  if (status === 'cancelled') {
+    return (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-200">
+        This request is cancelled.
+      </div>
+    );
+  }
+
+  const active = statusStep(status);
+  const steps = ['Pending', 'Paid', 'Activated'];
+
+  return (
+    <div className="grid grid-cols-3 gap-2 rounded-xl border border-slate-800 bg-[#081120] p-3">
+      {steps.map((step, index) => {
+        const complete = index <= active;
+        return (
+          <div key={step} className="flex items-center gap-2">
+            <span
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-black ${
+                complete
+                  ? index === 2 && active === 2
+                    ? 'border-emerald-400 bg-emerald-500 text-white'
+                    : 'border-purple-400 bg-purple-500/20 text-purple-200'
+                  : 'border-slate-700 bg-[#0d1728] text-slate-500'
+              }`}
+            >
+              {complete && index === active ? '✓' : index + 1}
+            </span>
+            <span className={`text-xs font-bold ${complete ? 'text-slate-100' : 'text-slate-500'}`}>{step}</span>
+            {index < steps.length - 1 && <span className="ml-auto hidden h-px flex-1 bg-slate-700 sm:block" />}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function RequestHeader({ detail }: { detail: SupportUpgradeDetail }) {
@@ -108,9 +153,7 @@ export function formatDate(value: string) {
 
 export function formatPromoDiscount(promo: NonNullable<SupportUpgradeDetail['promo']>) {
   if (promo.discount_type === 'none') return 'tracking only';
-  if (promo.discount_type === 'percentage') {
-    return `${promo.discount_value}% customer discount`;
-  }
+  if (promo.discount_type === 'percentage') return `${promo.discount_value}% customer discount`;
   if (promo.discount_type === 'fixed') {
     return `${promo.discount_value} ${promo.discount_currency || ''} customer discount`.trim();
   }
@@ -119,16 +162,12 @@ export function formatPromoDiscount(promo: NonNullable<SupportUpgradeDetail['pro
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200">
-      {message}
-    </div>
+    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200">{message}</div>
   );
 }
 
 export function SuccessBox({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-200">
-      {message}
-    </div>
+    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-200">{message}</div>
   );
 }
