@@ -6,6 +6,7 @@ const root = process.cwd();
 const failures = [];
 
 const removedLegacyPaths = [
+  'src/actions/exam-feedback.ts',
   'src/components/exam/ExamPageClient.tsx',
   'src/components/exam/ExamSidebarWidgets.tsx',
   'src/components/exam/RichNotesEditor.tsx',
@@ -48,6 +49,9 @@ for (const file of await walk(path.join(root, 'src'))) {
 
   if (content.includes('@/stores/examStore')) {
     failures.push(`${relativePath}: legacy exam store import detected`);
+  }
+  if (content.includes('@/actions/exam-feedback')) {
+    failures.push(`${relativePath}: legacy exam feedback action import detected`);
   }
   if (content.includes('@/components/exam/ExamPageClient')) {
     failures.push(`${relativePath}: legacy full-load exam client import detected`);
