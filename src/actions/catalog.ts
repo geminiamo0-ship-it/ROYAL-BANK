@@ -12,9 +12,17 @@ import type {
 } from '@/types/catalog';
 
 const scopeSchema = z.object({
-  scopeType: z.enum(['pathway', 'bank']),
-  targetId: z.number().int().positive(),
-}).strict();
+  scopeType: z.enum(['global', 'pathway', 'bank']),
+  targetId: z.number().int().positive().nullable().optional(),
+}).strict().superRefine((value, ctx) => {
+  const targetId = value.targetId ?? null;
+  if (value.scopeType === 'global' && targetId !== null) {
+    ctx.addIssue({ code: 'custom', message: 'Global access does not use a target.' });
+  }
+  if (value.scopeType !== 'global' && targetId === null) {
+    ctx.addIssue({ code: 'custom', message: 'Choose a valid Royal product.' });
+  }
+});
 
 const quoteSchema = z.object({
   planId: z.number().int().positive(),
@@ -39,15 +47,19 @@ const planSchema = z.object({
   planId: z.number().int().positive().nullable().optional(),
   productId: z.number().int().positive(),
   name: z.string().trim().min(1).max(120),
-  durationMonths: z.number().int().min(1).max(120),
-  price: z.number().min(0),
+  durationMonths: z.number().int().min(1).max(120).nullable(),
+  price: z.number().positive().nullable(),
   currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/),
   status: z.enum(['active', 'inactive', 'archived']),
   showPrice: z.boolean(),
   isDefault: z.boolean(),
   isRecommended: z.boolean(),
   displayOrder: z.number().int().min(0),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (value.showPrice && value.price === null) {
+    ctx.addIssue({ code: 'custom', message: 'Add a price before making it visible.' });
+  }
+});
 
 const trialSchema = z.object({
   bankId: z.number().int().positive(),
@@ -66,7 +78,8 @@ const errors: Array<[string, string]> = [
   ['CATALOG_PLAN_UNAVAILABLE', 'This duration is not currently available.'],
   ['CATALOG_PRODUCT_NOT_FOUND', 'Catalog product not found.'],
   ['CATALOG_PLAN_NOT_FOUND', 'Catalog plan not found.'],
-  ['ACTIVE_PRODUCT_REQUIRES_ACTIVE_PLAN', 'Add at least one active priced plan before activating this product.'],
+  ['ACTIVE_PRODUCT_REQUIRES_ACTIVE_PLAN', 'Add at least one active plan before activating this product.'],
+  ['VISIBLE_PRICE_REQUIRES_VALUE', 'Every visible plan needs a real price first.'],
   ['INVALID_CATALOG_PRODUCT', 'Check the product status, order, and visibility settings.'],
   ['INVALID_CATALOG_PLAN', 'Check the plan name, duration, price, currency, and status.'],
   ['INVALID_TRIAL_CONFIGURATION', 'Check the free-trial limits.'],
@@ -76,13 +89,16 @@ const errors: Array<[string, string]> = [
   ['PROMO_CODE_LIMIT_REACHED', 'That promo code has reached its activation limit.'],
   ['PROMO_CURRENCY_MISMATCH', 'This promo code cannot be used with the selected currency.'],
   ['PROMO_SPECIAL_PRICE_INVALID', 'This promo code cannot be applied to the selected plan.'],
-  ['ACCESS_ALREADY_COVERED_BY_BROADER_GRANT', 'Your current access already includes this product.'],
+  ['PROMO_ZERO_PRICE_NOT_SUPPORTED', 'A promo cannot reduce this manual-payment order to zero.'],
+  ['ACCESS_ALREADY_COVERED_BY_BROADER_GRANT', 'Your current broader access already includes this product.'],
   ['ACCESS_ALREADY_LIFETIME', 'You already have lifetime access to this product.'],
   ['UPGRADE_REQUEST_ALREADY_PENDING', 'You already have an open request for this product. Use Change Request to switch duration.'],
   ['UPGRADE_REQUEST_NOT_REPLACEABLE', 'This request can no longer be changed.'],
   ['UPGRADE_REQUEST_NOT_CANCELLABLE', 'This request can no longer be cancelled.'],
-  ['PAID_REQUEST_CANNOT_BE_REPLACED', 'A paid request cannot be changed.'],
-  ['PAID_REQUEST_CANNOT_BE_CANCELLED', 'A paid request cannot be cancelled.'],
+  ['PAID_REQUEST_CANNOT_BE_REPLACED', 'A request with a recorded payment cannot be changed.'],
+  ['PAID_REQUEST_CANNOT_BE_CANCELLED', 'A request with a recorded payment cannot be cancelled.'],
+  ['CATALOG_ORDER_MUST_MATCH_QUOTE', 'Catalog duration and published pricing are locked to the customer quote.'],
+  ['EXTENSION_TARGET_NOT_ACTIVE', 'The access grant selected for this extension is no longer available.'],
 ];
 
 function safeError(error: { message?: string } | null, fallback: string): string {
@@ -97,12 +113,12 @@ function invalid<T>(message: string): BusinessActionResult<T> {
 
 export async function getCatalogUpgradeOffer(input: unknown): Promise<BusinessActionResult<CatalogUpgradeOffer>> {
   const parsed = scopeSchema.safeParse(input);
-  if (!parsed.success) return invalid('Choose a valid Royal product.');
+  if (!parsed.success) return invalid(parsed.error.issues[0]?.message || 'Choose a valid Royal product.');
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('get_catalog_upgrade_offer', {
     p_scope_type: parsed.data.scopeType,
-    p_target_id: parsed.data.targetId,
+    p_target_id: parsed.data.targetId ?? null,
   });
   if (error || !data) return { ok: false, error: safeError(error, 'Unable to load upgrade options.') };
   return { ok: true, data: data as CatalogUpgradeOffer };
@@ -153,7 +169,7 @@ export async function getAdminCatalog(): Promise<BusinessActionResult<AdminCatal
 
 export async function saveAdminCatalogProduct(input: unknown): Promise<BusinessActionResult<{ id: number; status: string }>> {
   const parsed = productSchema.safeParse(input);
-  if (!parsed.success) return invalid('Check the product settings.');
+  if (!parsed.success) return invalid(parsed.error.issues[0]?.message || 'Check the product settings.');
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('admin_save_catalog_product', {
     p_product_id: parsed.data.productId,
@@ -170,7 +186,7 @@ export async function saveAdminCatalogProduct(input: unknown): Promise<BusinessA
 
 export async function saveAdminCatalogPlan(input: unknown): Promise<BusinessActionResult<{ id: number; product_id: number; status: string; version: number }>> {
   const parsed = planSchema.safeParse(input);
-  if (!parsed.success) return invalid('Check the plan duration, price, currency, and status.');
+  if (!parsed.success) return invalid(parsed.error.issues[0]?.message || 'Check the plan duration, price, currency, and status.');
   const value = parsed.data;
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('admin_save_catalog_plan', {
