@@ -38,7 +38,8 @@ export function WindowedExamPageClient({
 }: WindowedExamPageClientProps) {
   const router = useRouter();
   const examRootRef = useRef<HTMLDivElement>(null);
-  const questionScrollRef = useRef<HTMLDivElement>(null);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>({});
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(new Set());
@@ -51,6 +52,7 @@ export function WindowedExamPageClient({
   const [feedbackByQuestionId, setFeedbackByQuestionId] = useState<Record<number, ExamQuestionFeedback>>({});
   const [annotationTool, setAnnotationTool] = useState<AnnotationTool | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [sidebarStickyTop, setSidebarStickyTop] = useState(0);
 
   const answerSaveChains = useRef<Record<number, Promise<void>>>({});
   const flagSaveChains = useRef<Record<number, Promise<void>>>({});
@@ -114,7 +116,32 @@ export function WindowedExamPageClient({
   } = useExamConceptBookmark(currentQ);
 
   useEffect(() => {
-    questionScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+    mainScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [currentQ?.id]);
+
+  useEffect(() => {
+    const scrollContainer = mainScrollRef.current;
+    const sidebar = sidebarRef.current;
+    if (!scrollContainer || !sidebar) return;
+
+    const updateStickyTop = () => {
+      const availableHeight = scrollContainer.clientHeight;
+      const sidebarHeight = sidebar.scrollHeight;
+      setSidebarStickyTop(Math.min(0, availableHeight - sidebarHeight - 12));
+    };
+
+    updateStickyTop();
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(updateStickyTop);
+    observer.observe(scrollContainer);
+    observer.observe(sidebar);
+    window.addEventListener('resize', updateStickyTop);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateStickyTop);
+    };
   }, [currentQ?.id]);
 
   useEffect(() => {
@@ -524,52 +551,61 @@ export function WindowedExamPageClient({
         </div>
       ) : null}
 
-      <main className="mx-auto grid min-h-0 w-full max-w-[1240px] flex-1 gap-6 overflow-y-auto px-4 pb-3 pt-3 lg:grid-cols-[minmax(0,1fr)_476px] lg:overflow-hidden">
-        <div ref={questionScrollRef} className="min-h-0 min-w-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-2">
-          <WindowedExamQuestionPane
-            question={currentQ}
-            currentIndex={currentIndex}
-            questionCount={questionIds.length}
-            questionHtml={currentHtml}
-            explanationHtml={explanationPanels.contentHtml}
-            hasFeedback={Boolean(currentFeedback)}
-            showClues={showClues}
-            isAnswered={isAnswered}
-            isReviewMode={isReviewMode}
-            isTimedMode={isTimedMode}
-            selectedOptionId={selectedOptionId}
-            struckOutOptionIds={struckOutOptionIds}
-            submittedAnswer={currentAnswer}
-            correctOptionId={correctOptionId}
-            optionPercentages={optionPercentages}
-            isSaving={savingQuestionIds.has(currentQ.id)}
-            isSubmitting={isSubmitting}
-            annotationTool={annotationTool}
-            annotationRecords={annotationRecords}
-            onAppendAnnotationStroke={appendAnnotationStroke}
-            onEraseAnnotationStroke={eraseAnnotationStroke}
-            onSelectOption={selectOption}
-            onToggleStrikeOut={toggleStrikeOut}
-            onSubmitAnswer={() => void submitAnswer(currentQ.id)}
-            onNext={() => void handleNext()}
-            onExplanationClick={handleExplanationClick}
-          />
-        </div>
+      <div
+        ref={mainScrollRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+      >
+        <main className="mx-auto grid w-full max-w-[1240px] gap-6 px-4 pb-12 pt-3 lg:grid-cols-[minmax(0,1fr)_476px]">
+          <div className="min-w-0">
+            <WindowedExamQuestionPane
+              question={currentQ}
+              currentIndex={currentIndex}
+              questionCount={questionIds.length}
+              questionHtml={currentHtml}
+              explanationHtml={explanationPanels.contentHtml}
+              hasFeedback={Boolean(currentFeedback)}
+              showClues={showClues}
+              isAnswered={isAnswered}
+              isReviewMode={isReviewMode}
+              isTimedMode={isTimedMode}
+              selectedOptionId={selectedOptionId}
+              struckOutOptionIds={struckOutOptionIds}
+              submittedAnswer={currentAnswer}
+              correctOptionId={correctOptionId}
+              optionPercentages={optionPercentages}
+              isSaving={savingQuestionIds.has(currentQ.id)}
+              isSubmitting={isSubmitting}
+              annotationTool={annotationTool}
+              annotationRecords={annotationRecords}
+              onAppendAnnotationStroke={appendAnnotationStroke}
+              onEraseAnnotationStroke={eraseAnnotationStroke}
+              onSelectOption={selectOption}
+              onToggleStrikeOut={toggleStrikeOut}
+              onSubmitAnswer={() => void submitAnswer(currentQ.id)}
+              onNext={() => void handleNext()}
+              onExplanationClick={handleExplanationClick}
+            />
+          </div>
 
-        <div className="hidden min-h-0 overflow-hidden lg:block">
-          <WindowedExamSidebarWidgets
-            answers={answers}
-            answeredCount={answeredCount}
-            bankId={bankId}
-            currentIndex={currentIndex}
-            isTimedMode={isTimedMode}
-            marks={marks}
-            question={currentQ}
-            questionIds={questionIds}
-            sidebarHtml={isAnswered && !isTimedMode ? explanationPanels.sidebarHtml : null}
-          />
-        </div>
-      </main>
+          <div
+            ref={sidebarRef}
+            className="hidden self-start lg:sticky lg:block"
+            style={{ top: sidebarStickyTop }}
+          >
+            <WindowedExamSidebarWidgets
+              answers={answers}
+              answeredCount={answeredCount}
+              bankId={bankId}
+              currentIndex={currentIndex}
+              isTimedMode={isTimedMode}
+              marks={marks}
+              question={currentQ}
+              questionIds={questionIds}
+              sidebarHtml={isAnswered && !isTimedMode ? explanationPanels.sidebarHtml : null}
+            />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
