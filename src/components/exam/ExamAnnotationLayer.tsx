@@ -136,7 +136,7 @@ export function ExamAnnotationLayer({
     const previous = current.points[current.points.length - 1];
     if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 0.0008) return;
 
-    const next = { ...current, points: [...current.points, point] };
+    const next: AnnotationStroke = { ...current, points: [...current.points, point] };
     inProgressRef.current = next;
     setInProgress(next);
   }, [eraseAt, toPoint, tool]);
@@ -158,7 +158,7 @@ export function ExamAnnotationLayer({
     setInProgress(null);
     if (!current || !contentHash) return;
 
-    let points = current.points;
+    let points: AnnotationPoint[] = current.points;
     if (points.length === 1) {
       const [x, y] = points[0];
       points = [[x, y], [clampUnit(x + 0.0001), clampUnit(y + 0.0001)]];
@@ -176,9 +176,7 @@ export function ExamAnnotationLayer({
     erasedStrokeIdsRef.current.clear();
   }, []);
 
-  const renderStrokes = inProgress && inProgress.tool !== 'eraser'
-    ? [...visibleStrokes, inProgress]
-    : visibleStrokes;
+  const renderStrokes = inProgress ? [...visibleStrokes, inProgress] : visibleStrokes;
 
   return (
     <>
