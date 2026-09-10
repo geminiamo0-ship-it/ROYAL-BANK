@@ -30,17 +30,35 @@ interface ExamAnnotationLayerProps {
   ) => void;
 }
 
+interface TouchScrollState {
+  pointerId: number;
+  lastY: number;
+  scrollElement: HTMLElement | null;
+}
+
 function clampUnit(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
 function canDrawWithPointer(event: React.PointerEvent<SVGSVGElement>): boolean {
-  // Touch is deliberately reserved for native scrolling/pinch gestures. A pen/stylus
-  // (Apple Pencil, Surface Pen, etc.) and the primary mouse button can annotate.
+  // Touch is reserved for scrolling. Pens/styli and the primary mouse button annotate.
   if (event.pointerType === 'touch') return false;
   if (event.pointerType === 'mouse') return event.button === 0;
   if (event.pointerType === 'pen') return event.button === 0 || event.button === 5;
   return event.button === 0;
+}
+
+function findVerticalScrollContainer(element: Element): HTMLElement | null {
+  let current = element.parentElement;
+
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const canScrollVertically = /(auto|scroll|overlay)/.test(style.overflowY);
+    if (canScrollVertically && current.scrollHeight > current.clientHeight) return current;
+    current = current.parentElement;
+  }
+
+  return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null;
 }
 
 export function ExamAnnotationLayer({
@@ -55,6 +73,7 @@ export function ExamAnnotationLayer({
   const [inProgress, setInProgress] = useState<AnnotationStroke | null>(null);
   const inProgressRef = useRef<AnnotationStroke | null>(null);
   const pointerIdRef = useRef<number | null>(null);
+  const touchScrollRef = useRef<TouchScrollState | null>(null);
   const erasedStrokeIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -75,6 +94,7 @@ export function ExamAnnotationLayer({
   useEffect(() => {
     if (tool) return;
     pointerIdRef.current = null;
+    touchScrollRef.current = null;
     inProgressRef.current = null;
     setInProgress(null);
     erasedStrokeIdsRef.current.clear();
@@ -82,6 +102,7 @@ export function ExamAnnotationLayer({
 
   const visibleStrokes = contentHash && record?.contentHash === contentHash ? record.strokes : [];
   const hasStaleRecord = Boolean(contentHash && record && record.contentHash !== contentHash && record.strokes.length > 0);
+  const strictInkMode = tool === 'pencil' || tool === 'eraser';
 
   const toPoint = useCallback((event: React.PointerEvent<SVGSVGElement>): AnnotationPoint => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -110,10 +131,29 @@ export function ExamAnnotationLayer({
   }, [contentHash, onEraseStroke, surface, visibleStrokes]);
 
   const handlePointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (!tool || !contentHash || !canDrawWithPointer(event)) return;
+    if (!tool || !contentHash) return;
 
-    // Prevent browser pen gestures only after we know this is a drawing pointer.
-    // Finger touches remain untouched so the exam's main scrollbar keeps working.
+    // Pencil/Eraser are strict ink modes. CSS touch-action is disabled for these modes
+    // so the browser cannot steal a vertical stylus stroke and turn it into scrolling.
+    // Finger input is handled separately below and scrolls the nearest exam scroller.
+    if (event.pointerType === 'touch') {
+      if (!strictInkMode) return;
+
+      event.preventDefault();
+      const scrollElement = findVerticalScrollContainer(event.currentTarget);
+      touchScrollRef.current = {
+        pointerId: event.pointerId,
+        lastY: event.clientY,
+        scrollElement,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (!canDrawWithPointer(event)) return;
+
+    // A pen/mouse drawing pointer is owned by Royal until pointer-up. In strict pencil
+    // mode this works together with touch-action:none, so even I/t/l/1 strokes stay ink.
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerIdRef.current = event.pointerId;
@@ -133,11 +173,23 @@ export function ExamAnnotationLayer({
     };
     inProgressRef.current = stroke;
     setInProgress(stroke);
-  }, [contentHash, eraseAt, toPoint, tool]);
+  }, [contentHash, eraseAt, strictInkMode, toPoint, tool]);
 
   const handlePointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    // A finger never owns pointer capture, so it is always free to scroll the page.
-    if (event.pointerType === 'touch' || !tool || pointerIdRef.current !== event.pointerId) return;
+    if (event.pointerType === 'touch') {
+      const touchScroll = touchScrollRef.current;
+      if (!touchScroll || touchScroll.pointerId !== event.pointerId) return;
+
+      event.preventDefault();
+      const deltaY = touchScroll.lastY - event.clientY;
+      touchScroll.lastY = event.clientY;
+      if (touchScroll.scrollElement && deltaY !== 0) {
+        touchScroll.scrollElement.scrollTop += deltaY;
+      }
+      return;
+    }
+
+    if (!tool || pointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
     const point = toPoint(event);
 
@@ -157,7 +209,19 @@ export function ExamAnnotationLayer({
   }, [eraseAt, toPoint, tool]);
 
   const finishStroke = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (event.pointerType === 'touch' || pointerIdRef.current !== event.pointerId) return;
+    if (event.pointerType === 'touch') {
+      const touchScroll = touchScrollRef.current;
+      if (!touchScroll || touchScroll.pointerId !== event.pointerId) return;
+
+      event.preventDefault();
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      touchScrollRef.current = null;
+      return;
+    }
+
+    if (pointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -185,7 +249,12 @@ export function ExamAnnotationLayer({
   }, [contentHash, onAppendStroke, surface, tool]);
 
   const cancelStroke = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (event.pointerType === 'touch' || pointerIdRef.current !== event.pointerId) return;
+    if (event.pointerType === 'touch') {
+      if (touchScrollRef.current?.pointerId === event.pointerId) touchScrollRef.current = null;
+      return;
+    }
+
+    if (pointerIdRef.current !== event.pointerId) return;
     pointerIdRef.current = null;
     inProgressRef.current = null;
     setInProgress(null);
@@ -200,9 +269,13 @@ export function ExamAnnotationLayer({
         className={`absolute inset-0 z-20 h-full w-full ${tool ? 'pointer-events-auto cursor-crosshair' : 'pointer-events-none'}`}
         viewBox="0 0 1000 1000"
         preserveAspectRatio="none"
-        // Keep one-finger vertical scrolling and pinch zoom available while Marker is on.
-        // Pen/mouse drawing is captured in the pointer handlers above.
-        style={{ touchAction: tool ? 'pan-y pinch-zoom' : 'auto' }}
+        style={{
+          touchAction: strictInkMode
+            ? 'none'
+            : tool === 'highlighter'
+              ? 'pan-y pinch-zoom'
+              : 'auto',
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={finishStroke}
