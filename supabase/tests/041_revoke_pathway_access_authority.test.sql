@@ -81,7 +81,9 @@ SELECT extensions.ok(
 
 RESET ROLE;
 UPDATE public.user_access_grants
-SET revoked_at=now(), revoke_reason='regression revoke'
+SET revoked_at=now(),
+    revoked_by='41000000-0000-0000-0000-000000000003',
+    revoke_reason='regression revoke'
 WHERE user_id='41000000-0000-0000-0000-000000000001'
   AND scope_type='pathway'
   AND pathway_id=94101;
@@ -134,7 +136,9 @@ SELECT extensions.ok(
 
 RESET ROLE;
 UPDATE public.user_access_grants
-SET revoked_at=now(), revoke_reason='remove one bank'
+SET revoked_at=now(),
+    revoked_by='41000000-0000-0000-0000-000000000003',
+    revoke_reason='remove one bank'
 WHERE user_id='41000000-0000-0000-0000-000000000004'
   AND scope_type='bank'
   AND question_bank_id=94202;
