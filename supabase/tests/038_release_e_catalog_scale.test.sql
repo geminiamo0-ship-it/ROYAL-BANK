@@ -23,7 +23,7 @@ VALUES (9810,'Release E Test Pathway','release-e-test-pathway',9810);
 INSERT INTO public.question_banks (
     id,pathway_id,name,is_free_trial,free_trial_block_limit,
     free_trial_question_limit,free_trial_article_limit,display_order
-) VALUES (9821,9810,'Release E Test Bank',FALSE,0,70,10,9821);
+) VALUES (9821,9810,'Release E Test Bank',FALSE,0,0,0,9821);
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
