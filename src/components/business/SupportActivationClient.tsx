@@ -102,8 +102,45 @@ export function SupportActivationClient() {
   }, [search, status]);
 
   useEffect(() => {
-    void loadQueue();
-  }, [loadQueue]);
+    let cancelled = false;
+
+    void (async () => {
+      if (!search && status === 'pending') {
+        const [pendingResult, contactedResult] = await Promise.all([
+          listSupportUpgradeRequests({ status: 'pending', search: '', limit: 100, offset: 0 }),
+          listSupportUpgradeRequests({ status: 'contacted', search: '', limit: 100, offset: 0 }),
+        ]);
+        if (cancelled) return;
+        if (!pendingResult.ok) return setQueueError(pendingResult.error);
+        if (!contactedResult.ok) return setQueueError(contactedResult.error);
+        setQueueError(null);
+        setItems(
+          [...pendingResult.data, ...contactedResult.data]
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+        );
+        return;
+      }
+
+      const result = await listSupportUpgradeRequests({
+        status: search || status === 'all' ? null : status,
+        search,
+        limit: 100,
+        offset: 0,
+      });
+      if (cancelled) return;
+      if (!result.ok) {
+        setItems([]);
+        setQueueError(result.error);
+        return;
+      }
+      setQueueError(null);
+      setItems(result.data);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [search, status]);
 
   const syncForms = useCallback((next: SupportUpgradeDetail) => {
     if (next.order) {
