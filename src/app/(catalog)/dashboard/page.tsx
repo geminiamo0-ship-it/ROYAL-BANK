@@ -1,19 +1,34 @@
 import React from 'react';
 import Link from 'next/link';
 import { logout, getCurrentUser } from '@/actions/auth';
-import { getCatalogPathways } from '@/actions/pathways';
+import { getCatalogPathways, getGlobalCatalogState } from '@/actions/pathways';
 import UpgradeModalTrigger from '@/components/business/UpgradeModalTrigger';
+import { getRoyalSupportTelegramUrl } from '@/lib/royal-support';
 
 function accessText(expiresAt: string | null, expiresSoon: boolean) {
   if (!expiresAt) return 'Lifetime access';
   const date = new Date(expiresAt);
-  const formatted = Number.isNaN(date.getTime()) ? expiresAt : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const formatted = Number.isNaN(date.getTime())
+    ? expiresAt
+    : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   return `${expiresSoon ? 'Expires soon · ' : 'Active until '}${formatted}`;
 }
 
-export default async function DashboardPage() {
-  const [user, pathways] = await Promise.all([getCurrentUser(), getCatalogPathways()]);
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const query = await searchParams;
+  const [user, pathways, globalCatalog] = await Promise.all([
+    getCurrentUser(),
+    getCatalogPathways(),
+    getGlobalCatalogState(),
+  ]);
   const isStaff = user?.role === 'admin' || user?.role === 'support';
+  const supportUrl = getRoyalSupportTelegramUrl();
+  const autoOpenGlobal = String(Array.isArray(query.upgradeGlobal) ? query.upgradeGlobal[0] : query.upgradeGlobal) === '1';
+  const globalAccess = globalCatalog.accessState;
 
   return (
     <main className="min-h-screen bg-[#f4f4f4] text-[#111827]">
@@ -29,9 +44,21 @@ export default async function DashboardPage() {
       </header>
 
       <section className="border-b border-[#d9d9d9] bg-white">
-        <div className="mx-auto max-w-[930px] px-4 py-7">
-          <h1 className="text-2xl font-semibold text-[#111827]">Your live Royal resources</h1>
-          <p className="mt-1 text-[13px] text-[#555555]">Only pathways and question banks currently present in Royal are shown here.</p>
+        <div className="mx-auto flex max-w-[930px] flex-col gap-5 px-4 py-7 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[#111827]">Your live Royal resources</h1>
+            <p className="mt-1 text-[13px] text-[#555555]">Choose a pathway, one bank, or All Royal access. Payment and activation stay manual through Support.</p>
+            {globalAccess.has_access && <p className="mt-2 text-[12px] font-semibold text-[#087c31]">All Royal: {accessText(globalAccess.expires_at, globalAccess.expires_soon)}</p>}
+          </div>
+          {globalCatalog.catalogAvailable && (
+            globalAccess.has_access ? (
+              globalAccess.coverage_kind === 'exact' && globalAccess.can_extend
+                ? <UpgradeModalTrigger scopeType="global" label="Extend All Royal" autoOpen={autoOpenGlobal} supportUrl={supportUrl} className="rounded bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white" />
+                : <span className="rounded border border-[#159947] bg-[#effbf3] px-4 py-2 text-[12px] font-semibold text-[#087c31]">All Royal activated</span>
+            ) : (
+              <UpgradeModalTrigger scopeType="global" label="Upgrade All Royal" autoOpen={autoOpenGlobal} supportUrl={supportUrl} className="rounded bg-[#18a84a] px-4 py-2 text-[12px] font-semibold text-white" />
+            )
+          )}
         </div>
       </section>
 
@@ -66,10 +93,10 @@ export default async function DashboardPage() {
                       <Link href={detailsHref} className="border border-[#00a2d3] px-[8px] py-[4px] text-[12px] leading-none text-[#007fa8] hover:bg-[#eaf8fc]">Open Pathway</Link>
                       {access.has_access ? (
                         access.coverage_kind === 'exact' && access.can_extend && pathway.catalogAvailable
-                          ? <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Extend Access" />
+                          ? <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Extend Access" supportUrl={supportUrl} />
                           : <span className="border border-[#159947] bg-[#effbf3] px-[8px] py-[4px] text-[12px] font-medium leading-none text-[#087c31]">Activated</span>
                       ) : pathway.catalogAvailable ? (
-                        <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} />
+                        <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} supportUrl={supportUrl} />
                       ) : null}
                     </div>
                   </div>
