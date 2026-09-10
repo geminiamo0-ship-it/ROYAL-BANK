@@ -9,17 +9,19 @@ import {
   previewCatalogQuote,
 } from '@/actions/catalog';
 import type {
+  CatalogProductType,
   CatalogQuotePreview,
   CatalogUpgradeOffer,
   CatalogUpgradeReceipt,
 } from '@/types/catalog';
 
 interface Props {
-  scopeType: 'pathway' | 'bank';
-  targetId: number;
+  scopeType: CatalogProductType;
+  targetId?: number | null;
   label?: string;
   className?: string;
   autoOpen?: boolean;
+  supportUrl?: string | null;
 }
 
 function money(value: number | string | null, currency: string | null) {
@@ -29,16 +31,18 @@ function money(value: number | string | null, currency: string | null) {
   return `${number.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${currency}`;
 }
 
-function planLabel(months: number) {
+function planLabel(months: number | null) {
+  if (months === null) return 'Lifetime';
   return `${months} ${months === 1 ? 'month' : 'months'}`;
 }
 
 export default function UpgradeModalTrigger({
   scopeType,
-  targetId,
+  targetId = null,
   label = 'Upgrade',
   className = 'border border-[#1eb34a] px-[8px] py-[4px] text-[12px] font-medium leading-none text-[#0a8e31] hover:bg-[#effbf3]',
   autoOpen = false,
+  supportUrl = null,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -51,6 +55,7 @@ export default function UpgradeModalTrigger({
   const [changing, setChanging] = useState(false);
   const [error, setError] = useState('');
 
+  const targetKey = targetId ?? 0;
   const selectedPlan = useMemo(
     () => offer?.plans.find((plan) => plan.id === selectedPlanId) || null,
     [offer, selectedPlanId],
@@ -80,7 +85,7 @@ export default function UpgradeModalTrigger({
 
   useEffect(() => {
     if (autoOpen) openModal();
-    // Intentionally only auto-open once on mount.
+    // Auto-open only once for compatibility redirects from /upgrade.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpen]);
 
@@ -182,10 +187,17 @@ export default function UpgradeModalTrigger({
               {receipt ? (
                 <div className="rounded-lg border border-[#a6dfba] bg-[#f2fff6] p-4">
                   <h3 className="text-[16px] font-semibold text-[#126b32]">Request submitted</h3>
-                  <p className="mt-2 text-[13px] text-[#334155]">Your request code is <strong>{receipt.public_code}</strong>. Support will verify payment and activate access manually.</p>
-                  <p className="mt-2 text-[12px] text-[#667085]">{receipt.plan_name} · {receipt.duration_months ? planLabel(receipt.duration_months) : 'Selected access'}</p>
-                  {receipt.price_visible ? <p className="mt-1 text-[14px] font-semibold text-[#111827]">{money(receipt.final_price, receipt.currency)}</p> : <p className="mt-1 text-[13px] font-medium text-[#111827]">Contact support for pricing</p>}
-                  <button type="button" onClick={close} className="mt-4 rounded bg-[#0076a8] px-4 py-2 text-[13px] font-semibold text-white">Done</button>
+                  <p className="mt-2 text-[13px] text-[#334155]">Your request code is <strong>{receipt.public_code}</strong>. Royal Support will verify payment manually and activate access manually.</p>
+                  <p className="mt-2 text-[12px] text-[#667085]">{receipt.plan_name} · {planLabel(receipt.duration_months)}</p>
+                  {receipt.price_visible
+                    ? <p className="mt-1 text-[14px] font-semibold text-[#111827]">{money(receipt.final_price, receipt.currency)}</p>
+                    : <p className="mt-1 text-[13px] font-medium text-[#111827]">Support will confirm the price with you.</p>}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {supportUrl && (
+                      <a href={supportUrl} target="_blank" rel="noreferrer" className="rounded bg-[#229ED9] px-4 py-2 text-[13px] font-semibold text-white">Contact Support on Telegram</a>
+                    )}
+                    <button type="button" onClick={close} className="rounded bg-[#0076a8] px-4 py-2 text-[13px] font-semibold text-white">Done</button>
+                  </div>
                 </div>
               ) : offer ? (
                 <>
@@ -210,6 +222,7 @@ export default function UpgradeModalTrigger({
                       <div className="mt-4 flex flex-wrap gap-2">
                         {offer.pending_request.can_change && !offer.pending_request.legacy && <button type="button" onClick={() => setChanging(true)} className="rounded border border-[#0076a8] px-3 py-2 text-[12px] font-semibold text-[#0076a8]">Change request</button>}
                         {offer.pending_request.can_cancel && <button type="button" onClick={cancelRequest} disabled={isPending} className="rounded border border-[#c53a35] px-3 py-2 text-[12px] font-semibold text-[#a12622] disabled:opacity-50">Cancel request</button>}
+                        {supportUrl && <a href={supportUrl} target="_blank" rel="noreferrer" className="rounded border border-[#229ED9] px-3 py-2 text-[12px] font-semibold text-[#147fae]">Contact Support</a>}
                       </div>
                     </div>
                   ) : offer.mode === 'active' && !changing ? (
@@ -219,9 +232,9 @@ export default function UpgradeModalTrigger({
                       {changing && <div className="flex items-center justify-between rounded-md bg-[#f7f9fb] px-3 py-2 text-[12px] text-[#475467]"><span>Changing request {offer.pending_request?.public_code}</span><button type="button" className="font-semibold text-[#0076a8]" onClick={() => setChanging(false)}>Keep current request</button></div>}
 
                       <div>
-                        <label htmlFor={`royal-plan-${scopeType}-${targetId}`} className="text-[12px] font-semibold text-[#344054]">Duration</label>
+                        <label htmlFor={`royal-plan-${scopeType}-${targetKey}`} className="text-[12px] font-semibold text-[#344054]">Duration</label>
                         <select
-                          id={`royal-plan-${scopeType}-${targetId}`}
+                          id={`royal-plan-${scopeType}-${targetKey}`}
                           value={selectedPlanId || ''}
                           onChange={(event) => { setSelectedPlanId(Number(event.target.value)); setQuote(null); setError(''); }}
                           className="mt-1 w-full rounded-md border border-[#d0d5dd] bg-white px-3 py-2.5 text-[14px] text-[#111827]"
@@ -242,17 +255,18 @@ export default function UpgradeModalTrigger({
                       </div>
 
                       <div>
-                        <label htmlFor={`promo-${scopeType}-${targetId}`} className="text-[12px] font-semibold text-[#344054]">Promo code</label>
+                        <label htmlFor={`promo-${scopeType}-${targetKey}`} className="text-[12px] font-semibold text-[#344054]">Promo code</label>
                         <div className="mt-1 flex gap-2">
-                          <input id={`promo-${scopeType}-${targetId}`} value={promoCode} onChange={(event) => { setPromoCode(event.target.value.toUpperCase()); setQuote(null); }} placeholder="Optional" className="min-w-0 flex-1 rounded-md border border-[#d0d5dd] px-3 py-2 text-[14px] uppercase" />
+                          <input id={`promo-${scopeType}-${targetKey}`} value={promoCode} onChange={(event) => { setPromoCode(event.target.value.toUpperCase()); setQuote(null); }} placeholder="Optional" className="min-w-0 flex-1 rounded-md border border-[#d0d5dd] px-3 py-2 text-[14px] uppercase" />
                           <button type="button" onClick={applyPromo} disabled={!selectedPlanId || isPending} className="rounded-md border border-[#0076a8] px-3 py-2 text-[12px] font-semibold text-[#0076a8] disabled:opacity-50">Apply</button>
                         </div>
+                        {quote?.promo_applied && !quote.price_visible && <p className="mt-2 text-[11px] text-[#087c31]">Promo accepted. Support will apply it when confirming the manual sale.</p>}
                       </div>
 
                       <button type="button" onClick={submit} disabled={!selectedPlanId || isPending || !offer.can_request} className="w-full rounded-md bg-[#0a8e31] px-4 py-3 text-[14px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
                         {isPending ? 'Submitting…' : changing ? 'Replace pending request' : offer.mode === 'extension' ? 'Request extension' : 'Request upgrade'}
                       </button>
-                      <p className="text-center text-[11px] leading-4 text-[#667085]">Payment verification and access activation remain manual through Royal Support.</p>
+                      <p className="text-center text-[11px] leading-4 text-[#667085]">No automatic payment or activation: Royal Support confirms both manually.</p>
                     </>
                   )}
                 </>
