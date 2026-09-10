@@ -25,8 +25,10 @@ INSERT INTO public.question_banks (
     free_trial_question_limit,free_trial_article_limit,display_order
 ) VALUES (9821,9810,'Release E Test Bank',FALSE,NULL,70,10,9821);
 
--- Test-only lookup privilege. The enclosing transaction is rolled back, so the
--- production contract (catalog tables are RPC-only) remains unchanged.
+-- Test-only fixture lookup. The enclosing transaction is rolled back, so the
+-- production contract (catalog tables are private/RPC-only with RLS) is unchanged.
+ALTER TABLE public.catalog_products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.catalog_plans DISABLE ROW LEVEL SECURITY;
 GRANT SELECT ON public.catalog_products, public.catalog_plans TO authenticated;
 
 SET LOCAL ROLE authenticated;
