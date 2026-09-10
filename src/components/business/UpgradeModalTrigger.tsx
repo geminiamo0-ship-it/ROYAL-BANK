@@ -84,10 +84,36 @@ export default function UpgradeModalTrigger({
   };
 
   useEffect(() => {
-    if (autoOpen) openModal();
-    // Auto-open only once for compatibility redirects from /upgrade.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOpen]);
+    if (!autoOpen) return;
+    let cancelled = false;
+
+    void (async () => {
+      const result = await getCatalogUpgradeOffer({ scopeType, targetId });
+      if (cancelled) return;
+
+      setOpen(true);
+      setError('');
+      setReceipt(null);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setOffer(result.data);
+      const preferred = result.data.plans.find((plan) => plan.is_default)
+        || result.data.plans.find((plan) => plan.is_recommended)
+        || result.data.plans[0]
+        || null;
+      setSelectedPlanId(result.data.pending_request?.catalog_plan_id || preferred?.id || null);
+      setPromoCode(result.data.pending_request?.promo_code || '');
+      setChanging(false);
+      setQuote(null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autoOpen, scopeType, targetId]);
 
   const close = () => {
     if (isPending) return;
