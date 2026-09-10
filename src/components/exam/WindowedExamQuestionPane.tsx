@@ -3,6 +3,13 @@
 import React from 'react';
 import { ChevronRight } from 'lucide-react';
 import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
+import { ExamAnnotationLayer } from '@/components/exam/ExamAnnotationLayer';
+import type {
+  AnnotationStroke,
+  AnnotationSurface,
+  AnnotationTool,
+  StoredQuestionAnnotation,
+} from '@/lib/exam-annotations';
 import type {
   ExamClientAnswer,
   ExamClientOption,
@@ -27,6 +34,18 @@ interface WindowedExamQuestionPaneProps {
   optionPercentages: Record<number, number>;
   isSaving: boolean;
   isSubmitting: boolean;
+  annotationTool: AnnotationTool | null;
+  annotationRecords: Partial<Record<AnnotationSurface, StoredQuestionAnnotation>>;
+  onAppendAnnotationStroke: (
+    surface: AnnotationSurface,
+    contentHash: string,
+    stroke: AnnotationStroke,
+  ) => void;
+  onEraseAnnotationStroke: (
+    surface: AnnotationSurface,
+    contentHash: string,
+    strokeId: string,
+  ) => void;
   onSelectOption: (questionId: number, option: ExamClientOption) => void;
   onToggleStrikeOut: (optionId: number) => void;
   onSubmitAnswer: () => void;
@@ -52,33 +71,61 @@ export function WindowedExamQuestionPane({
   optionPercentages,
   isSaving,
   isSubmitting,
+  annotationTool,
+  annotationRecords,
+  onAppendAnnotationStroke,
+  onEraseAnnotationStroke,
   onSelectOption,
   onToggleStrikeOut,
   onSubmitAnswer,
   onNext,
   onExplanationClick,
 }: WindowedExamQuestionPaneProps) {
-  return (
-    <section className="min-w-0">
-      <div
-        className={`pm-question-stem select-text text-[16px] leading-[1.55] text-white ${
-          showClues ? 'pm-show-clues' : 'pm-hide-clues'
-        }`}
-        dangerouslySetInnerHTML={{ __html: questionHtml }}
-      />
+  const optionsFingerprint = JSON.stringify(
+    (question.options || []).map((option) => [option.id, option.text_html]),
+  );
 
-      <AnswerOptionList
-        isAnswered={isAnswered}
-        isTimedMode={isTimedMode}
-        pendingSelectionId={selectedOptionId}
-        question={question}
-        struckOutOptionIds={struckOutOptionIds}
-        submittedAnswer={submittedAnswer}
-        correctOptionId={correctOptionId}
-        optionPercentages={optionPercentages}
-        onSelectOption={onSelectOption}
-        onToggleStrikeOut={onToggleStrikeOut}
-      />
+  return (
+    <section className="min-w-0 pb-10">
+      <div className="relative">
+        <div
+          className={`pm-question-stem select-text text-[16px] leading-[1.55] text-white ${
+            showClues ? 'pm-show-clues' : 'pm-hide-clues'
+          }`}
+          dangerouslySetInnerHTML={{ __html: questionHtml }}
+        />
+        <ExamAnnotationLayer
+          surface="stem"
+          contentFingerprint={questionHtml}
+          tool={annotationTool}
+          record={annotationRecords.stem}
+          onAppendStroke={onAppendAnnotationStroke}
+          onEraseStroke={onEraseAnnotationStroke}
+        />
+      </div>
+
+      <div className="relative">
+        <AnswerOptionList
+          isAnswered={isAnswered}
+          isTimedMode={isTimedMode}
+          pendingSelectionId={selectedOptionId}
+          question={question}
+          struckOutOptionIds={struckOutOptionIds}
+          submittedAnswer={submittedAnswer}
+          correctOptionId={correctOptionId}
+          optionPercentages={optionPercentages}
+          onSelectOption={onSelectOption}
+          onToggleStrikeOut={onToggleStrikeOut}
+        />
+        <ExamAnnotationLayer
+          surface="options"
+          contentFingerprint={optionsFingerprint}
+          tool={annotationTool}
+          record={annotationRecords.options}
+          onAppendStroke={onAppendAnnotationStroke}
+          onEraseStroke={onEraseAnnotationStroke}
+        />
+      </div>
 
       {!isReviewMode && !isTimedMode && !isAnswered ? (
         <div className="mt-6 flex items-center gap-3">
@@ -104,20 +151,32 @@ export function WindowedExamQuestionPane({
 
       {isAnswered && !isTimedMode ? (
         <div className="space-y-6 pt-6">
-          <div
-            className="pm-explanation-container text-[16px] leading-[1.7] text-white"
-            onClick={onExplanationClick}
-          >
-            {question.topic ? (
-              <h2 className="mb-5 text-[16px] font-semibold text-[#23a7ff]">{question.topic}</h2>
-            ) : null}
+          <div className="relative">
+            <div
+              className="pm-explanation-container text-[16px] leading-[1.7] text-white"
+              onClick={onExplanationClick}
+            >
+              {question.topic ? (
+                <h2 className="mb-5 text-[16px] font-semibold text-[#23a7ff]">{question.topic}</h2>
+              ) : null}
+              {hasFeedback ? (
+                <div dangerouslySetInnerHTML={{ __html: explanationHtml }} />
+              ) : (
+                <div className="animate-pulse py-4 text-[#80868b]">
+                  {isReviewMode ? 'Loading review details...' : 'Fetching explanation...'}
+                </div>
+              )}
+            </div>
             {hasFeedback ? (
-              <div dangerouslySetInnerHTML={{ __html: explanationHtml }} />
-            ) : (
-              <div className="animate-pulse py-4 text-[#80868b]">
-                {isReviewMode ? 'Loading review details...' : 'Fetching explanation...'}
-              </div>
-            )}
+              <ExamAnnotationLayer
+                surface="explanation"
+                contentFingerprint={explanationHtml}
+                tool={annotationTool}
+                record={annotationRecords.explanation}
+                onAppendStroke={onAppendAnnotationStroke}
+                onEraseStroke={onEraseAnnotationStroke}
+              />
+            ) : null}
           </div>
 
           {currentIndex < questionCount - 1 ? (

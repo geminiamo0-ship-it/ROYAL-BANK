@@ -46,7 +46,7 @@ export function WindowedExamSidebarWidgets({
   const statusQuestionIds = questionIds.slice(0, Math.max(answeredCount, currentIndex + 1));
 
   return (
-    <aside className="w-full shrink-0 space-y-4 lg:w-[476px]">
+    <aside className="h-full w-full shrink-0 space-y-4 overflow-y-auto overscroll-contain pr-1 lg:w-[476px]">
       <div className="grid gap-5 sm:grid-cols-[300px_156px]">
         <div className="space-y-4">
           <Section title="Textbook">
