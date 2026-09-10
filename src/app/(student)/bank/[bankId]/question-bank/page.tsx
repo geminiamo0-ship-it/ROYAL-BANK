@@ -29,7 +29,7 @@ export default async function QuestionBankPage({ params }: QuestionBankPageProps
     }
 
     if (error instanceof QuestionBankAccessError) {
-      redirect('/dashboard?upgrade=true');
+      redirect(`/upgrade?bank=${parsedBankId}`);
     }
 
     throw error;

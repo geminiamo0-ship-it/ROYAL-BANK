@@ -47,6 +47,8 @@ export interface SupportUpgradeDetail {
     scope_type: UpgradeScopeType;
     pathway_id: number | null;
     question_bank_id: number | null;
+    catalog_product_id: number | null;
+    catalog_plan_id: number | null;
     product_name: string;
     promo_code: string | null;
     created_at: string;
@@ -66,6 +68,20 @@ export interface SupportUpgradeDetail {
     discount_type: 'none' | 'percentage' | 'fixed' | 'special_price';
     discount_value: number | string | null;
     discount_currency: string | null;
+  } | null;
+  quote: {
+    catalog_product_id: number | null;
+    catalog_plan_id: number | null;
+    mode: 'upgrade' | 'extension' | null;
+    plan_name: string | null;
+    duration_months: number | null;
+    currency: string | null;
+    price_visible_to_customer: boolean;
+    price_locked: boolean;
+    base_price: number | string | null;
+    discount_amount: number | string | null;
+    final_price: number | string | null;
+    plan_version: number | null;
   } | null;
   order: {
     id: string;
