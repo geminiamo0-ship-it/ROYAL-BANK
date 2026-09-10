@@ -23,6 +23,20 @@ MAX_CHARS = 18_000
 
 TX_CONTROL = re.compile(r"^(?:BEGIN|START\s+TRANSACTION|COMMIT|END\s+TRANSACTION)\s*;?$", re.I)
 
+# Each Supabase apply_migration call may use a fresh database session. The original
+# baseline sets these once because it is normally executed as one file. Re-assert
+# them in every generated chunk so splitting does not change PostgreSQL parsing or
+# name-resolution behavior (notably check_function_bodies=false for pg_dump-style
+# functions that reference relations created later in the baseline).
+CHUNK_SESSION_HEADER = """SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET row_security = off;"""
+
 
 def normalized_statements(text: str) -> list[str]:
     statements: list[str] = []
@@ -59,7 +73,7 @@ def main() -> None:
             return
         index = len(chunks) + 1
         filename = f"{index:03d}_bootstrap.sql"
-        body = "\n\n".join(current_parts).rstrip() + "\n"
+        body = CHUNK_SESSION_HEADER + "\n\n" + "\n\n".join(current_parts).rstrip() + "\n"
         (OUTPUT_DIR / filename).write_text(body, encoding="utf-8")
         chunks.append(
             {
