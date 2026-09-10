@@ -57,6 +57,18 @@ async function recordRateLimitRejection(options: {
   }
 }
 
+function directSupabaseHeaders(
+  publishableKey: string,
+  accessToken: string,
+): Record<string, string> {
+  return {
+    apikey: publishableKey,
+    authorization: `Bearer ${accessToken}`,
+    'content-type': 'application/json',
+    accept: 'application/json',
+  };
+}
+
 export async function POST(request: Request) {
   const totalServerStart = performance.now();
   let bodyParseMs = 0;
@@ -83,7 +95,18 @@ export async function POST(request: Request) {
   const rateLimitId = process.env.ROYAL_GATEWAY_RATE_LIMIT_ID || '';
   const serverTimingEnabled = process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true';
 
-  if (!supabaseUrl || !publishableKey || !gatewayKeyId || !gatewayKey || !riskHmacSecret) {
+  // DEV-only escape hatch. Vercel Preview is required in addition to the explicit
+  // opt-in variable so this cannot silently disable the production gateway.
+  // Authentication, entitlement, trial quotas, and all DB-side authorization still run.
+  const devGatewayBypass =
+    process.env.ROYAL_DEV_SKIP_EXAM_GATEWAY === 'true' &&
+    process.env.VERCEL_ENV === 'preview';
+
+  if (!supabaseUrl || !publishableKey) {
+    return jsonError(503, 'EXAM_GATEWAY_NOT_CONFIGURED', 'Exam gateway is not configured.');
+  }
+
+  if (!devGatewayBypass && (!gatewayKeyId || !gatewayKey || !riskHmacSecret)) {
     return jsonError(503, 'EXAM_GATEWAY_NOT_CONFIGURED', 'Exam gateway is not configured.');
   }
 
@@ -173,12 +196,14 @@ export async function POST(request: Request) {
 
   authMs = performance.now() - authStart;
 
-  const proof = buildGatewayProof({
-    request,
-    gatewayKeyId,
-    gatewayKey,
-    riskHmacSecret,
-  });
+  const proof = devGatewayBypass
+    ? null
+    : buildGatewayProof({
+        request,
+        gatewayKeyId,
+        gatewayKey,
+        riskHmacSecret,
+      });
 
   const rateLimitStart = performance.now();
 
@@ -198,13 +223,17 @@ export async function POST(request: Request) {
           );
         }
       } else if (rateLimited) {
-        await recordRateLimitRejection({
-          supabaseUrl,
-          publishableKey,
-          accessToken,
-          proof,
-          action: body.action,
-        });
+        // DEV bypass deliberately has no gateway proof, so skip only the optional
+        // gateway-backed rejection telemetry. The actual 429 still applies.
+        if (proof) {
+          await recordRateLimitRejection({
+            supabaseUrl,
+            publishableKey,
+            accessToken,
+            proof,
+            action: body.action,
+          });
+        }
 
         return jsonError(
           429,
@@ -233,7 +262,9 @@ export async function POST(request: Request) {
     upstream = await fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
       method: 'POST',
       cache: 'no-store',
-      headers: gatewayHeaders(publishableKey, accessToken, proof),
+      headers: proof
+        ? gatewayHeaders(publishableKey, accessToken, proof)
+        : directSupabaseHeaders(publishableKey, accessToken),
       body: JSON.stringify(body.args),
     });
   } catch {
