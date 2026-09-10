@@ -1,0 +1,52 @@
+name: Build DEV bootstrap SQL
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - 'scripts/build_dev_bootstrap_chunks.py'
+      - 'supabase/migrations/**'
+      - '.github/workflows/bootstrap-dev-schema.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-dev-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install SQL parser
+        run: python -m pip install --disable-pip-version-check sqlparse==0.5.3
+
+      - name: Build statement-safe chunks
+        run: python scripts/build_dev_bootstrap_chunks.py
+
+      - name: Commit generated bootstrap chunks
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/dev_bootstrap_chunks
+          if git diff --cached --quiet; then
+            echo 'Bootstrap chunks already current.'
+            exit 0
+          fi
+          git commit -m 'chore(dev): generate temporary bootstrap SQL chunks'
+          git push origin HEAD:dev
