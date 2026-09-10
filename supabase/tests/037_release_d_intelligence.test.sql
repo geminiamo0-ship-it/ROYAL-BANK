@@ -109,11 +109,13 @@ SELECT extensions.is(
 SELECT extensions.ok(
     EXISTS (
         SELECT 1
-        FROM private.exam_security_account_state
-        WHERE user_id = '37000000-0000-0000-0000-000000000001'
-          AND manual_review_required IS TRUE
+        FROM jsonb_array_elements(
+            public.admin_get_security_risk(now() - interval '1 day', now())->'accounts'
+        ) AS account_row
+        WHERE account_row->>'user_id' = '37000000-0000-0000-0000-000000000001'
+          AND (account_row->>'manual_review_required')::BOOLEAN IS TRUE
     ),
-    'manual review state is stored in the existing security engine'
+    'manual review state is visible only through the audited admin risk RPC'
 );
 SELECT extensions.is(
     (public.admin_set_manual_review(
