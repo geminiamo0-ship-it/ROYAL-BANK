@@ -3,13 +3,43 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { getCatalogUpgradeOffer } from '@/actions/catalog';
 import { useUIStore } from '@/stores/uiStore';
 import { logout } from '@/actions/auth';
-import { Crown, Menu, LogOut, Search, TicketCheck, UserCircle } from 'lucide-react';
+import type { CatalogUpgradeOffer } from '@/types/catalog';
+import {
+  CheckCircle2,
+  Crown,
+  LogOut,
+  Menu,
+  TicketCheck,
+  UserCircle,
+  X,
+} from 'lucide-react';
 
 interface StudentHeaderProps {
   userEmail?: string;
   userName?: string;
+}
+
+function formatAccessDate(value: string | null | undefined) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function accessScopeLabel(scopeType: CatalogUpgradeOffer['access']['scope_type']) {
+  if (scopeType === 'global') return 'Royal Global Access';
+  if (scopeType === 'pathway') return 'Full Pathway Access';
+  if (scopeType === 'bank') return 'Question Bank Access';
+  return 'Premium Access';
 }
 
 export function StudentHeader({
@@ -19,62 +49,155 @@ export function StudentHeader({
   const { toggleSidebar } = useUIStore();
   const pathname = usePathname();
   const bankMatch = pathname.match(/^\/bank\/(\d+)/);
-  const upgradeHref = bankMatch ? `/upgrade?bank=${bankMatch[1]}` : '/upgrade';
+  const bankId = bankMatch ? Number(bankMatch[1]) : null;
+  const upgradeHref = bankId ? `/upgrade?bank=${bankId}` : '/upgrade';
+
+  const [offer, setOffer] = React.useState<CatalogUpgradeOffer | null>(null);
+  const [showAccessDetails, setShowAccessDetails] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setOffer(null);
+    setShowAccessDetails(false);
+
+    if (!bankId) return () => {
+      cancelled = true;
+    };
+
+    void getCatalogUpgradeOffer({ scopeType: 'bank', targetId: bankId }).then((result) => {
+      if (cancelled || !result.ok) return;
+      setOffer(result.data);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bankId]);
+
+  const access = offer?.access;
+  const isActivated = Boolean(access?.has_access);
+  const isPending = !isActivated && offer?.mode === 'pending';
 
   return (
-    <header className="sticky top-0 z-30 flex h-[58px] items-center justify-between bg-[#282828] px-6 text-white">
-      <div className="flex w-24 items-center">
-        <button
-          onClick={toggleSidebar}
-          className="rounded p-1.5 text-[#9aa3aa] hover:bg-[#343434] hover:text-white"
-          title="Toggle Navigation Sidebar"
-        >
-          <Menu className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="hidden w-[360px] items-center sm:flex">
-        <input
-          type="search"
-          aria-label="Search"
-          className="h-6 flex-1 rounded-l-[2px] border border-[#c7cfd6] bg-[#2d2d2d] px-2 text-[12px] text-white outline-none focus:border-white"
-        />
-        <button
-          type="button"
-          className="flex h-6 w-28 items-center justify-center rounded-r-[2px] bg-[#ececec] text-[#9aa0a6]"
-          title="Search"
-        >
-          <Search className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="flex items-center justify-end gap-3">
-        <Link
-          href={upgradeHref}
-          className="inline-flex h-7 items-center gap-1.5 rounded-md bg-amber-400 px-2.5 text-[11px] font-bold text-[#2c2512] hover:bg-amber-300"
-        >
-          <Crown className="h-3.5 w-3.5" />
-          Upgrade
-        </Link>
-        <Link
-          href="/partner"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#9aa3aa] hover:bg-[#343434] hover:text-white"
-          title="My Royal Coupon"
-          aria-label="My Royal Coupon"
-        >
-          <TicketCheck className="h-4 w-4" />
-        </Link>
-        <div className="hidden text-right leading-tight md:block">
-          <p className="max-w-[95px] truncate text-[11px] font-semibold text-white">{userName}</p>
-          <p className="max-w-[95px] truncate text-[10px] text-[#b7c0c8]">{userEmail}</p>
-        </div>
-        <UserCircle className="h-8 w-8 text-[#b7c0c8]" />
-        <form action={logout}>
-          <button type="submit" className="text-[#9aa3aa] hover:text-white" title="Sign out">
-            <LogOut className="h-4 w-4" />
+    <>
+      <header className="sticky top-0 z-30 flex h-[58px] items-center justify-between bg-[#282828] px-6 text-white">
+        <div className="flex items-center">
+          <button
+            onClick={toggleSidebar}
+            className="rounded p-1.5 text-[#9aa3aa] hover:bg-[#343434] hover:text-white"
+            title="Toggle Navigation Sidebar"
+          >
+            <Menu className="h-4 w-4" />
           </button>
-        </form>
-      </div>
-    </header>
+        </div>
+
+        <div className="flex items-center justify-end gap-3">
+          {isActivated ? (
+            <button
+              type="button"
+              onClick={() => setShowAccessDetails(true)}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-2.5 text-[11px] font-bold text-white hover:bg-emerald-400"
+              title="View activation details"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Activated
+            </button>
+          ) : (
+            <Link
+              href={upgradeHref}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-amber-400 px-2.5 text-[11px] font-bold text-[#2c2512] hover:bg-amber-300"
+            >
+              <Crown className="h-3.5 w-3.5" />
+              {isPending ? 'Pending' : 'Upgrade'}
+            </Link>
+          )}
+
+          <Link
+            href="/partner"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#9aa3aa] hover:bg-[#343434] hover:text-white"
+            title="My Royal Coupon"
+            aria-label="My Royal Coupon"
+          >
+            <TicketCheck className="h-4 w-4" />
+          </Link>
+          <div className="hidden text-right leading-tight md:block">
+            <p className="max-w-[95px] truncate text-[11px] font-semibold text-white">{userName}</p>
+            <p className="max-w-[95px] truncate text-[10px] text-[#b7c0c8]">{userEmail}</p>
+          </div>
+          <UserCircle className="h-8 w-8 text-[#b7c0c8]" />
+          <form action={logout}>
+            <button type="submit" className="text-[#9aa3aa] hover:text-white" title="Sign out">
+              <LogOut className="h-4 w-4" />
+            </button>
+          </form>
+        </div>
+      </header>
+
+      {showAccessDetails && access?.has_access ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-end bg-black/45 p-4 pt-[70px] sm:p-6 sm:pt-[74px]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Activation details"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setShowAccessDetails(false);
+          }}
+        >
+          <section className="w-full max-w-[360px] rounded-lg border border-[#4b555e] bg-[#30373d] p-4 text-white shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <div className="mb-1 flex items-center gap-2 text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span className="text-[12px] font-bold uppercase tracking-wide">Activated</span>
+                </div>
+                <h2 className="text-[16px] font-bold">{offer?.product.name || 'Royal Access'}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAccessDetails(false)}
+                className="rounded p-1 text-[#aeb7bf] hover:bg-[#414a52] hover:text-white"
+                aria-label="Close activation details"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-[12px]">
+              <div className="rounded border border-[#46515a] bg-[#282f34] px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-wide text-[#93a0aa]">Access type</p>
+                <p className="mt-1 font-semibold">{accessScopeLabel(access.scope_type)}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-[#46515a] bg-[#282f34] px-3 py-2.5">
+                  <p className="text-[10px] uppercase tracking-wide text-[#93a0aa]">Activated</p>
+                  <p className="mt-1 font-medium">{formatAccessDate(access.starts_at)}</p>
+                </div>
+                <div className="rounded border border-[#46515a] bg-[#282f34] px-3 py-2.5">
+                  <p className="text-[10px] uppercase tracking-wide text-[#93a0aa]">Expires</p>
+                  <p className="mt-1 font-medium">
+                    {access.is_lifetime ? 'Lifetime' : formatAccessDate(access.expires_at)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-[#46515a] pt-3 text-[#b9c2c9]">
+                <span>Coverage</span>
+                <span className="font-semibold text-white">
+                  {access.coverage_kind === 'broader' ? 'Included by broader plan' : 'Direct activation'}
+                </span>
+              </div>
+
+              {access.grant_id ? (
+                <div className="flex items-center justify-between text-[#b9c2c9]">
+                  <span>Activation ID</span>
+                  <span className="font-mono text-[11px] text-white">#{access.grant_id}</span>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }
