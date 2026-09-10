@@ -12,7 +12,13 @@ SELECT extensions.is(has_function_privilege('anon','public.enforce_answer_finali
 SELECT extensions.is(has_function_privilege('anon','public.enforce_free_trial_session_quota()','EXECUTE'),FALSE,'anon cannot execute enforce_free_trial_session_quota');
 SELECT extensions.is(has_function_privilege('anon','public.enforce_test_session_update_integrity()','EXECUTE'),FALSE,'anon cannot execute enforce_test_session_update_integrity');
 SELECT extensions.is(has_function_privilege('anon','public.get_category_topic_counts(integer)','EXECUTE'),FALSE,'anon cannot execute get_category_topic_counts');
-SELECT extensions.is(has_function_privilege('anon','public.get_category_topic_counts_json(bigint)','EXECUTE'),FALSE,'anon cannot execute bigint topic counts JSON');
+SELECT extensions.ok(
+    CASE
+        WHEN to_regprocedure('public.get_category_topic_counts_json(bigint)') IS NULL THEN TRUE
+        ELSE NOT has_function_privilege('anon',to_regprocedure('public.get_category_topic_counts_json(bigint)'),'EXECUTE')
+    END,
+    'historical bigint topic counts JSON overload is hardened when present'
+);
 SELECT extensions.is(has_function_privilege('anon','public.get_user_category_analytics(uuid)','EXECUTE'),FALSE,'anon cannot execute user category analytics');
 SELECT extensions.is(has_function_privilege('anon','public.handle_new_user()','EXECUTE'),FALSE,'anon cannot execute signup trigger function directly');
 SELECT extensions.is(has_function_privilege('anon','public.has_premium_question_bank_access(bigint)','EXECUTE'),FALSE,'anon cannot execute premium access helper');
