@@ -47,9 +47,10 @@
     "045_release_e_pin_extension_target.sql",
     "046_legacy_anon_security_definer_hardening.sql",
     "047_release_e_catalog_trial_hardening.sql",
-    "048_revoke_pathway_access_authority.sql"
+    "048_revoke_pathway_access_authority.sql",
+    "049_royal_content_manager_import_api.sql"
   ],
-  "chunk_count": 39,
+  "chunk_count": 40,
   "max_chars_target": 18000,
   "largest_statement_chars": 20756,
   "chunks": [
@@ -476,11 +477,22 @@
     {
       "index": 39,
       "file": "039_bootstrap.sql",
-      "bytes": 8981,
-      "chars": 8981,
-      "sha256": "06c1aa602076082c9113f52ba2ae45e7d601a3381ff7e727bb4b402fe8c4499a",
+      "bytes": 18225,
+      "chars": 18225,
+      "sha256": "c35390a176c173fcb16c4ab777e2930052a6d4d876ea478473a333d06a0ee13d",
       "sources": [
-        "048_revoke_pathway_access_authority.sql"
+        "048_revoke_pathway_access_authority.sql",
+        "049_royal_content_manager_import_api.sql"
+      ]
+    },
+    {
+      "index": 40,
+      "file": "040_bootstrap.sql",
+      "bytes": 897,
+      "chars": 897,
+      "sha256": "c217e33c9e0d035044388a2a88d125330c2bd695678413954223293c8f662852",
+      "sources": [
+        "049_royal_content_manager_import_api.sql"
       ]
     }
   ]
