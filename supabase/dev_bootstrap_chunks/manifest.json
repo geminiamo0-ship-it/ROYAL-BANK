@@ -48,7 +48,8 @@
     "046_legacy_anon_security_definer_hardening.sql",
     "047_release_e_catalog_trial_hardening.sql",
     "048_revoke_pathway_access_authority.sql",
-    "049_royal_content_manager_import_api.sql"
+    "049_royal_content_manager_import_api.sql",
+    "054_exam_question_annotations.sql"
   ],
   "chunk_count": 40,
   "max_chars_target": 18000,
@@ -488,11 +489,12 @@
     {
       "index": 40,
       "file": "040_bootstrap.sql",
-      "bytes": 897,
-      "chars": 897,
-      "sha256": "c217e33c9e0d035044388a2a88d125330c2bd695678413954223293c8f662852",
+      "bytes": 10119,
+      "chars": 10119,
+      "sha256": "6f0fd3eaab6f270c0ba0d434f49ea2861e6a055e94218b859b8eb2354913cf42",
       "sources": [
-        "049_royal_content_manager_import_api.sql"
+        "049_royal_content_manager_import_api.sql",
+        "054_exam_question_annotations.sql"
       ]
     }
   ]
