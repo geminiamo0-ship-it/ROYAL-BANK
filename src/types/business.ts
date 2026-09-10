@@ -1,5 +1,5 @@
 export type UpgradeScopeType = 'global' | 'pathway' | 'bank';
-export type UpgradeRequestStatus = 'pending' | 'contacted' | 'paid' | 'activated' | 'cancelled';
+export type UpgradeRequestStatus = 'pending' | 'contacted' | 'paid' | 'activated' | 'cancelled' | 'superseded';
 
 export interface UpgradeCatalogPathway {
   id: number;
@@ -53,6 +53,19 @@ export interface SupportUpgradeDetail {
     contacted_at: string | null;
     activated_at: string | null;
     access_grant_id: number | null;
+    catalog_product_id?: number | null;
+    catalog_plan_id?: number | null;
+    catalog_plan_version?: number | null;
+    plan_name?: string | null;
+    duration_months?: number | null;
+    base_price?: number | string | null;
+    discount_amount?: number | string | null;
+    final_price?: number | string | null;
+    currency?: string | null;
+    price_visible?: boolean | null;
+    catalog_quote_locked?: boolean;
+    supersedes_request_id?: string | null;
+    superseded_by_request_id?: string | null;
   };
   user: {
     id: string;
@@ -78,6 +91,7 @@ export interface SupportUpgradeDetail {
     status: string;
     paid_amount: number | string;
     amount_due: number | string;
+    catalog_quote_locked?: boolean;
   } | null;
   payments: Array<{
     id: string;
