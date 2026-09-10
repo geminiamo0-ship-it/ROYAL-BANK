@@ -1,5 +1,5 @@
 export type UpgradeScopeType = 'global' | 'pathway' | 'bank';
-export type UpgradeRequestStatus = 'pending' | 'contacted' | 'paid' | 'activated' | 'cancelled' | 'superseded';
+export type UpgradeRequestStatus = 'pending' | 'contacted' | 'paid' | 'activated' | 'cancelled';
 
 export interface UpgradeCatalogPathway {
   id: number;
@@ -47,25 +47,14 @@ export interface SupportUpgradeDetail {
     scope_type: UpgradeScopeType;
     pathway_id: number | null;
     question_bank_id: number | null;
+    catalog_product_id: number | null;
+    catalog_plan_id: number | null;
     product_name: string;
     promo_code: string | null;
     created_at: string;
     contacted_at: string | null;
     activated_at: string | null;
     access_grant_id: number | null;
-    catalog_product_id?: number | null;
-    catalog_plan_id?: number | null;
-    catalog_plan_version?: number | null;
-    plan_name?: string | null;
-    duration_months?: number | null;
-    base_price?: number | string | null;
-    discount_amount?: number | string | null;
-    final_price?: number | string | null;
-    currency?: string | null;
-    price_visible?: boolean | null;
-    catalog_quote_locked?: boolean;
-    supersedes_request_id?: string | null;
-    superseded_by_request_id?: string | null;
   };
   user: {
     id: string;
@@ -80,6 +69,20 @@ export interface SupportUpgradeDetail {
     discount_value: number | string | null;
     discount_currency: string | null;
   } | null;
+  quote: {
+    catalog_product_id: number | null;
+    catalog_plan_id: number | null;
+    mode: 'upgrade' | 'extension' | null;
+    plan_name: string | null;
+    duration_months: number | null;
+    currency: string | null;
+    price_visible_to_customer: boolean;
+    price_locked: boolean;
+    base_price: number | string | null;
+    discount_amount: number | string | null;
+    final_price: number | string | null;
+    plan_version: number | null;
+  } | null;
   order: {
     id: string;
     duration_months: number | null;
@@ -91,7 +94,6 @@ export interface SupportUpgradeDetail {
     status: string;
     paid_amount: number | string;
     amount_due: number | string;
-    catalog_quote_locked?: boolean;
   } | null;
   payments: Array<{
     id: string;
