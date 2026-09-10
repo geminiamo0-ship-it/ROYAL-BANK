@@ -1,3 +1,12 @@
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET row_security = off;
+
 CREATE POLICY "Active users insert own login history" ON "public"."login_history" FOR INSERT TO "authenticated" WITH CHECK ((("auth"."uid"() = "user_id") AND "public"."is_active_user"()));
 
 CREATE POLICY "Active users read own accessible answers" ON "public"."user_answers" FOR SELECT TO "authenticated" USING ((("auth"."uid"() = "user_id") AND "public"."is_active_user"() AND "public"."can_access_question"("question_id")));

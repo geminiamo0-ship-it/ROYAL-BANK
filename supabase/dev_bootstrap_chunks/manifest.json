@@ -56,9 +56,9 @@
     {
       "index": 1,
       "file": "001_bootstrap.sql",
-      "bytes": 16744,
-      "chars": 16744,
-      "sha256": "0f200e6fd084631f34332060cc712685a6cb5f2664e383b9772629fc0bf21260",
+      "bytes": 17012,
+      "chars": 17012,
+      "sha256": "b36372b316343d2ffd25575194796e05c7fe39b11bc65112b26bfb36e8d978e7",
       "sources": [
         "001_core_baseline.sql"
       ]
@@ -66,9 +66,9 @@
     {
       "index": 2,
       "file": "002_bootstrap.sql",
-      "bytes": 17920,
-      "chars": 17920,
-      "sha256": "8b5ad46aa935bf317486d961580acd29026a2942094f0428250098845f161c65",
+      "bytes": 18188,
+      "chars": 18188,
+      "sha256": "e6419cf6c118eb0467fbe9cbbbfa04672af20864f9b7f15bf0b42719a21b824a",
       "sources": [
         "001_core_baseline.sql"
       ]
@@ -76,9 +76,9 @@
     {
       "index": 3,
       "file": "003_bootstrap.sql",
-      "bytes": 17942,
-      "chars": 17942,
-      "sha256": "904cc522c4736559f1b05bd1bd08d34423fe1b2c6f3b70db693ae67377b05669",
+      "bytes": 18210,
+      "chars": 18210,
+      "sha256": "2a9d21545fdf4cbaeed046bd49cce3f2ce677dad7b44a63eac644fdffd1af91c",
       "sources": [
         "001_core_baseline.sql"
       ]
@@ -86,9 +86,9 @@
     {
       "index": 4,
       "file": "004_bootstrap.sql",
-      "bytes": 17905,
-      "chars": 17905,
-      "sha256": "67c86c127059f4048589ffc9ec54e9cdaadaa2fdae6a5d68aefa1559b4bf6262",
+      "bytes": 18173,
+      "chars": 18173,
+      "sha256": "fdc25e5375bbfc617793d447dae4cb5fbc832074561fc9df22606e489b22a829",
       "sources": [
         "001_core_baseline.sql"
       ]
@@ -96,9 +96,9 @@
     {
       "index": 5,
       "file": "005_bootstrap.sql",
-      "bytes": 17994,
-      "chars": 17994,
-      "sha256": "af0b54294bd707e9c8e3086ba980c5dc13090e79e013e66104c5efa832cb64d7",
+      "bytes": 18262,
+      "chars": 18262,
+      "sha256": "44313f39e2d64b76ac931151e6f304aab14a6b14fc1d60e33e12c5b95a3bde39",
       "sources": [
         "001_core_baseline.sql"
       ]
@@ -106,9 +106,9 @@
     {
       "index": 6,
       "file": "006_bootstrap.sql",
-      "bytes": 17968,
-      "chars": 17968,
-      "sha256": "a35395c216a8486293910e850f624e952ff5ccccaf626faf8f65208cd70ffeb8",
+      "bytes": 18236,
+      "chars": 18236,
+      "sha256": "d221cb97c30e3d663604f450fead178b0094fabe6559ce9581cb6334cedb74b2",
       "sources": [
         "001_core_baseline.sql"
       ]
@@ -116,9 +116,9 @@
     {
       "index": 7,
       "file": "007_bootstrap.sql",
-      "bytes": 17949,
-      "chars": 17949,
-      "sha256": "e983ebdcbc6544cbcdf8ee0c907f74b9ad6fa49efac1fc301c6bbf8f96cd84f9",
+      "bytes": 18217,
+      "chars": 18217,
+      "sha256": "72f521b6fcc99c0ef950e05fe2ba01deafa8259857427e630419d74b5e7cfaba",
       "sources": [
         "001_core_baseline.sql"
       ]
@@ -126,9 +126,9 @@
     {
       "index": 8,
       "file": "008_bootstrap.sql",
-      "bytes": 17519,
-      "chars": 17519,
-      "sha256": "67c6a10953679680d0fb944b03511995eb758468bbb7c1037f565abf76acfc73",
+      "bytes": 17787,
+      "chars": 17787,
+      "sha256": "0e7193bf4c2aee4e247b43e511a86c349f0f1f48028a4cf0b732208ea1ab994b",
       "sources": [
         "001_core_baseline.sql",
         "002_preserve_owned_history_after_expiry.sql"
@@ -137,9 +137,9 @@
     {
       "index": 9,
       "file": "009_bootstrap.sql",
-      "bytes": 17552,
-      "chars": 17552,
-      "sha256": "a076caaf094a2a97a81b36f408e3ee127f89107782d8fc586c1e2cbc036e0a45",
+      "bytes": 17820,
+      "chars": 17820,
+      "sha256": "407656192a0d97f55d17eb3728b8b2694e13c4321dc8ec156421f111265819c9",
       "sources": [
         "003_fix_question_bank_runtime.sql",
         "004_precomputed_question_bank_dashboard.sql",
@@ -149,9 +149,9 @@
     {
       "index": 10,
       "file": "010_bootstrap.sql",
-      "bytes": 17305,
-      "chars": 17305,
-      "sha256": "a3c1eea45941e3d278b8d842078f8f0328a27e623afe56dab78150820111210a",
+      "bytes": 17573,
+      "chars": 17573,
+      "sha256": "72e69189465dc8c2d2863fc332bd0f4dac2321937bbd2bfc6806d460897d2e16",
       "sources": [
         "006_inline_answer_feedback.sql",
         "007_selection_specific_exam_session_ids.sql",
@@ -162,9 +162,9 @@
     {
       "index": 11,
       "file": "011_bootstrap.sql",
-      "bytes": 7216,
-      "chars": 7216,
-      "sha256": "25aba56eabb6c567b69d766927980852d78cc63b62843432e775ae65a4210384",
+      "bytes": 7484,
+      "chars": 7484,
+      "sha256": "5b0d5d2b8942032dee657addf58c5a48c8706f9bf5410761c83b0816ffd1d183",
       "sources": [
         "009_fast_exam_bootstrap_windowing.sql"
       ]
@@ -172,9 +172,9 @@
     {
       "index": 12,
       "file": "012_bootstrap.sql",
-      "bytes": 16522,
-      "chars": 16522,
-      "sha256": "5802f98169d96582f060e81a3b4b49c7a996dcdde2fd817198ef90f4897220f8",
+      "bytes": 16790,
+      "chars": 16790,
+      "sha256": "b3c65bcd64e033b019c9f8f15b21868dfef2009a28ed676e4ba5e518dfcaddf5",
       "sources": [
         "009_fast_exam_bootstrap_windowing.sql"
       ]
@@ -182,9 +182,9 @@
     {
       "index": 13,
       "file": "013_bootstrap.sql",
-      "bytes": 20757,
-      "chars": 20757,
-      "sha256": "0d36c71e2f5ea2ecc3915b039a7454c8bcca139176e85f9a8a7451ade729f56a",
+      "bytes": 21025,
+      "chars": 21025,
+      "sha256": "7f4b440905eaa1e688bfc38697252665829c6bfa8d025099132080ec92a851e7",
       "sources": [
         "010_inline_exam_bootstrap_response.sql"
       ]
@@ -192,9 +192,9 @@
     {
       "index": 14,
       "file": "014_bootstrap.sql",
-      "bytes": 17761,
-      "chars": 17761,
-      "sha256": "9ff4aba19151ebb2cc7c66fac4f989c8774deb33ea721560fceb7288dc811601",
+      "bytes": 18029,
+      "chars": 18029,
+      "sha256": "9fc04bd7bb11c29acbcd67534dfec6594497988fa65b2a8030adc37f111bdbf8",
       "sources": [
         "010_inline_exam_bootstrap_response.sql",
         "011_harden_user_answer_write_surface.sql",
@@ -204,9 +204,9 @@
     {
       "index": 15,
       "file": "015_bootstrap.sql",
-      "bytes": 17940,
-      "chars": 17940,
-      "sha256": "1cd4cc4622c03ffe740ca0247f1472145699fa2ef4fd22ba437b5f1f7e58b73a",
+      "bytes": 18208,
+      "chars": 18208,
+      "sha256": "2cd6f182ae8a2f4eb4956aa48e3bffa51b116860180a7c56c638b08d40c6df17",
       "sources": [
         "012_exam_abuse_guardrails.sql"
       ]
@@ -214,9 +214,9 @@
     {
       "index": 16,
       "file": "016_bootstrap.sql",
-      "bytes": 15065,
-      "chars": 15065,
-      "sha256": "6c4d555f402b8185265f70adea195298551bb06889f2b76926efea390679da6e",
+      "bytes": 15333,
+      "chars": 15333,
+      "sha256": "3ba2a8f40789a690659b9e27b678785b3726da0b82cd227ea8120dd8f1ab6705",
       "sources": [
         "012_exam_abuse_guardrails.sql",
         "013_stage_exam_gateway_bypass_guard.sql",
@@ -226,9 +226,9 @@
     {
       "index": 17,
       "file": "017_bootstrap.sql",
-      "bytes": 17010,
-      "chars": 17010,
-      "sha256": "815562e29666505f59a758823bc12fd1a4c1d63ca5ff92b8a0d225fe4ad7198a",
+      "bytes": 17278,
+      "chars": 17278,
+      "sha256": "963e7b13923fe5c7066fafcd2d124906ff6cbebe5568354dd40166edd2bdaff1",
       "sources": [
         "014_exam_gateway_rate_limit_escalation.sql",
         "015_hide_exam_pre_request_hook.sql",
@@ -239,9 +239,9 @@
     {
       "index": 18,
       "file": "018_bootstrap.sql",
-      "bytes": 17647,
-      "chars": 17647,
-      "sha256": "0fabe3694d2ea582ab512eda0ca51a2823328c4c270565dc28a13f7ca5e0bb60",
+      "bytes": 17915,
+      "chars": 17915,
+      "sha256": "b11c95afab5d2c33d1263ef83d5e70abd814be4c6caa3bccfe6fad4ab1d69704",
       "sources": [
         "017_enforce_disclosed_exam_actions.sql",
         "018_harden_profile_and_flag_write_surfaces.sql",
@@ -252,9 +252,9 @@
     {
       "index": 19,
       "file": "019_bootstrap.sql",
-      "bytes": 17063,
-      "chars": 17063,
-      "sha256": "3eda2b8f619a11d5a80731f49bfb5a7a308b65aa4921cfc5377a0c5cbdca11ec",
+      "bytes": 17331,
+      "chars": 17331,
+      "sha256": "219088adce8e9f0827fed75e078f0488b881abe87ecc93d680fbe472c982a570",
       "sources": [
         "020_remove_timed_finalization_guc.sql",
         "021_fix_postgrest_error_statuses.sql",
@@ -264,9 +264,9 @@
     {
       "index": 20,
       "file": "020_bootstrap.sql",
-      "bytes": 17955,
-      "chars": 17955,
-      "sha256": "8afc2349ab4d2130239b1f588689e483abce1b622567fbc3d41dd3fcdcc07f5a",
+      "bytes": 18223,
+      "chars": 18223,
+      "sha256": "de08624faa310390f921aacfac058a923d429f0aad35fa6c77ce726d01ed8a31",
       "sources": [
         "022_unify_access_and_library_entitlements.sql",
         "023_harden_library_rpc_execute_privileges.sql",
@@ -278,9 +278,9 @@
     {
       "index": 21,
       "file": "021_bootstrap.sql",
-      "bytes": 14607,
-      "chars": 14607,
-      "sha256": "6bfe07780ffd9dc0ae44f5a5f4ad930e81fdb8d5a95035de57ccf0e7bb14c00a",
+      "bytes": 14875,
+      "chars": 14875,
+      "sha256": "0009024687f5972dd758dcf2532b6830d8f1e024020f9219d95041bce7d1fe37",
       "sources": [
         "026_business_activation_core.sql"
       ]
@@ -288,9 +288,9 @@
     {
       "index": 22,
       "file": "022_bootstrap.sql",
-      "bytes": 14731,
-      "chars": 14731,
-      "sha256": "479e92d9c7231c552ee3d563705ee3b393db3b837427c1ef55c9e8fd6d862256",
+      "bytes": 14999,
+      "chars": 14999,
+      "sha256": "5757324109341dc5dfc4ad0645d296fb9387f362bc88938771b67b53184c5134",
       "sources": [
         "026_business_activation_core.sql"
       ]
@@ -298,9 +298,9 @@
     {
       "index": 23,
       "file": "023_bootstrap.sql",
-      "bytes": 17444,
-      "chars": 17444,
-      "sha256": "63027f2f00cc6ceb748791c7a17bdefce712cb454750086e5386aec7c26c9ca3",
+      "bytes": 17712,
+      "chars": 17712,
+      "sha256": "1e9e2526a7e4ef361ca5bed8a533354ae267a6b51321b6e2a03524ef39f7d885",
       "sources": [
         "026_business_activation_core.sql",
         "027_promo_business_core.sql"
@@ -309,9 +309,9 @@
     {
       "index": 24,
       "file": "024_bootstrap.sql",
-      "bytes": 17108,
-      "chars": 17108,
-      "sha256": "b31321dae79e3ed7d811051f73cd58485e4a9a2a984c050e8d8f03ea04372a44",
+      "bytes": 17376,
+      "chars": 17376,
+      "sha256": "8eb57e334979b9d6dc28fd73e6cfc11854ce393a9f9785b3ec608e34e255d4e0",
       "sources": [
         "027_promo_business_core.sql"
       ]
@@ -319,9 +319,9 @@
     {
       "index": 25,
       "file": "025_bootstrap.sql",
-      "bytes": 14969,
-      "chars": 14969,
-      "sha256": "dd83a1fd5dce1c4eb79eb5127fb9b25ad0fcc09da57b3aeee791f0a31c4b47ed",
+      "bytes": 15237,
+      "chars": 15237,
+      "sha256": "052a7c5777da50c6e0b62be4d9f08fb72d1863d80f9484da6abaa86a66e8dd3e",
       "sources": [
         "027_promo_business_core.sql",
         "028_fix_commission_settlement_uuid_aggregate.sql",
@@ -331,9 +331,9 @@
     {
       "index": 26,
       "file": "026_bootstrap.sql",
-      "bytes": 10348,
-      "chars": 10348,
-      "sha256": "f5322cd851a7a003ec10c35cd80c9ad8f20fa6466ad59be9cdf81d26797baddb",
+      "bytes": 10616,
+      "chars": 10616,
+      "sha256": "69b000be3e32d63e10cda540dc3ab24e134c164cedb3d779af1365af73a945a8",
       "sources": [
         "029_soft_revoke_access_grants.sql",
         "030_self_active_access_summary.sql"
@@ -342,9 +342,9 @@
     {
       "index": 27,
       "file": "027_bootstrap.sql",
-      "bytes": 15586,
-      "chars": 15586,
-      "sha256": "d5a09d03d048c60b42c8d5f80cbeaec189c36ae4a07da1b96e486fa58d4d7031",
+      "bytes": 15854,
+      "chars": 15854,
+      "sha256": "d08807dd0b1f2ccfa089734d014467663f259a0492667430ab6b4e2433ac0f87",
       "sources": [
         "031_live_bank_performance.sql"
       ]
@@ -352,9 +352,9 @@
     {
       "index": 28,
       "file": "028_bootstrap.sql",
-      "bytes": 17832,
-      "chars": 17832,
-      "sha256": "aa57ff5164ad293b307f3625dc30f079a4252a98dfc7bf0cd15a97f947161797",
+      "bytes": 18100,
+      "chars": 18100,
+      "sha256": "eac963b1c84ecaae08df3472bc51fd604df5a5ce67d35eac2519608a6b62e94a",
       "sources": [
         "032_completed_session_review.sql",
         "033_guard_completed_review_gateway.sql",
@@ -366,9 +366,9 @@
     {
       "index": 29,
       "file": "029_bootstrap.sql",
-      "bytes": 14088,
-      "chars": 14088,
-      "sha256": "c698aa96c1c60e8b5f42fe27e9996b62ee9e2362992b9cb820aa2887a2e9b285",
+      "bytes": 14356,
+      "chars": 14356,
+      "sha256": "648f0555d5ecb344b778185761a6807a4ec82a785d278ab84c4d76ca1c90bc2a",
       "sources": [
         "036_release_c_operations.sql"
       ]
@@ -376,9 +376,9 @@
     {
       "index": 30,
       "file": "030_bootstrap.sql",
-      "bytes": 17994,
-      "chars": 17994,
-      "sha256": "cf26f533b1ede9b3a9ea0c89419b764d3894dc7113019d33af6dc8514258a04e",
+      "bytes": 18262,
+      "chars": 18262,
+      "sha256": "e778caa11653095e4a274ed2671a5e65573e3f54fb9eceab1be9defeb8a1b6c0",
       "sources": [
         "036_release_c_operations.sql",
         "037_release_c_access_ledger.sql",
@@ -390,9 +390,9 @@
     {
       "index": 31,
       "file": "031_bootstrap.sql",
-      "bytes": 17877,
-      "chars": 17877,
-      "sha256": "baee69e47c86abe4bf0da91da4f023d4530f4f4981e539a280eb788deefdf61e",
+      "bytes": 18145,
+      "chars": 18145,
+      "sha256": "82ae3978f4c17211f8098deb6f86db8fdde73f947a909f122cf112be84531841",
       "sources": [
         "040_release_d_intelligence.sql"
       ]
@@ -400,9 +400,9 @@
     {
       "index": 32,
       "file": "032_bootstrap.sql",
-      "bytes": 15023,
-      "chars": 15023,
-      "sha256": "8976756dc0c05ff0aaed4851f6670168cef92d321fb2d5f9be60540a19969256",
+      "bytes": 15291,
+      "chars": 15291,
+      "sha256": "d2c92b46cef683261d7b1a2ab162cc63c5d6704b3296e5d919f4eb7101ea71ac",
       "sources": [
         "040_release_d_intelligence.sql",
         "041_fix_release_d_trial_aggregation.sql"
@@ -411,9 +411,9 @@
     {
       "index": 33,
       "file": "033_bootstrap.sql",
-      "bytes": 17843,
-      "chars": 17843,
-      "sha256": "29af77b5542ea428db7e98bb14246024bb96c9f6c00879fa0f40b4cf68d8781f",
+      "bytes": 18111,
+      "chars": 18111,
+      "sha256": "3de2f6dfa5904c669fdf88097a9e8e4fc1046d138881d432863751c3ae57beb7",
       "sources": [
         "042_release_d_alerts_reports.sql",
         "043_release_e_catalog_scale.sql"
@@ -422,9 +422,9 @@
     {
       "index": 34,
       "file": "034_bootstrap.sql",
-      "bytes": 12757,
-      "chars": 12757,
-      "sha256": "9ee80b84967e7fbd50483f8f8211a01072852a05062e76971c9b4681f9508fd0",
+      "bytes": 13025,
+      "chars": 13025,
+      "sha256": "bc02dd19cc6ef3c3579e11418d37fbda865f4daab8eca9bb25f517f5b04cb733",
       "sources": [
         "043_release_e_catalog_scale.sql"
       ]
@@ -432,9 +432,9 @@
     {
       "index": 35,
       "file": "035_bootstrap.sql",
-      "bytes": 16360,
-      "chars": 16360,
-      "sha256": "4e79d914efaaa0ed25958c757a30c90bf4ac29500b359a9f5126da8aadf8fa85",
+      "bytes": 16628,
+      "chars": 16628,
+      "sha256": "2e193c2b05fbecf7c8c13e35b83104cea8c6da8a69b2e32f5e5fcf56dcf6d70a",
       "sources": [
         "043_release_e_catalog_scale.sql"
       ]
@@ -442,9 +442,9 @@
     {
       "index": 36,
       "file": "036_bootstrap.sql",
-      "bytes": 17919,
-      "chars": 17919,
-      "sha256": "e1a54372a755f8976a2e072ee10e7ab287663d82fdd20ca41204772f85f0a0bf",
+      "bytes": 18187,
+      "chars": 18187,
+      "sha256": "c2121a8e50f7874d5c0a0c5c6673fd11f3fc47c09170dccdb52ad192467c4901",
       "sources": [
         "043_release_e_catalog_scale.sql"
       ]
@@ -452,9 +452,9 @@
     {
       "index": 37,
       "file": "037_bootstrap.sql",
-      "bytes": 16399,
-      "chars": 16399,
-      "sha256": "1bb2f5a4eedb48205cc2d749f9d579d62c3b3305c11e256564d40e8a4ef8e9d6",
+      "bytes": 16667,
+      "chars": 16667,
+      "sha256": "8aee3ec99b3043b9462f9b9f6ad262a5f34fbf97e9f980afed43390036a12aa5",
       "sources": [
         "043_release_e_catalog_scale.sql",
         "044_release_e_manual_support_catalog.sql"
@@ -463,9 +463,9 @@
     {
       "index": 38,
       "file": "038_bootstrap.sql",
-      "bytes": 17661,
-      "chars": 17661,
-      "sha256": "668a34f7ba7719d09d76a4b4a295428ad8631d518e98f0c14781838e25d67067",
+      "bytes": 17929,
+      "chars": 17929,
+      "sha256": "0fd9c567036f893828c06612a4c7c65d711d9fa944876ea2236ec7809b6b6bba",
       "sources": [
         "044_release_e_manual_support_catalog.sql",
         "045_release_e_pin_extension_target.sql",
@@ -476,9 +476,9 @@
     {
       "index": 39,
       "file": "039_bootstrap.sql",
-      "bytes": 8713,
-      "chars": 8713,
-      "sha256": "532d0d75727e6d2423da2a9fff18aa3e70f1a4ef5abd5e9cef4c217959dc7a2a",
+      "bytes": 8981,
+      "chars": 8981,
+      "sha256": "06c1aa602076082c9113f52ba2ae45e7d601a3381ff7e727bb4b402fe8c4499a",
       "sources": [
         "048_revoke_pathway_access_authority.sql"
       ]

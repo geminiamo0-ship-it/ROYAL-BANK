@@ -1,3 +1,12 @@
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET row_security = off;
+
 -- Keep the cached question-bank outline compatible with server-side service-role reads
 -- while preserving canonical bank authorization for normal authenticated callers.
 -- Aggregate directly from the bank/question mapping so difficulty totals cannot drift

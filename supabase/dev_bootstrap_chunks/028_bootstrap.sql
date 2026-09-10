@@ -1,3 +1,12 @@
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET row_security = off;
+
 -- Read-only review surface for completed exam sessions.
 -- It is intentionally separate from the active-session window RPCs so review can never
 -- mutate or weaken the sequencing/rate-limit rules used while a block is in progress.
