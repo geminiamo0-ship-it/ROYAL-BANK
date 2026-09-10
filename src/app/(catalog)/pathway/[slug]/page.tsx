@@ -3,9 +3,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCurrentUser, logout } from '@/actions/auth';
 import { getPathwayDetails, type ActiveAccessGrant, type PathwayDetail } from '@/actions/pathways';
+import UpgradeModalTrigger from '@/components/business/UpgradeModalTrigger';
 
 interface PathwayBanksPageProps {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 function formatAccessDate(value: string | null) {
@@ -21,13 +23,20 @@ function accessLabel(grant: ActiveAccessGrant, pathway: PathwayDetail) {
   return pathway.banks.find((candidate) => candidate.id === grant.question_bank_id)?.name || 'Question bank access';
 }
 
-export default async function PathwayBanksPage({ params }: PathwayBanksPageProps) {
-  const { slug } = await params;
+function stateText(expiresAt: string | null, expiresSoon: boolean) {
+  if (!expiresAt) return 'Lifetime access';
+  return `${expiresSoon ? 'Expires soon · ' : 'Active until '}${formatAccessDate(expiresAt)}`;
+}
+
+export default async function PathwayBanksPage({ params, searchParams }: PathwayBanksPageProps) {
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
   const [pathway, user] = await Promise.all([getPathwayDetails(slug), getCurrentUser()]);
   if (!pathway) notFound();
 
   const isStaff = user?.role === 'admin' || user?.role === 'support';
   const firstAvailableBank = pathway.banks.find((bank) => bank.isUnlocked);
+  const autoPathway = String(query.upgradePathway || '') === String(pathway.id);
+  const autoBankId = Number(Array.isArray(query.upgradeBank) ? query.upgradeBank[0] : query.upgradeBank);
 
   return (
     <main className="min-h-screen bg-[#f4f4f4] text-black">
@@ -48,57 +57,61 @@ export default async function PathwayBanksPage({ params }: PathwayBanksPageProps
           <p className="text-[12px] text-[#0076a8]">Live pathway</p>
           <h1 className="mt-1 text-[32px] font-semibold leading-tight text-[#111827]">{pathway.name}</h1>
           <p className="mt-2 max-w-[700px] text-[14px] leading-6 text-[#444444]">{pathway.description}</p>
+          {pathway.accessState.has_access && <p className="mt-3 text-[12px] font-semibold text-[#087c31]">{stateText(pathway.accessState.expires_at, pathway.accessState.expires_soon)}</p>}
           <div className="mt-5 flex flex-wrap gap-2">
             {firstAvailableBank && <Link href={`/bank/${firstAvailableBank.id}`} className="bg-[#273445] px-4 py-2 text-[12px] font-semibold text-white">Open available bank</Link>}
-            <Link href={pathway.hasFullAccess ? '#access-details' : `/upgrade?pathway=${pathway.id}`} className={`px-4 py-2 text-[12px] font-semibold text-white ${pathway.hasFullAccess ? 'bg-[#14833d]' : 'bg-[#18a84a]'}`}>
-              {pathway.hasFullAccess ? 'Activated' : 'Upgrade full pathway'}
-            </Link>
+            {pathway.accessState.has_access ? (
+              pathway.accessState.coverage_kind === 'exact' && pathway.accessState.can_extend && pathway.catalogAvailable
+                ? <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Extend Access" autoOpen={autoPathway} className="bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white" />
+                : <a href="#access-details" className="bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white">Activated</a>
+            ) : pathway.catalogAvailable ? (
+              <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Upgrade full pathway" autoOpen={autoPathway} className="bg-[#18a84a] px-4 py-2 text-[12px] font-semibold text-white" />
+            ) : null}
           </div>
         </div>
       </section>
 
       <section className="mx-auto max-w-[930px] px-4 py-10">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-[22px] font-semibold text-black">Question banks</h2>
-            <p className="mt-1 text-[13px] text-[#555555]">Only banks currently linked to this pathway in Royal are listed.</p>
-          </div>
-          <div className="text-right text-[12px] text-[#555555]">
-            <p>{pathway.banks.length} bank{pathway.banks.length === 1 ? '' : 's'}</p>
-            <p>{pathway.totalQuestions.toLocaleString()} questions</p>
-          </div>
+          <div><h2 className="text-[22px] font-semibold text-black">Question banks</h2><p className="mt-1 text-[13px] text-[#555555]">Only banks currently linked to this pathway in Royal are listed.</p></div>
+          <div className="text-right text-[12px] text-[#555555]"><p>{pathway.banks.length} bank{pathway.banks.length === 1 ? '' : 's'}</p><p>{pathway.totalQuestions.toLocaleString()} questions</p></div>
         </div>
 
-        {pathway.banks.length === 0 ? (
-          <div className="rounded-lg border border-[#d7d7d7] bg-white p-8 text-center text-[13px] text-[#555555]">No question banks are currently attached to this pathway.</div>
-        ) : (
+        {pathway.banks.length === 0 ? <div className="rounded-lg border border-[#d7d7d7] bg-white p-8 text-center text-[13px] text-[#555555]">No question banks are currently attached to this pathway.</div> : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {pathway.banks.map((bank) => (
-              <article key={bank.id} className="rounded-[2px] border border-[#d7d7d7] bg-white p-4 shadow-[0_1px_5px_rgba(0,0,0,0.12)]">
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-[16px] font-semibold leading-5 text-black">{bank.name}</h3>
-                  {bank.hasPremiumAccess && <span className="border border-[#159947] bg-[#effbf3] px-2 py-1 text-[10px] font-semibold text-[#087c31]">Activated</span>}
-                </div>
-                <p className="mt-3 min-h-[58px] text-[13px] leading-[19px] text-[#333333]">{bank.description || 'Royal question bank.'}</p>
-
-                <dl className="mt-4 grid grid-cols-2 border border-[#e5e5e5] bg-[#fafafa] text-center">
-                  <div className="border-r border-[#e5e5e5] px-2 py-2"><dt className="text-[10px] text-[#666666]">Questions</dt><dd className="text-[13px] font-semibold">{bank.questionCount.toLocaleString()}</dd></div>
-                  <div className="px-2 py-2"><dt className="text-[10px] text-[#666666]">Library articles</dt><dd className="text-[13px] font-semibold">{bank.textbookArticleCount.toLocaleString()}</dd></div>
-                </dl>
-
-                {bank.isFreeTrialAvailable && !bank.hasPremiumAccess && (
-                  <p className="mt-3 text-[11px] text-[#555555]">Trial: up to {bank.freeTrialBlockLimit} blocks, {bank.freeTrialQuestionLimit} questions and {bank.freeTrialArticleLimit} articles.</p>
-                )}
-
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  {bank.hasPremiumAccess ? (
-                    <><Link href={`/bank/${bank.id}`} className="border border-[#00a2d3] px-2 py-1 text-[12px] text-[#007fa8]">Open bank</Link><Link href="#access-details" className="border border-[#159947] bg-[#effbf3] px-2 py-1 text-[12px] font-medium text-[#087c31]">Activated</Link></>
-                  ) : (
-                    <>{bank.isUnlocked && <Link href={`/bank/${bank.id}`} className="border border-[#00a2d3] px-2 py-1 text-[12px] text-[#007fa8]">Take a demo</Link>}<Link href={`/upgrade?bank=${bank.id}`} className="border border-[#1eb34a] px-2 py-1 text-[12px] font-medium text-[#0a8e31]">Upgrade bank</Link></>
-                  )}
-                </div>
-              </article>
-            ))}
+            {pathway.banks.map((bank) => {
+              const access = bank.accessState;
+              return (
+                <article key={bank.id} className="rounded-[2px] border border-[#d7d7d7] bg-white p-4 shadow-[0_1px_5px_rgba(0,0,0,0.12)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="text-[16px] font-semibold leading-5 text-black">{bank.name}</h3>
+                    {access.has_access && <span className="border border-[#159947] bg-[#effbf3] px-2 py-1 text-[10px] font-semibold text-[#087c31]">Activated</span>}
+                  </div>
+                  <p className="mt-3 min-h-[58px] text-[13px] leading-[19px] text-[#333333]">{bank.description || 'Royal question bank.'}</p>
+                  <dl className="mt-4 grid grid-cols-2 border border-[#e5e5e5] bg-[#fafafa] text-center">
+                    <div className="border-r border-[#e5e5e5] px-2 py-2"><dt className="text-[10px] text-[#666666]">Questions</dt><dd className="text-[13px] font-semibold">{bank.questionCount.toLocaleString()}</dd></div>
+                    <div className="px-2 py-2"><dt className="text-[10px] text-[#666666]">Library articles</dt><dd className="text-[13px] font-semibold">{bank.textbookArticleCount.toLocaleString()}</dd></div>
+                  </dl>
+                  {bank.isFreeTrialAvailable && !access.has_access && <p className="mt-3 text-[11px] text-[#555555]">Trial: up to {bank.freeTrialBlockLimit} blocks, {bank.freeTrialQuestionLimit} questions and {bank.freeTrialArticleLimit} articles.</p>}
+                  {access.has_access && <p className="mt-3 text-[11px] font-medium text-[#087c31]">{stateText(access.expires_at, access.expires_soon)}{access.coverage_kind === 'broader' ? ' · Included in broader access' : ''}</p>}
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    {access.has_access ? (
+                      <>
+                        <Link href={`/bank/${bank.id}`} className="border border-[#00a2d3] px-2 py-1 text-[12px] text-[#007fa8]">Open bank</Link>
+                        {access.coverage_kind === 'exact' && access.can_extend && bank.catalogAvailable
+                          ? <UpgradeModalTrigger scopeType="bank" targetId={bank.id} label="Extend Access" autoOpen={autoBankId === bank.id} />
+                          : <a href="#access-details" className="border border-[#159947] bg-[#effbf3] px-2 py-1 text-[12px] font-medium text-[#087c31]">Activated</a>}
+                      </>
+                    ) : (
+                      <>
+                        {bank.isUnlocked && <Link href={`/bank/${bank.id}`} className="border border-[#00a2d3] px-2 py-1 text-[12px] text-[#007fa8]">Take a demo</Link>}
+                        {bank.catalogAvailable && <UpgradeModalTrigger scopeType="bank" targetId={bank.id} label="Upgrade bank" autoOpen={autoBankId === bank.id} />}
+                      </>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
 
