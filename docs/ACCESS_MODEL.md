@@ -27,6 +27,8 @@ A grant becomes active at `starts_at`. `expires_at = NULL` means lifetime access
 
 `user_pathway_access` is removed. There is no second entitlement system or compatibility fallback for premium access.
 
+Staff roles are administrative authorization only. `support` and `admin` do not receive premium bank content merely because of their role; a real active `user_access_grants` row is still required for premium content access. Staff-only operational RPCs continue to authorize through role checks independently of premium content grants.
+
 ## Bank-owned library model
 
 Library entitlement follows the bank entitlement. The mapping table `question_bank_library_articles` connects article content to one or more banks.
@@ -48,7 +50,7 @@ Student article bodies are not directly readable from `library_articles`. They m
 ## Authorization helpers
 
 - `can_access_question_bank(bank_id)`: canonical current-access decision for using a bank.
-- `has_premium_question_bank_access(bank_id)`: canonical premium decision sourced only from `user_access_grants` (plus staff override).
+- `has_premium_question_bank_access(bank_id)`: canonical premium decision sourced only from active, non-revoked `user_access_grants`.
 - `can_access_library_article(bank_id, article_id)`: checks whether the current user may open a mapped article without consuming a new disclosure.
 - `list_library_articles(bank_id)`: returns bank library metadata and current trial state without article bodies.
 - `get_library_article(bank_id, article_id)`: returns article content and atomically records a first-time trial disclosure when required.
