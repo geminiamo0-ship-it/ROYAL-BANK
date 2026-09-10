@@ -46,6 +46,11 @@ export interface PathwayDetail {
   banks: QuestionBankItem[];
 }
 
+export interface GlobalCatalogState {
+  accessState: AccessResolution;
+  catalogAvailable: boolean;
+}
+
 interface PathwayRow {
   id: number;
   slug: string;
@@ -68,6 +73,31 @@ interface BankRow {
   free_trial_article_limit: number | null;
 }
 
+interface OverviewPathway {
+  id: number;
+  access: AccessResolution;
+  catalog_available: boolean;
+}
+
+interface OverviewBank {
+  id: number;
+  access: AccessResolution;
+  catalog_available: boolean;
+  unlocked: boolean;
+  question_count: number;
+  article_count: number;
+}
+
+interface CatalogOverview {
+  global: {
+    access: AccessResolution;
+    catalog_available: boolean;
+  };
+  pathways: OverviewPathway[];
+  banks: OverviewBank[];
+  active_access: ActiveAccessGrant[];
+}
+
 const emptyAccess: AccessResolution = {
   has_access: false,
   coverage_kind: 'none',
@@ -82,147 +112,12 @@ const emptyAccess: AccessResolution = {
   is_lifetime: false,
 };
 
-interface ResolvedBankAccess {
-  unlocked: boolean;
-  accessState: AccessResolution;
-  catalogAvailable: boolean;
-}
-
-async function resolveBankAccess(bankIds: number[]): Promise<{
-  access: Map<number, ResolvedBankAccess>;
-  grants: ActiveAccessGrant[];
-}> {
-  const access = new Map<number, ResolvedBankAccess>(
-    bankIds.map((id) => [id, { unlocked: false, accessState: emptyAccess, catalogAvailable: false }]),
-  );
-
-  if (bankIds.length === 0) return { access, grants: [] };
-
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { access, grants: [] };
-
-  const grantsPromise = supabase.rpc('get_my_active_access_grants');
-
-  await Promise.all(
-    bankIds.map(async (bankId) => {
-      const [contentResult, accessResult, offerResult] = await Promise.all([
-        supabase.rpc('can_access_question_bank', { p_bank_id: bankId }),
-        supabase.rpc('resolve_my_access', {
-          p_scope_type: 'bank',
-          p_pathway_id: null,
-          p_bank_id: bankId,
-        }),
-        supabase.rpc('get_catalog_upgrade_offer', { p_scope_type: 'bank', p_target_id: bankId }),
-      ]);
-
-      access.set(bankId, {
-        unlocked: !contentResult.error && contentResult.data === true,
-        accessState: accessResult.error ? emptyAccess : (accessResult.data as AccessResolution),
-        catalogAvailable: !offerResult.error && Boolean(offerResult.data),
-      });
-    }),
-  );
-
-  const grantsResult = await grantsPromise;
-  return {
-    access,
-    grants: grantsResult.error ? [] : ((grantsResult.data || []) as ActiveAccessGrant[]),
-  };
-}
-
-async function resolvePathwayState(pathwayId: number): Promise<{ access: AccessResolution; catalogAvailable: boolean }> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { access: emptyAccess, catalogAvailable: false };
-  const [accessResult, offerResult] = await Promise.all([
-    supabase.rpc('resolve_my_access', {
-      p_scope_type: 'pathway',
-      p_pathway_id: pathwayId,
-      p_bank_id: null,
-    }),
-    supabase.rpc('get_catalog_upgrade_offer', { p_scope_type: 'pathway', p_target_id: pathwayId }),
-  ]);
-  return {
-    access: accessResult.error || !accessResult.data ? emptyAccess : (accessResult.data as AccessResolution),
-    catalogAvailable: !offerResult.error && Boolean(offerResult.data),
-  };
-}
-
-async function countBankContent(bankId: number) {
-  const supabase = await createClient();
-  const [questionResult, articleResult] = await Promise.all([
-    supabase
-      .from('question_bank_questions')
-      .select('question_id', { count: 'exact', head: true })
-      .eq('question_bank_id', bankId),
-    supabase
-      .from('question_bank_library_articles')
-      .select('article_id', { count: 'exact', head: true })
-      .eq('question_bank_id', bankId),
-  ]);
-
-  return {
-    questionCount: questionResult.error ? 0 : questionResult.count ?? 0,
-    textbookArticleCount: articleResult.error ? 0 : articleResult.count ?? 0,
-  };
-}
-
-async function buildPathway(pathway: PathwayRow, bankRows: BankRow[]): Promise<PathwayDetail> {
-  const matchingBanks = bankRows
-    .filter((bank) => bank.pathway_id === pathway.id)
-    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.id - b.id);
-
-  const [resolved, counts, pathwayAccess] = await Promise.all([
-    resolveBankAccess(matchingBanks.map((bank) => bank.id)),
-    Promise.all(matchingBanks.map((bank) => countBankContent(bank.id))),
-    resolvePathwayState(pathway.id),
-  ]);
-
-  const banks: QuestionBankItem[] = matchingBanks.map((bank, index) => {
-    const bankState = resolved.access.get(bank.id);
-    const bankAccess = bankState?.accessState || emptyAccess;
-    return {
-      id: bank.id,
-      pathwayId: bank.pathway_id,
-      name: bank.name,
-      description: bank.description || '',
-      questionCount: counts[index]?.questionCount ?? 0,
-      textbookArticleCount: counts[index]?.textbookArticleCount ?? 0,
-      isFreeTrialAvailable: bank.is_free_trial === true,
-      freeTrialBlockLimit: bank.free_trial_block_limit ?? 0,
-      freeTrialQuestionLimit: bank.free_trial_question_limit ?? 0,
-      freeTrialArticleLimit: bank.free_trial_article_limit ?? 0,
-      isUnlocked: resolved.access.get(bank.id)?.unlocked === true,
-      hasPremiumAccess: bankAccess.has_access,
-      accessState: bankAccess,
-      catalogAvailable: bankState?.catalogAvailable === true,
-    };
-  });
-
-  const bankIds = new Set(banks.map((bank) => bank.id));
-  const activeAccess = resolved.grants.filter((grant) =>
-    grant.scope_type === 'global'
-    || (grant.scope_type === 'pathway' && grant.pathway_id === pathway.id)
-    || (grant.scope_type === 'bank' && grant.question_bank_id !== null && bankIds.has(grant.question_bank_id)),
-  );
-
-  return {
-    id: pathway.id,
-    slug: pathway.slug,
-    name: pathway.name,
-    description: pathway.description || '',
-    iconUrl: pathway.icon_url,
-    totalQuestions: banks.reduce((sum, bank) => sum + bank.questionCount, 0),
-    isFreeTrialAvailable: pathway.is_free_trial_available === true,
-    isUnlocked: banks.some((bank) => bank.isUnlocked),
-    hasFullAccess: pathwayAccess.access.has_access,
-    accessState: pathwayAccess.access,
-    catalogAvailable: pathwayAccess.catalogAvailable,
-    activeAccess,
-    banks,
-  };
-}
+const emptyOverview: CatalogOverview = {
+  global: { access: emptyAccess, catalog_available: false },
+  pathways: [],
+  banks: [],
+  active_access: [],
+};
 
 async function loadCatalogRows() {
   const supabase = await createClient();
@@ -248,24 +143,92 @@ async function loadCatalogRows() {
   };
 }
 
+async function loadCatalogOverview(): Promise<CatalogOverview> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('get_my_catalog_overview');
+  if (error || !data) return emptyOverview;
+  return data as CatalogOverview;
+}
+
+function buildPathway(pathway: PathwayRow, bankRows: BankRow[], overview: CatalogOverview): PathwayDetail {
+  const matchingBanks = bankRows
+    .filter((bank) => bank.pathway_id === pathway.id)
+    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.id - b.id);
+
+  const overviewBanks = new Map(overview.banks.map((bank) => [bank.id, bank]));
+  const pathwayState = overview.pathways.find((item) => item.id === pathway.id);
+
+  const banks: QuestionBankItem[] = matchingBanks.map((bank) => {
+    const state = overviewBanks.get(bank.id);
+    const access = state?.access || emptyAccess;
+    return {
+      id: bank.id,
+      pathwayId: bank.pathway_id,
+      name: bank.name,
+      description: bank.description || '',
+      questionCount: Number(state?.question_count || 0),
+      textbookArticleCount: Number(state?.article_count || 0),
+      isFreeTrialAvailable: bank.is_free_trial === true,
+      freeTrialBlockLimit: bank.free_trial_block_limit ?? 0,
+      freeTrialQuestionLimit: bank.free_trial_question_limit ?? 0,
+      freeTrialArticleLimit: bank.free_trial_article_limit ?? 0,
+      isUnlocked: state?.unlocked === true,
+      hasPremiumAccess: access.has_access,
+      accessState: access,
+      catalogAvailable: state?.catalog_available === true,
+    };
+  });
+
+  const bankIds = new Set(banks.map((bank) => bank.id));
+  const activeAccess = overview.active_access.filter((grant) =>
+    grant.scope_type === 'global'
+    || (grant.scope_type === 'pathway' && grant.pathway_id === pathway.id)
+    || (grant.scope_type === 'bank' && grant.question_bank_id !== null && bankIds.has(grant.question_bank_id)),
+  );
+  const accessState = pathwayState?.access || emptyAccess;
+
+  return {
+    id: pathway.id,
+    slug: pathway.slug,
+    name: pathway.name,
+    description: pathway.description || '',
+    iconUrl: pathway.icon_url,
+    totalQuestions: banks.reduce((sum, bank) => sum + bank.questionCount, 0),
+    isFreeTrialAvailable: pathway.is_free_trial_available === true,
+    isUnlocked: banks.some((bank) => bank.isUnlocked),
+    hasFullAccess: accessState.has_access,
+    accessState,
+    catalogAvailable: pathwayState?.catalog_available === true,
+    activeAccess,
+    banks,
+  };
+}
+
 export async function getCatalogPathways(): Promise<PathwayDetail[]> {
-  const { pathways, banks } = await loadCatalogRows();
-  return Promise.all(pathways.map((pathway) => buildPathway(pathway, banks)));
+  const [{ pathways, banks }, overview] = await Promise.all([loadCatalogRows(), loadCatalogOverview()]);
+  return pathways.map((pathway) => buildPathway(pathway, banks, overview));
 }
 
 export async function getPathwayDetails(slug: string): Promise<PathwayDetail | null> {
-  const { pathways, banks } = await loadCatalogRows();
+  const [{ pathways, banks }, overview] = await Promise.all([loadCatalogRows(), loadCatalogOverview()]);
   const pathway = pathways.find((candidate) => candidate.slug === slug);
   if (!pathway) return null;
-  return buildPathway(pathway, banks);
+  return buildPathway(pathway, banks, overview);
 }
 
 export async function getBankDetails(bankId: number): Promise<QuestionBankItem | null> {
-  const { pathways, banks } = await loadCatalogRows();
+  const [{ pathways, banks }, overview] = await Promise.all([loadCatalogRows(), loadCatalogOverview()]);
   const bank = banks.find((candidate) => candidate.id === bankId);
   if (!bank) return null;
   const pathway = pathways.find((candidate) => candidate.id === bank.pathway_id);
   if (!pathway) return null;
-  const detail = await buildPathway(pathway, [bank]);
-  return detail.banks[0] ?? null;
+  return buildPathway(pathway, [bank], overview).banks[0] ?? null;
+}
+
+export async function getGlobalCatalogState(): Promise<GlobalCatalogState> {
+  const overview = await loadCatalogOverview();
+  return {
+    accessState: overview.global?.access || emptyAccess,
+    catalogAvailable: overview.global?.catalog_available === true,
+  };
 }
