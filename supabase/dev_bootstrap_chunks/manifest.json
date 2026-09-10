@@ -1,0 +1,487 @@
+{
+  "generated_from": [
+    "001_core_baseline.sql",
+    "002_preserve_owned_history_after_expiry.sql",
+    "003_fix_question_bank_runtime.sql",
+    "004_precomputed_question_bank_dashboard.sql",
+    "005_drop_legacy_create_exam_session_integer.sql",
+    "006_inline_answer_feedback.sql",
+    "007_selection_specific_exam_session_ids.sql",
+    "008_auth_uid_exam_session.sql",
+    "009_fast_exam_bootstrap_windowing.sql",
+    "010_inline_exam_bootstrap_response.sql",
+    "011_harden_user_answer_write_surface.sql",
+    "012_exam_abuse_guardrails.sql",
+    "013_stage_exam_gateway_bypass_guard.sql",
+    "014_exam_gateway_rate_limit_escalation.sql",
+    "015_hide_exam_pre_request_hook.sql",
+    "016_lock_session_question_writes.sql",
+    "017_enforce_disclosed_exam_actions.sql",
+    "018_harden_profile_and_flag_write_surfaces.sql",
+    "019_persist_session_creation_security_counts.sql",
+    "020_remove_timed_finalization_guc.sql",
+    "021_fix_postgrest_error_statuses.sql",
+    "022_unify_access_and_library_entitlements.sql",
+    "023_harden_library_rpc_execute_privileges.sql",
+    "024_index_library_disclosure_foreign_keys.sql",
+    "025_remove_legacy_pathway_access_audit.sql",
+    "026_business_activation_core.sql",
+    "027_promo_business_core.sql",
+    "028_fix_commission_settlement_uuid_aggregate.sql",
+    "029_soft_revoke_access_grants.sql",
+    "030_self_active_access_summary.sql",
+    "031_live_bank_performance.sql",
+    "032_completed_session_review.sql",
+    "033_guard_completed_review_gateway.sql",
+    "034_preserve_owned_session_history_rpc.sql",
+    "035_harden_performance_review_rpc_privileges.sql",
+    "036_release_c_operations.sql",
+    "037_release_c_access_ledger.sql",
+    "038_preserve_admin_update_legacy_contract.sql",
+    "039_release_c_rbac_advisor_hardening.sql",
+    "040_release_d_intelligence.sql",
+    "041_fix_release_d_trial_aggregation.sql",
+    "042_release_d_alerts_reports.sql",
+    "043_release_e_catalog_scale.sql",
+    "044_release_e_manual_support_catalog.sql",
+    "045_release_e_pin_extension_target.sql",
+    "046_legacy_anon_security_definer_hardening.sql",
+    "047_release_e_catalog_trial_hardening.sql",
+    "048_revoke_pathway_access_authority.sql"
+  ],
+  "chunk_count": 39,
+  "max_chars_target": 18000,
+  "largest_statement_chars": 20756,
+  "chunks": [
+    {
+      "index": 1,
+      "file": "001_bootstrap.sql",
+      "bytes": 16744,
+      "chars": 16744,
+      "sha256": "0f200e6fd084631f34332060cc712685a6cb5f2664e383b9772629fc0bf21260",
+      "sources": [
+        "001_core_baseline.sql"
+      ]
+    },
+    {
+      "index": 2,
+      "file": "002_bootstrap.sql",
+      "bytes": 17920,
+      "chars": 17920,
+      "sha256": "8b5ad46aa935bf317486d961580acd29026a2942094f0428250098845f161c65",
+      "sources": [
+        "001_core_baseline.sql"
+      ]
+    },
+    {
+      "index": 3,
+      "file": "003_bootstrap.sql",
+      "bytes": 17942,
+      "chars": 17942,
+      "sha256": "904cc522c4736559f1b05bd1bd08d34423fe1b2c6f3b70db693ae67377b05669",
+      "sources": [
+        "001_core_baseline.sql"
+      ]
+    },
+    {
+      "index": 4,
+      "file": "004_bootstrap.sql",
+      "bytes": 17905,
+      "chars": 17905,
+      "sha256": "67c86c127059f4048589ffc9ec54e9cdaadaa2fdae6a5d68aefa1559b4bf6262",
+      "sources": [
+        "001_core_baseline.sql"
+      ]
+    },
+    {
+      "index": 5,
+      "file": "005_bootstrap.sql",
+      "bytes": 17994,
+      "chars": 17994,
+      "sha256": "af0b54294bd707e9c8e3086ba980c5dc13090e79e013e66104c5efa832cb64d7",
+      "sources": [
+        "001_core_baseline.sql"
+      ]
+    },
+    {
+      "index": 6,
+      "file": "006_bootstrap.sql",
+      "bytes": 17968,
+      "chars": 17968,
+      "sha256": "a35395c216a8486293910e850f624e952ff5ccccaf626faf8f65208cd70ffeb8",
+      "sources": [
+        "001_core_baseline.sql"
+      ]
+    },
+    {
+      "index": 7,
+      "file": "007_bootstrap.sql",
+      "bytes": 17949,
+      "chars": 17949,
+      "sha256": "e983ebdcbc6544cbcdf8ee0c907f74b9ad6fa49efac1fc301c6bbf8f96cd84f9",
+      "sources": [
+        "001_core_baseline.sql"
+      ]
+    },
+    {
+      "index": 8,
+      "file": "008_bootstrap.sql",
+      "bytes": 17519,
+      "chars": 17519,
+      "sha256": "67c6a10953679680d0fb944b03511995eb758468bbb7c1037f565abf76acfc73",
+      "sources": [
+        "001_core_baseline.sql",
+        "002_preserve_owned_history_after_expiry.sql"
+      ]
+    },
+    {
+      "index": 9,
+      "file": "009_bootstrap.sql",
+      "bytes": 17552,
+      "chars": 17552,
+      "sha256": "a076caaf094a2a97a81b36f408e3ee127f89107782d8fc586c1e2cbc036e0a45",
+      "sources": [
+        "003_fix_question_bank_runtime.sql",
+        "004_precomputed_question_bank_dashboard.sql",
+        "005_drop_legacy_create_exam_session_integer.sql"
+      ]
+    },
+    {
+      "index": 10,
+      "file": "010_bootstrap.sql",
+      "bytes": 17305,
+      "chars": 17305,
+      "sha256": "a3c1eea45941e3d278b8d842078f8f0328a27e623afe56dab78150820111210a",
+      "sources": [
+        "006_inline_answer_feedback.sql",
+        "007_selection_specific_exam_session_ids.sql",
+        "008_auth_uid_exam_session.sql",
+        "009_fast_exam_bootstrap_windowing.sql"
+      ]
+    },
+    {
+      "index": 11,
+      "file": "011_bootstrap.sql",
+      "bytes": 7216,
+      "chars": 7216,
+      "sha256": "25aba56eabb6c567b69d766927980852d78cc63b62843432e775ae65a4210384",
+      "sources": [
+        "009_fast_exam_bootstrap_windowing.sql"
+      ]
+    },
+    {
+      "index": 12,
+      "file": "012_bootstrap.sql",
+      "bytes": 16522,
+      "chars": 16522,
+      "sha256": "5802f98169d96582f060e81a3b4b49c7a996dcdde2fd817198ef90f4897220f8",
+      "sources": [
+        "009_fast_exam_bootstrap_windowing.sql"
+      ]
+    },
+    {
+      "index": 13,
+      "file": "013_bootstrap.sql",
+      "bytes": 20757,
+      "chars": 20757,
+      "sha256": "0d36c71e2f5ea2ecc3915b039a7454c8bcca139176e85f9a8a7451ade729f56a",
+      "sources": [
+        "010_inline_exam_bootstrap_response.sql"
+      ]
+    },
+    {
+      "index": 14,
+      "file": "014_bootstrap.sql",
+      "bytes": 17761,
+      "chars": 17761,
+      "sha256": "9ff4aba19151ebb2cc7c66fac4f989c8774deb33ea721560fceb7288dc811601",
+      "sources": [
+        "010_inline_exam_bootstrap_response.sql",
+        "011_harden_user_answer_write_surface.sql",
+        "012_exam_abuse_guardrails.sql"
+      ]
+    },
+    {
+      "index": 15,
+      "file": "015_bootstrap.sql",
+      "bytes": 17940,
+      "chars": 17940,
+      "sha256": "1cd4cc4622c03ffe740ca0247f1472145699fa2ef4fd22ba437b5f1f7e58b73a",
+      "sources": [
+        "012_exam_abuse_guardrails.sql"
+      ]
+    },
+    {
+      "index": 16,
+      "file": "016_bootstrap.sql",
+      "bytes": 15065,
+      "chars": 15065,
+      "sha256": "6c4d555f402b8185265f70adea195298551bb06889f2b76926efea390679da6e",
+      "sources": [
+        "012_exam_abuse_guardrails.sql",
+        "013_stage_exam_gateway_bypass_guard.sql",
+        "014_exam_gateway_rate_limit_escalation.sql"
+      ]
+    },
+    {
+      "index": 17,
+      "file": "017_bootstrap.sql",
+      "bytes": 17010,
+      "chars": 17010,
+      "sha256": "815562e29666505f59a758823bc12fd1a4c1d63ca5ff92b8a0d225fe4ad7198a",
+      "sources": [
+        "014_exam_gateway_rate_limit_escalation.sql",
+        "015_hide_exam_pre_request_hook.sql",
+        "016_lock_session_question_writes.sql",
+        "017_enforce_disclosed_exam_actions.sql"
+      ]
+    },
+    {
+      "index": 18,
+      "file": "018_bootstrap.sql",
+      "bytes": 17647,
+      "chars": 17647,
+      "sha256": "0fabe3694d2ea582ab512eda0ca51a2823328c4c270565dc28a13f7ca5e0bb60",
+      "sources": [
+        "017_enforce_disclosed_exam_actions.sql",
+        "018_harden_profile_and_flag_write_surfaces.sql",
+        "019_persist_session_creation_security_counts.sql",
+        "020_remove_timed_finalization_guc.sql"
+      ]
+    },
+    {
+      "index": 19,
+      "file": "019_bootstrap.sql",
+      "bytes": 17063,
+      "chars": 17063,
+      "sha256": "3eda2b8f619a11d5a80731f49bfb5a7a308b65aa4921cfc5377a0c5cbdca11ec",
+      "sources": [
+        "020_remove_timed_finalization_guc.sql",
+        "021_fix_postgrest_error_statuses.sql",
+        "022_unify_access_and_library_entitlements.sql"
+      ]
+    },
+    {
+      "index": 20,
+      "file": "020_bootstrap.sql",
+      "bytes": 17955,
+      "chars": 17955,
+      "sha256": "8afc2349ab4d2130239b1f588689e483abce1b622567fbc3d41dd3fcdcc07f5a",
+      "sources": [
+        "022_unify_access_and_library_entitlements.sql",
+        "023_harden_library_rpc_execute_privileges.sql",
+        "024_index_library_disclosure_foreign_keys.sql",
+        "025_remove_legacy_pathway_access_audit.sql",
+        "026_business_activation_core.sql"
+      ]
+    },
+    {
+      "index": 21,
+      "file": "021_bootstrap.sql",
+      "bytes": 14607,
+      "chars": 14607,
+      "sha256": "6bfe07780ffd9dc0ae44f5a5f4ad930e81fdb8d5a95035de57ccf0e7bb14c00a",
+      "sources": [
+        "026_business_activation_core.sql"
+      ]
+    },
+    {
+      "index": 22,
+      "file": "022_bootstrap.sql",
+      "bytes": 14731,
+      "chars": 14731,
+      "sha256": "479e92d9c7231c552ee3d563705ee3b393db3b837427c1ef55c9e8fd6d862256",
+      "sources": [
+        "026_business_activation_core.sql"
+      ]
+    },
+    {
+      "index": 23,
+      "file": "023_bootstrap.sql",
+      "bytes": 17444,
+      "chars": 17444,
+      "sha256": "63027f2f00cc6ceb748791c7a17bdefce712cb454750086e5386aec7c26c9ca3",
+      "sources": [
+        "026_business_activation_core.sql",
+        "027_promo_business_core.sql"
+      ]
+    },
+    {
+      "index": 24,
+      "file": "024_bootstrap.sql",
+      "bytes": 17108,
+      "chars": 17108,
+      "sha256": "b31321dae79e3ed7d811051f73cd58485e4a9a2a984c050e8d8f03ea04372a44",
+      "sources": [
+        "027_promo_business_core.sql"
+      ]
+    },
+    {
+      "index": 25,
+      "file": "025_bootstrap.sql",
+      "bytes": 14969,
+      "chars": 14969,
+      "sha256": "dd83a1fd5dce1c4eb79eb5127fb9b25ad0fcc09da57b3aeee791f0a31c4b47ed",
+      "sources": [
+        "027_promo_business_core.sql",
+        "028_fix_commission_settlement_uuid_aggregate.sql",
+        "029_soft_revoke_access_grants.sql"
+      ]
+    },
+    {
+      "index": 26,
+      "file": "026_bootstrap.sql",
+      "bytes": 10348,
+      "chars": 10348,
+      "sha256": "f5322cd851a7a003ec10c35cd80c9ad8f20fa6466ad59be9cdf81d26797baddb",
+      "sources": [
+        "029_soft_revoke_access_grants.sql",
+        "030_self_active_access_summary.sql"
+      ]
+    },
+    {
+      "index": 27,
+      "file": "027_bootstrap.sql",
+      "bytes": 15586,
+      "chars": 15586,
+      "sha256": "d5a09d03d048c60b42c8d5f80cbeaec189c36ae4a07da1b96e486fa58d4d7031",
+      "sources": [
+        "031_live_bank_performance.sql"
+      ]
+    },
+    {
+      "index": 28,
+      "file": "028_bootstrap.sql",
+      "bytes": 17832,
+      "chars": 17832,
+      "sha256": "aa57ff5164ad293b307f3625dc30f079a4252a98dfc7bf0cd15a97f947161797",
+      "sources": [
+        "032_completed_session_review.sql",
+        "033_guard_completed_review_gateway.sql",
+        "034_preserve_owned_session_history_rpc.sql",
+        "035_harden_performance_review_rpc_privileges.sql",
+        "036_release_c_operations.sql"
+      ]
+    },
+    {
+      "index": 29,
+      "file": "029_bootstrap.sql",
+      "bytes": 14088,
+      "chars": 14088,
+      "sha256": "c698aa96c1c60e8b5f42fe27e9996b62ee9e2362992b9cb820aa2887a2e9b285",
+      "sources": [
+        "036_release_c_operations.sql"
+      ]
+    },
+    {
+      "index": 30,
+      "file": "030_bootstrap.sql",
+      "bytes": 17994,
+      "chars": 17994,
+      "sha256": "cf26f533b1ede9b3a9ea0c89419b764d3894dc7113019d33af6dc8514258a04e",
+      "sources": [
+        "036_release_c_operations.sql",
+        "037_release_c_access_ledger.sql",
+        "038_preserve_admin_update_legacy_contract.sql",
+        "039_release_c_rbac_advisor_hardening.sql",
+        "040_release_d_intelligence.sql"
+      ]
+    },
+    {
+      "index": 31,
+      "file": "031_bootstrap.sql",
+      "bytes": 17877,
+      "chars": 17877,
+      "sha256": "baee69e47c86abe4bf0da91da4f023d4530f4f4981e539a280eb788deefdf61e",
+      "sources": [
+        "040_release_d_intelligence.sql"
+      ]
+    },
+    {
+      "index": 32,
+      "file": "032_bootstrap.sql",
+      "bytes": 15023,
+      "chars": 15023,
+      "sha256": "8976756dc0c05ff0aaed4851f6670168cef92d321fb2d5f9be60540a19969256",
+      "sources": [
+        "040_release_d_intelligence.sql",
+        "041_fix_release_d_trial_aggregation.sql"
+      ]
+    },
+    {
+      "index": 33,
+      "file": "033_bootstrap.sql",
+      "bytes": 17843,
+      "chars": 17843,
+      "sha256": "29af77b5542ea428db7e98bb14246024bb96c9f6c00879fa0f40b4cf68d8781f",
+      "sources": [
+        "042_release_d_alerts_reports.sql",
+        "043_release_e_catalog_scale.sql"
+      ]
+    },
+    {
+      "index": 34,
+      "file": "034_bootstrap.sql",
+      "bytes": 12757,
+      "chars": 12757,
+      "sha256": "9ee80b84967e7fbd50483f8f8211a01072852a05062e76971c9b4681f9508fd0",
+      "sources": [
+        "043_release_e_catalog_scale.sql"
+      ]
+    },
+    {
+      "index": 35,
+      "file": "035_bootstrap.sql",
+      "bytes": 16360,
+      "chars": 16360,
+      "sha256": "4e79d914efaaa0ed25958c757a30c90bf4ac29500b359a9f5126da8aadf8fa85",
+      "sources": [
+        "043_release_e_catalog_scale.sql"
+      ]
+    },
+    {
+      "index": 36,
+      "file": "036_bootstrap.sql",
+      "bytes": 17919,
+      "chars": 17919,
+      "sha256": "e1a54372a755f8976a2e072ee10e7ab287663d82fdd20ca41204772f85f0a0bf",
+      "sources": [
+        "043_release_e_catalog_scale.sql"
+      ]
+    },
+    {
+      "index": 37,
+      "file": "037_bootstrap.sql",
+      "bytes": 16399,
+      "chars": 16399,
+      "sha256": "1bb2f5a4eedb48205cc2d749f9d579d62c3b3305c11e256564d40e8a4ef8e9d6",
+      "sources": [
+        "043_release_e_catalog_scale.sql",
+        "044_release_e_manual_support_catalog.sql"
+      ]
+    },
+    {
+      "index": 38,
+      "file": "038_bootstrap.sql",
+      "bytes": 17661,
+      "chars": 17661,
+      "sha256": "668a34f7ba7719d09d76a4b4a295428ad8631d518e98f0c14781838e25d67067",
+      "sources": [
+        "044_release_e_manual_support_catalog.sql",
+        "045_release_e_pin_extension_target.sql",
+        "046_legacy_anon_security_definer_hardening.sql",
+        "047_release_e_catalog_trial_hardening.sql"
+      ]
+    },
+    {
+      "index": 39,
+      "file": "039_bootstrap.sql",
+      "bytes": 8713,
+      "chars": 8713,
+      "sha256": "532d0d75727e6d2423da2a9fff18aa3e70f1a4ef5abd5e9cef4c217959dc7a2a",
+      "sources": [
+        "048_revoke_pathway_access_authority.sql"
+      ]
+    }
+  ]
+}
