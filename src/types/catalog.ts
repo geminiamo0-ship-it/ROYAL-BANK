@@ -1,4 +1,4 @@
-export type CatalogProductType = 'pathway' | 'bank';
+export type CatalogProductType = 'global' | 'pathway' | 'bank';
 export type CatalogProductStatus = 'draft' | 'active' | 'hidden' | 'archived';
 export type CatalogPlanStatus = 'active' | 'inactive' | 'archived';
 export type AccessCoverageKind = 'none' | 'exact' | 'broader';
@@ -9,7 +9,7 @@ export interface AccessResolution {
   can_extend: boolean;
   expires_soon: boolean;
   grant_id: number | null;
-  scope_type: 'global' | 'pathway' | 'bank' | null;
+  scope_type: CatalogProductType | null;
   pathway_id: number | null;
   question_bank_id: number | null;
   starts_at: string | null;
@@ -20,7 +20,7 @@ export interface AccessResolution {
 export interface CatalogUpgradePlan {
   id: number;
   name: string;
-  duration_months: number;
+  duration_months: number | null;
   currency: string;
   price_visible: boolean;
   price: number | string | null;
@@ -53,7 +53,7 @@ export interface CatalogUpgradeOffer {
   product: {
     id: number;
     product_type: CatalogProductType;
-    target_id: number;
+    target_id: number | null;
     name: string;
     scope_description: string;
     show_prices: boolean;
@@ -68,7 +68,7 @@ export interface CatalogUpgradeOffer {
 export interface CatalogQuotePreview {
   plan_id: number;
   plan_name: string;
-  duration_months: number;
+  duration_months: number | null;
   currency: string;
   price_visible: boolean;
   base_price: number | string | null;
@@ -99,8 +99,8 @@ export interface AdminCatalogPlan {
   id: number;
   product_id: number;
   name: string;
-  duration_months: number;
-  price: number | string;
+  duration_months: number | null;
+  price: number | string | null;
   currency: string;
   status: CatalogPlanStatus;
   show_price: boolean;
