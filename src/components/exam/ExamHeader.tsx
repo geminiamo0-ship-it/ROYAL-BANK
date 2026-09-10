@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,6 +20,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
+import { ExamReferenceRanges } from '@/components/exam/ExamReferenceRanges';
 import type { AnnotationTool } from '@/lib/exam-annotations';
 import { formatTime } from '@/lib/utils';
 
@@ -50,6 +51,7 @@ interface ExamHeaderProps {
 }
 
 type CalcOperator = '+' | '-' | '×' | '÷';
+type OpenPanel = 'marker' | 'reference' | 'calculator' | null;
 
 function applyOperator(left: number, right: number, operator: CalcOperator): number {
   if (operator === '+') return left + right;
@@ -209,17 +211,27 @@ export function ExamHeader({
   onClearAnnotations,
   onToggleFullscreen,
 }: ExamHeaderProps) {
-  const [markerOpen, setMarkerOpen] = useState(false);
-  const [referenceOpen, setReferenceOpen] = useState(false);
-  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenPanel(null);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, []);
+
+  const togglePanel = (panel: Exclude<OpenPanel, null>) => {
+    setOpenPanel((current) => (current === panel ? null : panel));
+  };
 
   const chooseAnnotationTool = (tool: AnnotationTool) => {
     onAnnotationToolChange(tool);
-    setMarkerOpen(false);
+    setOpenPanel(null);
   };
 
   return (
-    <header className="relative z-40 shrink-0 border-b border-[#3f4348] bg-[#282828] px-3 py-2 text-white">
+    <header className="relative z-[70] shrink-0 overflow-visible border-b border-[#3f4348] bg-[#282828] px-3 py-2 text-white">
       <div className="mx-auto grid max-w-[1240px] grid-cols-[auto_1fr_auto] items-center gap-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -279,12 +291,12 @@ export function ExamHeader({
         </div>
       </div>
 
-      <div className="mx-auto mt-2 flex max-w-[1240px] items-center gap-2 overflow-x-auto border-t border-[#3f4348] pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="mx-auto mt-2 flex max-w-[1240px] flex-wrap items-center gap-2 overflow-visible border-t border-[#3f4348] pt-2">
         <div className="relative shrink-0">
           <ToolButton
-            active={Boolean(annotationTool)}
+            active={Boolean(annotationTool) || openPanel === 'marker'}
             disabled={annotationLoading}
-            onClick={() => setMarkerOpen((value) => !value)}
+            onClick={() => togglePanel('marker')}
             title="Marker tools"
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -292,8 +304,8 @@ export function ExamHeader({
             <ChevronDown className="h-3 w-3" />
           </ToolButton>
 
-          {markerOpen ? (
-            <div className="absolute left-0 top-[36px] z-50 w-[230px] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-2 shadow-2xl">
+          {openPanel === 'marker' ? (
+            <div className="absolute left-0 top-[36px] z-[90] w-[230px] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-2 shadow-2xl">
               <div className="grid grid-cols-3 gap-1.5">
                 <button type="button" onClick={() => chooseAnnotationTool('pencil')} className="flex flex-col items-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] hover:bg-[#464e55]"><Pencil className="h-4 w-4" />Pencil</button>
                 <button type="button" onClick={() => chooseAnnotationTool('highlighter')} className="flex flex-col items-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] hover:bg-[#464e55]"><Highlighter className="h-4 w-4" />Highlight</button>
@@ -323,30 +335,27 @@ export function ExamHeader({
         </ToolButton>
 
         <div className="relative shrink-0">
-          <ToolButton active={referenceOpen} onClick={() => setReferenceOpen((value) => !value)} title="Reference ranges">
+          <ToolButton active={openPanel === 'reference'} onClick={() => togglePanel('reference')} title="Reference ranges">
             <span>Reference ranges</span>
             <ChevronDown className="h-3 w-3" />
           </ToolButton>
-          {referenceOpen ? (
-            <div className="absolute left-0 top-[36px] z-50 w-[330px] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-4 text-[12px] shadow-2xl">
-              <div className="font-semibold text-white">Reference ranges</div>
-              <p className="mt-2 leading-5 text-[#c8cdd1]">
-                The reference-range panel is wired into the fixed exam toolbar. No bank-specific reference dataset is configured in this DEV build yet, so Royal will not guess clinical ranges.
-              </p>
-              <button type="button" onClick={() => setReferenceOpen(false)} className="mt-3 rounded border border-[#5b6268] px-3 py-1.5 text-[#e7e7e7] hover:bg-[#3d444a]">Close</button>
+          {openPanel === 'reference' ? (
+            <div className="absolute left-0 top-[36px] z-[90] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-4 shadow-2xl">
+              <ExamReferenceRanges />
+              <button type="button" onClick={() => setOpenPanel(null)} className="mt-3 rounded border border-[#5b6268] px-3 py-1.5 text-[#e7e7e7] hover:bg-[#3d444a]">Close</button>
             </div>
           ) : null}
         </div>
 
         <div className="relative shrink-0">
-          <ToolButton active={calculatorOpen} onClick={() => setCalculatorOpen((value) => !value)} title="Calculator">
+          <ToolButton active={openPanel === 'calculator'} onClick={() => togglePanel('calculator')} title="Calculator">
             <Calculator className="h-3.5 w-3.5" />
             <span>Calculator</span>
           </ToolButton>
-          {calculatorOpen ? (
-            <div className="absolute left-0 top-[36px] z-50 rounded-[6px] border border-[#5a6066] bg-[#30363b] p-3 shadow-2xl">
+          {openPanel === 'calculator' ? (
+            <div className="absolute left-0 top-[36px] z-[90] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-3 shadow-2xl">
               <MiniCalculator />
-              <button type="button" onClick={() => setCalculatorOpen(false)} className="mt-3 w-full rounded border border-[#5b6268] py-1.5 text-[11px] text-[#e7e7e7] hover:bg-[#3d444a]">Close calculator</button>
+              <button type="button" onClick={() => setOpenPanel(null)} className="mt-3 w-full rounded border border-[#5b6268] py-1.5 text-[11px] text-[#e7e7e7] hover:bg-[#3d444a]">Close calculator</button>
             </div>
           ) : null}
         </div>
