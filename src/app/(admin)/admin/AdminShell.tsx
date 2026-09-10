@@ -5,13 +5,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
+  AlertTriangle,
   ArrowLeft,
   BadgePercent,
   BarChart3,
   CircleDollarSign,
+  FileBarChart,
   Headphones,
   KeyRound,
   ShieldAlert,
+  Sparkles,
   Stethoscope,
   Users,
   WalletCards,
@@ -25,10 +28,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     { name: 'Users & Subscriptions', href: '/admin/users', icon: Users },
     { name: 'Access Management', href: '/admin/access', icon: KeyRound },
     { name: 'Support Performance', href: '/admin/support-performance', icon: Activity },
+    { name: 'Trial Analytics', href: '/admin/trial-analytics', icon: Sparkles },
+    { name: 'Product Analytics', href: '/admin/product-analytics', icon: BarChart3 },
+    { name: 'Security & Risk', href: '/admin/security', icon: ShieldAlert },
+    { name: 'Reports', href: '/admin/reports', icon: FileBarChart },
+    { name: 'Alerts', href: '/admin/alerts', icon: AlertTriangle },
     { name: 'Revenue', href: '/admin/revenue', icon: CircleDollarSign },
     { name: 'Promo Codes', href: '/admin/promos', icon: BadgePercent },
     { name: 'Commissions', href: '/admin/commissions', icon: WalletCards },
-    { name: 'Security & IP Block', href: '/admin/security', icon: ShieldAlert },
     { name: 'Support Activation', href: '/support', icon: Headphones },
   ];
 
@@ -42,7 +49,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           <span className="font-bold text-white text-sm">Admin Control</span>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.href === '/admin'
