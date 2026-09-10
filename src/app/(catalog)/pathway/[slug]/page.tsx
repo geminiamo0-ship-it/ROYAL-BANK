@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { getCurrentUser, logout } from '@/actions/auth';
 import { getPathwayDetails, type ActiveAccessGrant, type PathwayDetail } from '@/actions/pathways';
 import UpgradeModalTrigger from '@/components/business/UpgradeModalTrigger';
+import { getRoyalSupportTelegramUrl } from '@/lib/royal-support';
 
 interface PathwayBanksPageProps {
   params: Promise<{ slug: string }>;
@@ -35,8 +36,9 @@ export default async function PathwayBanksPage({ params, searchParams }: Pathway
 
   const isStaff = user?.role === 'admin' || user?.role === 'support';
   const firstAvailableBank = pathway.banks.find((bank) => bank.isUnlocked);
-  const autoPathway = String(query.upgradePathway || '') === String(pathway.id);
+  const autoPathway = String(Array.isArray(query.upgradePathway) ? query.upgradePathway[0] : query.upgradePathway) === String(pathway.id);
   const autoBankId = Number(Array.isArray(query.upgradeBank) ? query.upgradeBank[0] : query.upgradeBank);
+  const supportUrl = getRoyalSupportTelegramUrl();
 
   return (
     <main className="min-h-screen bg-[#f4f4f4] text-black">
@@ -62,10 +64,10 @@ export default async function PathwayBanksPage({ params, searchParams }: Pathway
             {firstAvailableBank && <Link href={`/bank/${firstAvailableBank.id}`} className="bg-[#273445] px-4 py-2 text-[12px] font-semibold text-white">Open available bank</Link>}
             {pathway.accessState.has_access ? (
               pathway.accessState.coverage_kind === 'exact' && pathway.accessState.can_extend && pathway.catalogAvailable
-                ? <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Extend Access" autoOpen={autoPathway} className="bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white" />
+                ? <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Extend Access" autoOpen={autoPathway} supportUrl={supportUrl} className="bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white" />
                 : <a href="#access-details" className="bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white">Activated</a>
             ) : pathway.catalogAvailable ? (
-              <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Upgrade full pathway" autoOpen={autoPathway} className="bg-[#18a84a] px-4 py-2 text-[12px] font-semibold text-white" />
+              <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Upgrade full pathway" autoOpen={autoPathway} supportUrl={supportUrl} className="bg-[#18a84a] px-4 py-2 text-[12px] font-semibold text-white" />
             ) : null}
           </div>
         </div>
@@ -99,13 +101,13 @@ export default async function PathwayBanksPage({ params, searchParams }: Pathway
                       <>
                         <Link href={`/bank/${bank.id}`} className="border border-[#00a2d3] px-2 py-1 text-[12px] text-[#007fa8]">Open bank</Link>
                         {access.coverage_kind === 'exact' && access.can_extend && bank.catalogAvailable
-                          ? <UpgradeModalTrigger scopeType="bank" targetId={bank.id} label="Extend Access" autoOpen={autoBankId === bank.id} />
+                          ? <UpgradeModalTrigger scopeType="bank" targetId={bank.id} label="Extend Access" autoOpen={autoBankId === bank.id} supportUrl={supportUrl} />
                           : <a href="#access-details" className="border border-[#159947] bg-[#effbf3] px-2 py-1 text-[12px] font-medium text-[#087c31]">Activated</a>}
                       </>
                     ) : (
                       <>
                         {bank.isUnlocked && <Link href={`/bank/${bank.id}`} className="border border-[#00a2d3] px-2 py-1 text-[12px] text-[#007fa8]">Take a demo</Link>}
-                        {bank.catalogAvailable && <UpgradeModalTrigger scopeType="bank" targetId={bank.id} label="Upgrade bank" autoOpen={autoBankId === bank.id} />}
+                        {bank.catalogAvailable && <UpgradeModalTrigger scopeType="bank" targetId={bank.id} label="Upgrade bank" autoOpen={autoBankId === bank.id} supportUrl={supportUrl} />}
                       </>
                     )}
                   </div>
