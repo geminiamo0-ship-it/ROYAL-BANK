@@ -2,9 +2,11 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ANNOTATION_COLOR_STORAGE_KEY,
   DEFAULT_ANNOTATION_COLOR,
   createAnnotationStrokeId,
   distanceToStroke,
+  isAnnotationColor,
   sha256Hex,
   simplifyAnnotationPoints,
   type AnnotationColor,
@@ -19,7 +21,6 @@ interface ExamAnnotationLayerProps {
   surface: AnnotationSurface;
   contentFingerprint: string;
   tool: AnnotationTool | null;
-  color: AnnotationColor;
   record?: StoredQuestionAnnotation;
   onAppendStroke: (
     surface: AnnotationSurface,
@@ -90,6 +91,15 @@ function pointFromClient(target: SVGSVGElement, clientX: number, clientY: number
   ];
 }
 
+function readPreferredAnnotationColor(): AnnotationColor {
+  try {
+    const saved = window.localStorage.getItem(ANNOTATION_COLOR_STORAGE_KEY);
+    return isAnnotationColor(saved) ? saved : DEFAULT_ANNOTATION_COLOR;
+  } catch {
+    return DEFAULT_ANNOTATION_COLOR;
+  }
+}
+
 function pencilPath(points: AnnotationPoint[]): string {
   if (points.length === 0) return '';
   const scaled = points.map(([x, y]) => [x * 1000, y * 1000] as const);
@@ -117,7 +127,6 @@ export function ExamAnnotationLayer({
   surface,
   contentFingerprint,
   tool,
-  color,
   record,
   onAppendStroke,
   onEraseStroke,
@@ -218,11 +227,11 @@ export function ExamAnnotationLayer({
       tool,
       width: tool === 'highlighter' ? 16 : 2.5,
       points: [point],
-      color,
+      color: readPreferredAnnotationColor(),
     };
     inProgressRef.current = stroke;
     setInProgress(stroke);
-  }, [color, contentHash, eraseAt, strictInkMode, toPoint, tool]);
+  }, [contentHash, eraseAt, strictInkMode, toPoint, tool]);
 
   const handlePointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (event.pointerType === 'touch') {
