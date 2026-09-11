@@ -71,6 +71,7 @@ export function useWindowedExamSession({
     if (count <= 0 || start >= ids.length) return [];
 
     const requestedEnd = Math.min(ids.length, start + Math.min(5, count));
+    const requestedCount = requestedEnd - start;
     const mode: 'active' | 'review' = reviewMode ? 'review' : 'active';
     const accessToken = windowAccessTokenRef.current;
 
@@ -79,78 +80,73 @@ export function useWindowedExamSession({
       .map((id) => questionsByIdRef.current[id])
       .filter((question): question is ExamClientQuestion => Boolean(question));
 
-    if (cachedRequested().length === requestedEnd - start) return cachedRequested();
+    while (cachedRequested().length < requestedCount) {
+      // Exact single-flight is not enough: navigation can request [4..7] while
+      // prefetch already owns [3..5]. Await any overlapping range with the same
+      // signed capability, then re-check cache before issuing more network work.
+      const overlapping = [...inFlightWindowsRef.current.values()].filter((entry) =>
+        entry.mode === mode &&
+        entry.accessToken === accessToken &&
+        entry.start < requestedEnd &&
+        entry.end > start,
+      );
+      if (overlapping.length > 0) {
+        await Promise.allSettled(overlapping.map((entry) => entry.promise));
+        if (cachedRequested().length >= requestedCount) break;
+      }
 
-    // An exact single-flight map is not enough: navigation can request [4..7]
-    // while prefetch already owns [3..5]. Await any overlapping range with the
-    // same capability first, then re-check the cache and fetch only the remainder.
-    // This also keeps fresh active-window disclosure requests serialized around
-    // their overlap instead of amplifying quota/security work under rapid clicks.
-    const overlapping = [...inFlightWindowsRef.current.values()].filter((entry) =>
-      entry.mode === mode &&
-      entry.accessToken === accessToken &&
-      entry.start < requestedEnd &&
-      entry.end > start,
-    );
-    if (overlapping.length > 0) {
-      await Promise.allSettled(overlapping.map((entry) => entry.promise));
-      if (cachedRequested().length === requestedEnd - start) return cachedRequested();
+      let firstMissing = start;
+      while (firstMissing < requestedEnd && questionsByIdRef.current[ids[firstMissing]]) {
+        firstMissing += 1;
+      }
+      if (firstMissing >= requestedEnd) break;
+
+      let fetchEnd = firstMissing + 1;
+      while (
+        fetchEnd < requestedEnd &&
+        !questionsByIdRef.current[ids[fetchEnd]] &&
+        fetchEnd - firstMissing < 5
+      ) {
+        fetchEnd += 1;
+      }
+      const fetchCount = fetchEnd - firstMissing;
+      const key = `${mode}:${firstMissing}:${fetchCount}:${accessToken || 'auth'}`;
+      const exact = inFlightWindowsRef.current.get(key);
+      if (exact) {
+        await exact.promise;
+        continue;
+      }
+
+      const request = (async () => {
+        const questions = reviewMode
+          ? await getCompletedExamReviewWindowDirect(sessionId, firstMissing, fetchCount, accessToken)
+          : await getExamSessionWindowDirect(sessionId, firstMissing, fetchCount, accessToken);
+        addQuestions(questions);
+        return questions;
+      })();
+
+      const entry: InFlightWindow = {
+        mode,
+        start: firstMissing,
+        end: fetchEnd,
+        accessToken,
+        promise: request,
+      };
+      inFlightWindowsRef.current.set(key, entry);
+      void request
+        .finally(() => {
+          if (inFlightWindowsRef.current.get(key) === entry) {
+            inFlightWindowsRef.current.delete(key);
+          }
+        })
+        .catch(() => undefined);
+
+      const fetched = await request;
+      if (fetched.length === 0 && !questionsByIdRef.current[ids[firstMissing]]) {
+        throw new Error('Exam window did not return the requested question.');
+      }
     }
 
-    let firstMissing = start;
-    while (firstMissing < requestedEnd && questionsByIdRef.current[ids[firstMissing]]) {
-      firstMissing += 1;
-    }
-    if (firstMissing >= requestedEnd) return cachedRequested();
-
-    let fetchEnd = firstMissing + 1;
-    while (
-      fetchEnd < requestedEnd &&
-      !questionsByIdRef.current[ids[fetchEnd]] &&
-      fetchEnd - firstMissing < 5
-    ) {
-      fetchEnd += 1;
-    }
-    const fetchCount = fetchEnd - firstMissing;
-    const key = `${mode}:${firstMissing}:${fetchCount}:${accessToken || 'auth'}`;
-    const exact = inFlightWindowsRef.current.get(key);
-    if (exact) {
-      await exact.promise;
-      return cachedRequested();
-    }
-
-    const request = (async () => {
-      const questions = reviewMode
-        ? await getCompletedExamReviewWindowDirect(sessionId, firstMissing, fetchCount, accessToken)
-        : await getExamSessionWindowDirect(sessionId, firstMissing, fetchCount, accessToken);
-      addQuestions(questions);
-      return questions;
-    })();
-
-    const entry: InFlightWindow = {
-      mode,
-      start: firstMissing,
-      end: fetchEnd,
-      accessToken,
-      promise: request,
-    };
-    inFlightWindowsRef.current.set(key, entry);
-    void request
-      .finally(() => {
-        if (inFlightWindowsRef.current.get(key) === entry) {
-          inFlightWindowsRef.current.delete(key);
-        }
-      })
-      .catch(() => undefined);
-
-    await request;
-
-    // A cached island may have split the original range. Finish only the still
-    // missing suffix; recursive calls see the updated cache and cannot refetch the
-    // range that just completed.
-    if (cachedRequested().length < requestedEnd - start) {
-      await loadWindow(start, requestedEnd - start);
-    }
     return cachedRequested();
   }, [addQuestions, reviewMode, sessionId]);
 
