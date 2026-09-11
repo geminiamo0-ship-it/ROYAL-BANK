@@ -51,6 +51,7 @@ interface WindowedExamQuestionPaneProps {
   onSelectOption: (questionId: number, option: ExamClientOption) => void;
   onToggleStrikeOut: (optionId: number) => void;
   onSubmitAnswer: () => void;
+  onRetrySave: () => void;
   onRetryFeedback: () => void;
   onNext: () => void;
   onExplanationClick: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -83,6 +84,7 @@ export function WindowedExamQuestionPane({
   onSelectOption,
   onToggleStrikeOut,
   onSubmitAnswer,
+  onRetrySave,
   onRetryFeedback,
   onNext,
   onExplanationClick,
@@ -141,7 +143,7 @@ export function WindowedExamQuestionPane({
             disabled={!selectedOptionId || isSaving || isSubmitting}
             className="inline-flex h-[34px] items-center rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {isSaving ? 'Preparing feedback...' : canRetrySave ? 'Retry answer' : 'Submit answer'}
+            {isSaving ? 'Preparing feedback...' : 'Submit answer'}
           </button>
           {!selectedOptionId ? (
             <span className="text-[12px] text-[#a8aeb4]">Choose one option first.</span>
@@ -161,7 +163,7 @@ export function WindowedExamQuestionPane({
           {canRetrySave && !isSaving ? (
             <button
               type="button"
-              onClick={onSubmitAnswer}
+              onClick={onRetrySave}
               disabled={isSubmitting}
               className="rounded-[3px] border border-[#6f7680] px-2 py-1 text-[#d9dce0] hover:border-[#9aa1aa] disabled:opacity-45"
             >
