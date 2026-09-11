@@ -48,8 +48,18 @@ BEGIN
         v_deadline := NULL;
     END IF;
 
-    v_payload := jsonb_set(v_payload, '{session,started_at}', to_jsonb(v_session.started_at), true);
-    v_payload := jsonb_set(v_payload, '{session,deadline_at}', to_jsonb(v_deadline), true);
+    v_payload := jsonb_set(
+        v_payload,
+        '{session,started_at}',
+        COALESCE(to_jsonb(v_session.started_at), 'null'::jsonb),
+        true
+    );
+    v_payload := jsonb_set(
+        v_payload,
+        '{session,deadline_at}',
+        COALESCE(to_jsonb(v_deadline), 'null'::jsonb),
+        true
+    );
     v_payload := jsonb_set(v_payload, '{server_now}', to_jsonb(clock_timestamp()), true);
 
     RETURN v_payload;
