@@ -6,7 +6,6 @@ import {
   ArrowRight,
   Calculator,
   ChevronDown,
-  Clock3,
   Eraser,
   Eye,
   Flag,
@@ -20,6 +19,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
+import { ExamClock } from '@/components/exam/ExamClock';
 import { ExamReferenceRanges } from '@/components/exam/ExamReferenceRanges';
 import {
   ANNOTATION_COLOR_STORAGE_KEY,
@@ -28,11 +28,12 @@ import {
   type AnnotationColor,
   type AnnotationTool,
 } from '@/lib/exam-annotations';
-import { formatTime } from '@/lib/utils';
 
 interface ExamHeaderProps {
   currentIndex: number;
-  elapsedSeconds: number;
+  clockStartedAtMs: number | null;
+  clockDeadlineAtMs: number | null;
+  serverClockOffsetMs: number;
   isFlagged: boolean;
   isReviewMode?: boolean;
   questionCount: number;
@@ -202,7 +203,9 @@ function ToolButton({
 
 export function ExamHeader({
   currentIndex,
-  elapsedSeconds,
+  clockStartedAtMs,
+  clockDeadlineAtMs,
+  serverClockOffsetMs,
   isFlagged,
   isReviewMode = false,
   questionCount,
@@ -424,10 +427,11 @@ export function ExamHeader({
             <span>Read only</span>
           </div>
         ) : (
-          <div className="inline-flex h-[30px] shrink-0 items-center gap-2 rounded-[4px] border border-[#5a5f64] bg-[#363636] px-3 text-[12px] text-[#eaeaea]">
-            <Clock3 className="h-3.5 w-3.5 text-[#a7adb3]" />
-            <span className="font-mono">{formatTime(elapsedSeconds)}</span>
-          </div>
+          <ExamClock
+            startedAtMs={clockStartedAtMs}
+            deadlineAtMs={clockDeadlineAtMs}
+            serverClockOffsetMs={serverClockOffsetMs}
+          />
         )}
 
         <div className="ml-auto shrink-0 px-1 text-[10px] text-[#92999f]">
