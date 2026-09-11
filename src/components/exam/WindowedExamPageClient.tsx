@@ -7,6 +7,7 @@ import { WindowedExamQuestionPane } from '@/components/exam/WindowedExamQuestion
 import { WindowedExamSidebarWidgets } from '@/components/exam/WindowedExamSidebarWidgets';
 import { useExamConceptBookmark } from '@/components/exam/useExamConceptBookmark';
 import { useExamKeyboardShortcuts } from '@/components/exam/useExamKeyboardShortcuts';
+import { useQuestionAnnotations } from '@/components/exam/useQuestionAnnotations';
 import { useWindowedExamSession } from '@/components/exam/useWindowedExamSession';
 import {
   completeExamSessionDirect,
@@ -16,6 +17,7 @@ import {
   submitExamAnswerDirect,
   submitExamAnswerWithFeedbackDirect,
 } from '@/lib/exam-client-api';
+import type { AnnotationTool } from '@/lib/exam-annotations';
 import { prepareQuestionStemHtml, rewriteExamMediaHtml } from '@/lib/exam-html';
 import { extractExplanationPanels } from '@/lib/explanation-panels';
 import type {
@@ -35,6 +37,9 @@ export function WindowedExamPageClient({
   reviewMode = false,
 }: WindowedExamPageClientProps) {
   const router = useRouter();
+  const examRootRef = useRef<HTMLDivElement>(null);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>({});
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(new Set());
@@ -45,6 +50,9 @@ export function WindowedExamPageClient({
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedbackByQuestionId, setFeedbackByQuestionId] = useState<Record<number, ExamQuestionFeedback>>({});
+  const [annotationTool, setAnnotationTool] = useState<AnnotationTool | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [sidebarStickyTop, setSidebarStickyTop] = useState(0);
 
   const answerSaveChains = useRef<Record<number, Promise<void>>>({});
   const flagSaveChains = useRef<Record<number, Promise<void>>>({});
@@ -81,6 +89,21 @@ export function WindowedExamPageClient({
     onError: reportPersistenceError,
   });
 
+  const {
+    records: annotationRecords,
+    isLoading: annotationLoading,
+    isSaving: annotationSaving,
+    error: annotationError,
+    canUndo: canUndoAnnotation,
+    canRedo: canRedoAnnotation,
+    appendStroke: appendAnnotationStroke,
+    eraseStroke: eraseAnnotationStroke,
+    undo: undoAnnotation,
+    redo: redoAnnotation,
+    clearAll: clearAllAnnotations,
+    flush: flushAnnotations,
+  } = useQuestionAnnotations(currentQ?.id || null);
+
   const isReviewMode = reviewMode && session?.is_completed === true;
   const sessionType = String(session?.session_type || 'standard');
   const isTimedSession = sessionType === 'timed' || sessionType === 'fixed_timed';
@@ -91,6 +114,57 @@ export function WindowedExamPageClient({
     isBookmarked: isCurrentConceptBookmarked,
     toggleBookmark: toggleConceptBookmark,
   } = useExamConceptBookmark(currentQ);
+
+  useEffect(() => {
+    mainScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [currentQ?.id]);
+
+  useEffect(() => {
+    const scrollContainer = mainScrollRef.current;
+    const sidebar = sidebarRef.current;
+    if (!scrollContainer || !sidebar) return;
+
+    const updateStickyTop = () => {
+      const availableHeight = scrollContainer.clientHeight;
+      const sidebarHeight = sidebar.scrollHeight;
+      setSidebarStickyTop(Math.min(0, availableHeight - sidebarHeight - 12));
+    };
+
+    updateStickyTop();
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(updateStickyTop);
+    observer.observe(scrollContainer);
+    observer.observe(sidebar);
+    window.addEventListener('resize', updateStickyTop);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateStickyTop);
+    };
+  }, [currentQ?.id]);
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setIsFullscreen(document.fullscreenElement === examRootRef.current);
+    };
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    syncFullscreenState();
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (examRootRef.current) {
+        await examRootRef.current.requestFullscreen();
+      }
+      setPersistenceError(null);
+    } catch (error) {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to change full-screen mode.');
+    }
+  }, []);
 
   const queueTimedAnswerSave = useCallback((answer: ExamClientAnswer) => {
     if (answer.selectedOptionId == null) return;
@@ -221,9 +295,45 @@ export function WindowedExamPageClient({
     }
   }, [answers, isReviewMode, isTimedMode, sessionId]);
 
+  const handleNext = useCallback(async () => {
+    try {
+      await flushAnnotations();
+      setPersistenceError(null);
+      goNext();
+    } catch (error) {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to save annotations before moving on.');
+    }
+  }, [flushAnnotations, goNext]);
+
+  const handlePrev = useCallback(async () => {
+    try {
+      await flushAnnotations();
+      setPersistenceError(null);
+      goPrev();
+    } catch (error) {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to save annotations before moving back.');
+    }
+  }, [flushAnnotations, goPrev]);
+
+  const handleClearAnnotations = useCallback(async () => {
+    if (!currentQ) return;
+    if (!window.confirm('Clear all pencil and highlighter marks for this question?')) return;
+    try {
+      await clearAllAnnotations();
+      setPersistenceError(null);
+    } catch (error) {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to clear annotations.');
+    }
+  }, [clearAllAnnotations, currentQ]);
+
   const handleSuspend = useCallback(async () => {
     if (isReviewMode) {
-      router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
+      try {
+        await flushAnnotations();
+        router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
+      } catch (error) {
+        setPersistenceError(error instanceof Error ? error.message : 'Unable to save annotations before leaving review.');
+      }
       return;
     }
 
@@ -232,6 +342,7 @@ export function WindowedExamPageClient({
     setIsSubmitting(true);
     setPersistenceError(null);
     try {
+      await flushAnnotations();
       await flushTimedAnswers();
       await Promise.all(Object.values(flagSaveChains.current));
       router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
@@ -239,11 +350,16 @@ export function WindowedExamPageClient({
       setPersistenceError(error instanceof Error ? error.message : 'Unable to suspend the block safely.');
       setIsSubmitting(false);
     }
-  }, [bankId, flushTimedAnswers, isReviewMode, router]);
+  }, [bankId, flushAnnotations, flushTimedAnswers, isReviewMode, router]);
 
   const handleEndBlock = useCallback(async (forceSubmit = false) => {
     if (isReviewMode) {
-      router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
+      try {
+        await flushAnnotations();
+        router.push(bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard');
+      } catch (error) {
+        setPersistenceError(error instanceof Error ? error.message : 'Unable to save annotations before leaving review.');
+      }
       return;
     }
 
@@ -254,6 +370,7 @@ export function WindowedExamPageClient({
     setIsSubmitting(true);
     setPersistenceError(null);
     try {
+      await flushAnnotations();
       await flushTimedAnswers();
       await Promise.all(Object.values(flagSaveChains.current));
       await completeExamSessionDirect(sessionId);
@@ -262,7 +379,7 @@ export function WindowedExamPageClient({
       setPersistenceError(error instanceof Error ? error.message : 'Unable to complete the block.');
       setIsSubmitting(false);
     }
-  }, [bankId, flushTimedAnswers, isReviewMode, router, sessionId]);
+  }, [bankId, flushAnnotations, flushTimedAnswers, isReviewMode, router, sessionId]);
 
   useEffect(() => {
     if (isReviewMode) return;
@@ -290,8 +407,8 @@ export function WindowedExamPageClient({
     question: currentQ,
     isSubmitting,
     isTimedMode,
-    onNext: goNext,
-    onPrev: goPrev,
+    onNext: () => void handleNext(),
+    onPrev: () => void handlePrev(),
     onToggleFlag: toggleFlag,
     onSelectOption: selectOption,
     onSubmitAnswer: (questionId) => {
@@ -344,7 +461,7 @@ export function WindowedExamPageClient({
 
   if (isBootstrapping) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#282828] text-[#d9dce0]">
+      <div className="flex h-dvh items-center justify-center overflow-hidden bg-[#282828] text-[#d9dce0]">
         <p className="animate-pulse text-[12px] font-medium">{reviewMode ? 'Loading review...' : 'Loading question...'}</p>
       </div>
     );
@@ -352,7 +469,7 @@ export function WindowedExamPageClient({
 
   if (!session || questionIds.length === 0) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#282828] text-[#ff7a86]">
+      <div className="flex h-dvh items-center justify-center overflow-hidden bg-[#282828] text-[#ff7a86]">
         <p className="text-[12px] font-medium">{persistenceError || 'No questions matched this session.'}</p>
       </div>
     );
@@ -360,7 +477,7 @@ export function WindowedExamPageClient({
 
   if (!currentQ) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#282828] text-[#d9dce0]">
+      <div className="flex h-dvh items-center justify-center overflow-hidden bg-[#282828] text-[#d9dce0]">
         <p className="animate-pulse text-[12px] font-medium">
           {loadingQuestionIndex == null ? 'Preparing question...' : `Preparing question ${loadingQuestionIndex + 1}...`}
         </p>
@@ -381,6 +498,7 @@ export function WindowedExamPageClient({
   const conceptHtml = explanationPanels.conceptHtml
     ? rewriteExamMediaHtml(explanationPanels.conceptHtml, mediaUrl)
     : null;
+  const visiblePersistenceError = persistenceError || annotationError;
 
   const handleExplanationClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -396,7 +514,7 @@ export function WindowedExamPageClient({
   };
 
   return (
-    <div className="min-h-screen bg-[#282828] text-white">
+    <div ref={examRootRef} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#282828] text-white">
       <ExamHeader
         currentIndex={currentIndex}
         elapsedSeconds={
@@ -408,58 +526,86 @@ export function WindowedExamPageClient({
         isReviewMode={isReviewMode}
         questionCount={questionIds.length}
         showClues={showClues}
+        annotationTool={annotationTool}
+        annotationLoading={annotationLoading}
+        annotationSaving={annotationSaving}
+        canUndoAnnotation={canUndoAnnotation}
+        canRedoAnnotation={canRedoAnnotation}
+        isFullscreen={isFullscreen}
         onSuspend={() => void handleSuspend()}
         onEndBlock={() => void handleEndBlock()}
-        onNext={goNext}
-        onPrev={goPrev}
+        onNext={() => void handleNext()}
+        onPrev={() => void handlePrev()}
         onToggleClues={() => setShowClues((value) => !value)}
         onToggleFlag={() => toggleFlag(currentQ.id)}
+        onAnnotationToolChange={setAnnotationTool}
+        onUndoAnnotation={undoAnnotation}
+        onRedoAnnotation={redoAnnotation}
+        onClearAnnotations={() => void handleClearAnnotations()}
+        onToggleFullscreen={() => void toggleFullscreen()}
       />
 
-      {persistenceError ? (
-        <div className="mx-auto mt-3 max-w-[1240px] rounded-[4px] border border-[#95413d] bg-[#3a2d2c] px-3 py-2 text-[12px] text-[#ffd4ce]">
-          {persistenceError}
+      {visiblePersistenceError ? (
+        <div className="mx-auto mt-2 w-[calc(100%-2rem)] max-w-[1240px] shrink-0 rounded-[4px] border border-[#95413d] bg-[#3a2d2c] px-3 py-2 text-[12px] text-[#ffd4ce]">
+          {visiblePersistenceError}
         </div>
       ) : null}
 
-      <main className="mx-auto grid max-w-[1240px] gap-6 px-4 pb-12 pt-4 lg:grid-cols-[minmax(0,1fr)_476px]">
-        <WindowedExamQuestionPane
-          question={currentQ}
-          currentIndex={currentIndex}
-          questionCount={questionIds.length}
-          questionHtml={currentHtml}
-          explanationHtml={explanationPanels.contentHtml}
-          hasFeedback={Boolean(currentFeedback)}
-          showClues={showClues}
-          isAnswered={isAnswered}
-          isReviewMode={isReviewMode}
-          isTimedMode={isTimedMode}
-          selectedOptionId={selectedOptionId}
-          struckOutOptionIds={struckOutOptionIds}
-          submittedAnswer={currentAnswer}
-          correctOptionId={correctOptionId}
-          optionPercentages={optionPercentages}
-          isSaving={savingQuestionIds.has(currentQ.id)}
-          isSubmitting={isSubmitting}
-          onSelectOption={selectOption}
-          onToggleStrikeOut={toggleStrikeOut}
-          onSubmitAnswer={() => void submitAnswer(currentQ.id)}
-          onNext={goNext}
-          onExplanationClick={handleExplanationClick}
-        />
+      <div
+        ref={mainScrollRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+      >
+        <main className="mx-auto grid w-full max-w-[1240px] gap-6 px-4 pb-12 pt-3 lg:grid-cols-[minmax(0,1fr)_476px]">
+          <div className="min-w-0">
+            <WindowedExamQuestionPane
+              question={currentQ}
+              currentIndex={currentIndex}
+              questionCount={questionIds.length}
+              questionHtml={currentHtml}
+              explanationHtml={explanationPanels.contentHtml}
+              hasFeedback={Boolean(currentFeedback)}
+              showClues={showClues}
+              isAnswered={isAnswered}
+              isReviewMode={isReviewMode}
+              isTimedMode={isTimedMode}
+              selectedOptionId={selectedOptionId}
+              struckOutOptionIds={struckOutOptionIds}
+              submittedAnswer={currentAnswer}
+              correctOptionId={correctOptionId}
+              optionPercentages={optionPercentages}
+              isSaving={savingQuestionIds.has(currentQ.id)}
+              isSubmitting={isSubmitting}
+              annotationTool={annotationTool}
+              annotationRecords={annotationRecords}
+              onAppendAnnotationStroke={appendAnnotationStroke}
+              onEraseAnnotationStroke={eraseAnnotationStroke}
+              onSelectOption={selectOption}
+              onToggleStrikeOut={toggleStrikeOut}
+              onSubmitAnswer={() => void submitAnswer(currentQ.id)}
+              onNext={() => void handleNext()}
+              onExplanationClick={handleExplanationClick}
+            />
+          </div>
 
-        <WindowedExamSidebarWidgets
-          answers={answers}
-          answeredCount={answeredCount}
-          bankId={bankId}
-          currentIndex={currentIndex}
-          isTimedMode={isTimedMode}
-          marks={marks}
-          question={currentQ}
-          questionIds={questionIds}
-          sidebarHtml={isAnswered && !isTimedMode ? explanationPanels.sidebarHtml : null}
-        />
-      </main>
+          <div
+            ref={sidebarRef}
+            className="hidden self-start lg:sticky lg:block"
+            style={{ top: sidebarStickyTop }}
+          >
+            <WindowedExamSidebarWidgets
+              answers={answers}
+              answeredCount={answeredCount}
+              bankId={bankId}
+              currentIndex={currentIndex}
+              isTimedMode={isTimedMode}
+              marks={marks}
+              question={currentQ}
+              questionIds={questionIds}
+              sidebarHtml={isAnswered && !isTimedMode ? explanationPanels.sidebarHtml : null}
+            />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
