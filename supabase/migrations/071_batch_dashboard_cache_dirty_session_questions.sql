@@ -59,7 +59,7 @@ BEGIN
         ts.question_bank_id,
         '{}'::jsonb,
         TRUE,
-        NULL,
+        NULL::date,
         timezone('utc'::text, now())
     FROM public.test_sessions ts
     WHERE ts.id = ANY(p_session_ids)
