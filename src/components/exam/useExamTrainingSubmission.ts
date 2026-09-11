@@ -23,6 +23,12 @@ type AnswerQueue = {
 type MutableBooleanRef = { current: boolean };
 type MutableQuestionSetRef = { current: Set<number> };
 
+type AcceptedOperation = {
+  questionId: number;
+  selectedOptionId: number;
+  timeSpentSeconds: number;
+};
+
 function feedbackFromTraining(
   training: ExamTrainingFeedback,
   selectedOptionId: number,
@@ -34,6 +40,15 @@ function feedbackFromTraining(
     correctOptionId: training.correctOptionId,
     explanationHtml: training.explanationHtml,
     optionPercentages: training.optionPercentages,
+  };
+}
+
+function operationFromAnswer(answer: ExamClientAnswer | undefined): AcceptedOperation | null {
+  if (!answer?.selectedOptionId) return null;
+  return {
+    questionId: answer.questionId,
+    selectedOptionId: answer.selectedOptionId,
+    timeSpentSeconds: answer.timeSpentSeconds,
   };
 }
 
@@ -81,6 +96,7 @@ export function useExamTrainingSubmission(options: {
   } = options;
   const [revealingQuestionIds, setRevealingQuestionIds] = useState<Set<number>>(new Set());
   const lastRecoveredAnswerRef = useRef<string | null>(null);
+  const acceptedOperationsRef = useRef(new Map<number, AcceptedOperation>());
 
   const {
     feedbackByQuestionId: trainingFeedbackByQuestionId,
@@ -88,39 +104,52 @@ export function useExamTrainingSubmission(options: {
     retry: retryTrainingFeedback,
   } = useExamTrainingFeedback({ sessionId, enabled, warmQuestionIds });
 
+  useEffect(() => {
+    acceptedOperationsRef.current.clear();
+    lastRecoveredAnswerRef.current = null;
+  }, [sessionId]);
+
+  const getAcceptedOperation = useCallback((questionId: number): AcceptedOperation | null => {
+    const pinned = acceptedOperationsRef.current.get(questionId);
+    if (pinned) return pinned;
+    const fromAnswer = operationFromAnswer(answers[questionId]);
+    if (fromAnswer) acceptedOperationsRef.current.set(questionId, fromAnswer);
+    return fromAnswer;
+  }, [answers]);
+
   const applyTrainingFeedback = useCallback((
-    questionId: number,
-    selectedOptionId: number,
-    timeSpentSeconds: number,
+    operation: AcceptedOperation,
     training: ExamTrainingFeedback,
   ) => {
-    const feedback = feedbackFromTraining(training, selectedOptionId);
+    const feedback = feedbackFromTraining(training, operation.selectedOptionId);
     setAnswers((previous) => ({
       ...previous,
-      [questionId]: {
-        questionId,
-        selectedOptionId,
+      [operation.questionId]: {
+        questionId: operation.questionId,
+        selectedOptionId: operation.selectedOptionId,
         isCorrect: feedback.isCorrect,
         correctOptionId: feedback.correctOptionId,
-        timeSpentSeconds,
+        timeSpentSeconds: operation.timeSpentSeconds,
       },
     }));
-    setFeedbackByQuestionId((previous) => ({ ...previous, [questionId]: feedback }));
+    setFeedbackByQuestionId((previous) => ({
+      ...previous,
+      [operation.questionId]: feedback,
+    }));
     queuePrefetch(3);
   }, [queuePrefetch, setAnswers, setFeedbackByQuestionId]);
 
   const revealTrainingFeedback = useCallback(async (
-    questionId: number,
-    selectedOptionId: number,
-    timeSpentSeconds: number,
+    operation: AcceptedOperation,
     retry = false,
   ) => {
+    const { questionId } = operation;
     setRevealingQuestionIds((previous) => new Set(previous).add(questionId));
     setPersistenceError(null);
     try {
       const training = trainingFeedbackByQuestionId[questionId]
         || await (retry ? retryTrainingFeedback(questionId) : ensureTrainingFeedback(questionId));
-      applyTrainingFeedback(questionId, selectedOptionId, timeSpentSeconds, training);
+      applyTrainingFeedback(operation, training);
     } catch (error) {
       setPersistenceError(error instanceof Error ? error.message : 'Unable to prepare answer feedback.');
     } finally {
@@ -132,24 +161,19 @@ export function useExamTrainingSubmission(options: {
     }
   }, [applyTrainingFeedback, ensureTrainingFeedback, retryTrainingFeedback, setPersistenceError, trainingFeedbackByQuestionId]);
 
+  const retrySave = useCallback((questionId: number) => {
+    if (isReviewMode || isSubmitting || closingRef.current) return;
+    if (!answerQueue.failedQuestionIds.has(questionId)) return;
+    setPersistenceError(null);
+    // Persistence retry is deliberately mode-agnostic. Timed/fixed_timed answers
+    // can recover their exact pending write without invoking any feedback path.
+    void answerQueue.retryPending(questionId).catch(() => undefined);
+  }, [answerQueue, closingRef, isReviewMode, isSubmitting, setPersistenceError]);
+
   const submitAnswer = useCallback((questionId: number) => {
     if (isReviewMode || isFeedbackLockedMode || isSubmitting || closingRef.current) return;
-
-    const retryingSave = answerQueue.failedQuestionIds.has(questionId);
-    if (retryingSave) {
-      const selectedOptionId = answers[questionId]?.selectedOptionId ?? pendingSelections[questionId];
-      if (!selectedOptionId) return;
-
-      setPersistenceError(null);
-      void answerQueue.retryPending(questionId).catch(() => undefined);
-      if (!feedbackByQuestionId[questionId]) {
-        const timeSpentSeconds = answers[questionId]?.timeSpentSeconds ?? elapsedForQuestion(questionId);
-        void revealTrainingFeedback(questionId, selectedOptionId, timeSpentSeconds, true);
-      }
-      return;
-    }
-
     if (answers[questionId] || acceptedSubmissionIdsRef.current.has(questionId)) return;
+
     const selectedOptionId = pendingSelections[questionId];
     if (!selectedOptionId) return;
 
@@ -157,53 +181,59 @@ export function useExamTrainingSubmission(options: {
     const option = question?.options?.find((item) => item.id === selectedOptionId);
     if (!option) return;
 
-    acceptedSubmissionIdsRef.current.add(questionId);
-    const timeSpentSeconds = elapsedForQuestion(questionId);
-    void answerQueue.enqueue({
+    const operation: AcceptedOperation = {
       questionId,
       selectedOptionId: option.id,
-      timeSpentSeconds,
-    }).catch(() => undefined);
-    void revealTrainingFeedback(questionId, option.id, timeSpentSeconds);
-  }, [acceptedSubmissionIdsRef, answerQueue, answers, closingRef, elapsedForQuestion, feedbackByQuestionId, getQuestionById, isFeedbackLockedMode, isReviewMode, isSubmitting, pendingSelections, revealTrainingFeedback, setPersistenceError]);
+      timeSpentSeconds: elapsedForQuestion(questionId),
+    };
 
-  const retryFeedback = useCallback((
-    questionId: number,
-    selectedOptionId: number,
-    timeSpentSeconds: number,
-  ) => {
-    void revealTrainingFeedback(questionId, selectedOptionId, timeSpentSeconds, true);
-  }, [revealTrainingFeedback]);
+    // Acceptance freezes the training selection immediately. Saving and feedback
+    // both consume this same immutable operation, so later UI changes cannot make
+    // the displayed correction disagree with the idempotent write being retried.
+    acceptedSubmissionIdsRef.current.add(questionId);
+    acceptedOperationsRef.current.set(questionId, operation);
+    setAnswers((previous) => ({
+      ...previous,
+      [questionId]: {
+        questionId,
+        selectedOptionId: operation.selectedOptionId,
+        isCorrect: null,
+        correctOptionId: null,
+        timeSpentSeconds: operation.timeSpentSeconds,
+      },
+    }));
+
+    void answerQueue.enqueue(operation).catch(() => undefined);
+    void revealTrainingFeedback(operation);
+  }, [acceptedSubmissionIdsRef, answerQueue, answers, closingRef, elapsedForQuestion, getQuestionById, isFeedbackLockedMode, isReviewMode, isSubmitting, pendingSelections, revealTrainingFeedback, setAnswers]);
+
+  const retryFeedback = useCallback((questionId: number) => {
+    if (isReviewMode || isFeedbackLockedMode || isSubmitting || closingRef.current) return;
+    if (feedbackByQuestionId[questionId]) return;
+    const operation = getAcceptedOperation(questionId);
+    if (!operation) return;
+    void revealTrainingFeedback(operation, true);
+  }, [closingRef, feedbackByQuestionId, getAcceptedOperation, isFeedbackLockedMode, isReviewMode, isSubmitting, revealTrainingFeedback]);
 
   useEffect(() => {
     if (!currentQuestionId || isReviewMode || !enabled) return;
     const answer = answers[currentQuestionId];
-    if (!answer?.selectedOptionId || feedbackByQuestionId[currentQuestionId]) return;
+    const operation = operationFromAnswer(answer);
+    if (!operation || feedbackByQuestionId[currentQuestionId]) return;
+    acceptedOperationsRef.current.set(currentQuestionId, operation);
 
-    const recoveryKey = `${currentQuestionId}:${answer.selectedOptionId}:${answer.timeSpentSeconds}`;
+    const recoveryKey = `${operation.questionId}:${operation.selectedOptionId}:${operation.timeSpentSeconds}`;
     const prefetched = trainingFeedbackByQuestionId[currentQuestionId];
     if (prefetched) {
       lastRecoveredAnswerRef.current = recoveryKey;
-      applyTrainingFeedback(
-        currentQuestionId,
-        answer.selectedOptionId,
-        answer.timeSpentSeconds,
-        prefetched,
-      );
+      applyTrainingFeedback(operation, prefetched);
       return;
     }
 
     if (lastRecoveredAnswerRef.current === recoveryKey) return;
     lastRecoveredAnswerRef.current = recoveryKey;
     void ensureTrainingFeedback(currentQuestionId)
-      .then((training) => {
-        applyTrainingFeedback(
-          currentQuestionId,
-          answer.selectedOptionId as number,
-          answer.timeSpentSeconds,
-          training,
-        );
-      })
+      .then((training) => applyTrainingFeedback(operation, training))
       .catch((error) => {
         // Scheduled retries remain owned by useExamTrainingFeedback. This error is
         // surfaced once without creating a render-driven retry loop here.
@@ -214,6 +244,7 @@ export function useExamTrainingSubmission(options: {
   return {
     revealingQuestionIds,
     submitAnswer,
+    retrySave,
     retryFeedback,
   };
 }
