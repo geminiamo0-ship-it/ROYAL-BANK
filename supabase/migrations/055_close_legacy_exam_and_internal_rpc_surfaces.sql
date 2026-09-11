@@ -57,10 +57,12 @@ BEGIN
 END;
 $$;
 
--- Legacy exam RPCs predate the Royal gateway. Current main uses the bootstrap,
--- window, review, submit, feedback, flag and complete RPCs through /api/exam.
--- Leaving these names browser-callable would bypass gateway rate limiting and
--- request proof enforcement even though their bodies still perform user checks.
+-- Legacy exam RPCs are still exercised by low-level database behavior tests and
+-- by internal compatibility paths, so retain authenticated SQL EXECUTE. They
+-- must never be callable directly through PostgREST: extend the same pre-request
+-- gateway enforcement used by the current exam RPCs to cover the legacy names.
+-- pg_graphql is not enabled in production, so PostgREST is the exposed function
+-- API surface for these RPCs.
 DO $$
 DECLARE
     fn record;
@@ -72,8 +74,79 @@ BEGIN
         WHERE n.nspname = 'public'
           AND p.proname IN ('create_exam_session', 'get_exam_session_answers')
     LOOP
-        EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn.signature);
-        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn.signature);
+        EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon', fn.signature);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated, service_role', fn.signature);
     END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION api_hooks.royal_exam_pre_request()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private, pg_catalog, pg_temp
+SET row_security = off
+AS $$
+DECLARE
+    v_cfg private.exam_gateway_config%ROWTYPE;
+    v_path TEXT := NULLIF(current_setting('request.path', TRUE), '');
+    v_method TEXT := UPPER(COALESCE(NULLIF(current_setting('request.method', TRUE), ''), ''));
+    v_headers JSONB := COALESCE(
+        NULLIF(current_setting('request.headers', TRUE), ''),
+        '{}'
+    )::jsonb;
+    v_rpc_name TEXT;
+    v_key_id TEXT;
+    v_key TEXT;
+BEGIN
+    PERFORM set_config('request.royal_gateway_verified', '0', TRUE);
+
+    SELECT * INTO v_cfg
+    FROM private.exam_gateway_config
+    WHERE singleton = TRUE;
+
+    IF NOT FOUND OR NOT v_cfg.enforcement_enabled THEN
+        RETURN;
+    END IF;
+
+    v_rpc_name := substring(COALESCE(v_path, '') FROM '/rpc/([^/?]+)$');
+
+    IF v_rpc_name IS NULL
+       OR v_rpc_name <> ALL (ARRAY[
+            'create_exam_session',
+            'get_exam_session_answers',
+            'create_exam_session_bootstrap',
+            'create_exam_session_bootstrap_idempotent',
+            'get_exam_session_bootstrap',
+            'get_exam_session_window',
+            'get_completed_exam_review_bootstrap',
+            'get_completed_exam_review_window',
+            'get_completed_exam_review_feedback',
+            'submit_exam_answer_with_feedback',
+            'submit_exam_answer',
+            'get_exam_question_feedback',
+            'set_question_flag',
+            'complete_exam_session',
+            'record_exam_gateway_rate_limit_rejection'
+       ]::TEXT[]) THEN
+        RETURN;
+    END IF;
+
+    IF v_method <> 'POST' THEN
+        RAISE SQLSTATE 'PT405'
+            USING MESSAGE = 'Protected exam RPCs require POST';
+    END IF;
+
+    v_key_id := NULLIF(v_headers->>'x-royal-gateway-key-id', '');
+    v_key := NULLIF(v_headers->>'x-royal-gateway-key', '');
+
+    IF v_key_id IS NULL
+       OR v_key IS NULL
+       OR NOT private.is_valid_exam_gateway_key(v_key_id, v_key, clock_timestamp()) THEN
+        RAISE SQLSTATE 'PT403'
+            USING MESSAGE = 'Exam gateway required';
+    END IF;
+
+    PERFORM set_config('request.royal_gateway_verified', '1', TRUE);
 END;
 $$;
