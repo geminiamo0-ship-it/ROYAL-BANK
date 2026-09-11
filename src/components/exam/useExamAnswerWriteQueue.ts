@@ -88,6 +88,7 @@ export function useExamAnswerWriteQueue(options: {
   const pendingWritesRef = useRef<PersistedPendingWrites>({});
   const [savingQuestionIds, setSavingQuestionIds] = useState<Set<number>>(new Set());
   const [confirmedQuestionIds, setConfirmedQuestionIds] = useState<Set<number>>(new Set());
+  const [failedQuestionIds, setFailedQuestionIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const setSaving = useCallback((questionId: number, saving: boolean) => {
@@ -99,19 +100,30 @@ export function useExamAnswerWriteQueue(options: {
     });
   }, []);
 
+  const setFailed = useCallback((questionId: number, failed: boolean) => {
+    setFailedQuestionIds((previous) => {
+      if (failed === previous.has(questionId)) return previous;
+      const next = new Set(previous);
+      if (failed) next.add(questionId);
+      else next.delete(questionId);
+      return next;
+    });
+  }, []);
+
   const persistLatest = useCallback((write: PendingWrite) => {
     pendingWritesRef.current = {
       ...pendingWritesRef.current,
       [String(write.questionId)]: write,
     };
     persistPendingWrites(sessionId, pendingWritesRef.current);
+    setFailed(write.questionId, false);
     setConfirmedQuestionIds((previous) => {
       if (!previous.has(write.questionId)) return previous;
       const next = new Set(previous);
       next.delete(write.questionId);
       return next;
     });
-  }, [sessionId]);
+  }, [sessionId, setFailed]);
 
   const clearIfCurrent = useCallback((write: PendingWrite) => {
     const current = pendingWritesRef.current[String(write.questionId)];
@@ -135,6 +147,7 @@ export function useExamAnswerWriteQueue(options: {
           timeSpentSeconds: write.timeSpentSeconds,
         });
         const wasLatest = clearIfCurrent(write);
+        setFailed(write.questionId, false);
         setError(null);
         if (wasLatest) {
           setConfirmedQuestionIds((previous) => new Set(previous).add(write.questionId));
@@ -148,9 +161,10 @@ export function useExamAnswerWriteQueue(options: {
     }
 
     const message = lastError instanceof Error ? lastError.message : 'Unable to save the answer.';
+    setFailed(write.questionId, true);
     setError(message);
     throw lastError instanceof Error ? lastError : new Error(message);
-  }, [clearIfCurrent, onConfirmed, sessionId]);
+  }, [clearIfCurrent, onConfirmed, sessionId, setFailed]);
 
   const enqueue = useCallback((input: {
     questionId: number;
@@ -184,6 +198,14 @@ export function useExamAnswerWriteQueue(options: {
     return next;
   }, [disabled, executeWrite, persistLatest, setSaving]);
 
+  const retryPending = useCallback((questionId: number): Promise<ExamClientAnswer> => {
+    const pending = pendingWritesRef.current[String(questionId)];
+    if (!pending) return Promise.reject(new Error('No pending answer is available to retry.'));
+    // Re-enqueue the exact persisted operation. Keeping the original UUID and
+    // payload avoids IDEMPOTENCY_KEY_REUSED even if the question timer advanced.
+    return enqueue(pending);
+  }, [enqueue]);
+
   const drain = useCallback(async () => {
     const active = Object.values(chainsRef.current);
     if (active.length > 0) await Promise.all(active);
@@ -209,9 +231,11 @@ export function useExamAnswerWriteQueue(options: {
   return {
     savingQuestionIds,
     confirmedQuestionIds,
+    failedQuestionIds,
     error,
     clearError: () => setError(null),
     enqueue,
+    retryPending,
     drain,
   };
 }
