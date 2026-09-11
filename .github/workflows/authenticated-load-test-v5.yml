@@ -46,7 +46,8 @@ jobs:
           if (res.status !== 200) process.exit(1);
           EOF
       - name: Relax bank-page gate only for 25-user diagnostic phase
-        run: sed -i "s/bank_ms: \['p(95)<2000'\]/bank_ms: ['p(95)<3000']/" scripts/auth-load-k6.js
+        run: |
+          sed -i "s/bank_ms: \['p(95)<2000'\]/bank_ms: ['p(95)<3000']/" scripts/auth-load-k6.js
       - name: Phase B - 25 concurrent real students
         env:
           LOAD_VUS: 25
