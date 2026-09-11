@@ -47,6 +47,7 @@ SET row_security = off
 AS $$
 DECLARE
     v_result json;
+    v_cache_populated boolean := false;
 BEGIN
     IF COALESCE(auth.role(), '') <> 'service_role' THEN
         IF auth.uid() IS NULL THEN
@@ -58,17 +59,38 @@ BEGIN
         END IF;
     END IF;
 
-    -- Keep this overload aligned with the canonical materialized view shape:
-    -- question_bank_id, category, topic, total_questions. The legacy production
-    -- function referenced a non-existent difficulty column and therefore failed
-    -- for otherwise-authorized callers.
-    SELECT json_agg(row_to_json(t))
-    INTO v_result
-    FROM (
-        SELECT category, topic, total_questions
-        FROM public.question_bank_topic_counts
-        WHERE question_bank_id = p_bank_id
-    ) t;
+    -- The canonical materialized view contains question_bank_id, category,
+    -- topic and total_questions. A fresh local/restore rebuild can legitimately
+    -- have the view created WITH NO DATA, so use it only once populated and
+    -- fall back to the canonical source tables otherwise.
+    SELECT c.relispopulated
+    INTO v_cache_populated
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'question_bank_topic_counts'
+      AND c.relkind = 'm';
+
+    IF COALESCE(v_cache_populated, false) THEN
+        SELECT json_agg(row_to_json(t))
+        INTO v_result
+        FROM (
+            SELECT category, topic, total_questions
+            FROM public.question_bank_topic_counts
+            WHERE question_bank_id = p_bank_id
+        ) t;
+    ELSE
+        SELECT json_agg(row_to_json(t))
+        INTO v_result
+        FROM (
+            SELECT q.category, q.topic, COUNT(*)::bigint AS total_questions
+            FROM public.question_bank_questions qbq
+            JOIN public.questions q ON q.id = qbq.question_id
+            WHERE qbq.question_bank_id = p_bank_id
+              AND q.category IS NOT NULL
+            GROUP BY q.category, q.topic
+        ) t;
+    END IF;
 
     RETURN COALESCE(v_result, '[]'::json);
 END;
