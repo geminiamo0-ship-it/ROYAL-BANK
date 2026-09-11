@@ -35,14 +35,24 @@ const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 const RATE_LIMIT_RECORD_TIMEOUT_MS = 1500;
 const EXAM_UPSTREAM_TIMEOUT_MS = 6500;
+const EXAM_REQUEST_BUDGET_MS = 9000;
 
 const RATE_LIMIT_FAIL_OPEN_ACTIONS = new Set<ExamGatewayAction>([
   'submit',
   'submitRaw',
   'feedback',
+  'trainingFeedback',
   'flag',
   'complete',
 ]);
+
+type JsonObject = Record<string, unknown>;
+
+function asJsonObject(value: unknown): JsonObject | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as JsonObject)
+    : null;
+}
 
 function requiresPasswordChange(claims: unknown): boolean {
   if (!claims || typeof claims !== 'object') return false;
@@ -101,6 +111,8 @@ function addServerTiming(
 
 export async function POST(request: Request) {
   const totalServerStart = performance.now();
+  const requestDeadline = totalServerStart + EXAM_REQUEST_BUDGET_MS;
+  const responseRequestId = crypto.randomUUID();
   let bodyParseMs = 0;
   let authMs = 0;
   let rateLimitMs = 0;
@@ -317,6 +329,7 @@ export async function POST(request: Request) {
       const headers = new Headers({
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
+        'x-royal-request-id': responseRequestId,
       });
       addServerTiming(headers, serverTimingEnabled, {
         bodyParseMs,
@@ -341,16 +354,18 @@ export async function POST(request: Request) {
   const legacyRpcName = EXAM_RPC_BY_ACTION[body.action];
   const r2RpcName = r2ContentEnabled ? r2RpcNameForAction(body.action) : null;
   const primaryRpcName = r2RpcName || legacyRpcName;
-  const rpcBody = JSON.stringify(body.args);
 
-  const callRpc = (rpcName: string) =>
-    fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
+  const callRpc = (rpcName: string, args: Record<string, unknown> = body.args) => {
+    const remainingBudget = Math.max(1, Math.floor(requestDeadline - performance.now()));
+    const timeoutMs = Math.max(1, Math.min(EXAM_UPSTREAM_TIMEOUT_MS, remainingBudget));
+    return fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
       method: 'POST',
       cache: 'no-store',
       headers: gatewayHeaders(publishableKey, accessToken, proof),
-      body: rpcBody,
-      signal: AbortSignal.timeout(EXAM_UPSTREAM_TIMEOUT_MS),
+      body: JSON.stringify(args),
+      signal: AbortSignal.timeout(timeoutMs),
     });
+  };
 
   const upstreamFetchStart = performance.now();
   let upstream: Response;
@@ -368,20 +383,73 @@ export async function POST(request: Request) {
   let rawResponseBody = await upstream.text();
   responseReadMs = performance.now() - responseReadStart;
 
-  if (r2RpcName) {
+  // A failed primary RPC is authoritative. Never turn a permission/session error
+  // into another attempt through a different RPC. Content fallback is only for a
+  // successful read whose R2 object could not be hydrated.
+  if (r2RpcName && upstream.ok) {
     let hydratedBody: string | null = null;
 
-    if (upstream.ok) {
-      try {
-        hydratedBody = await hydrateExamR2Response(body.action, rawResponseBody);
-      } catch {
-        hydratedBody = null;
-      }
+    try {
+      hydratedBody = await hydrateExamR2Response(body.action, rawResponseBody);
+    } catch {
+      hydratedBody = null;
     }
 
     if (hydratedBody != null) {
       rawResponseBody = hydratedBody;
+    } else if (body.action === 'submit') {
+      // The mutation has already committed successfully. A missing/slow R2 object
+      // must never cause a second submit. Recover feedback through a read-only RPC;
+      // if that also fails, report the save as successful with feedback pending.
+      let submitResult: JsonObject | null = null;
+      try {
+        submitResult = asJsonObject(JSON.parse(rawResponseBody) as unknown);
+      } catch {
+        submitResult = null;
+      }
+
+      const sessionId = body.args.p_session_id;
+      const questionId = body.args.p_question_id;
+      if (
+        submitResult &&
+        asJsonObject(submitResult.answer) &&
+        typeof sessionId === 'string' &&
+        typeof questionId === 'number'
+      ) {
+        const feedbackFetchStart = performance.now();
+        try {
+          const feedbackResponse = await callRpc(EXAM_RPC_BY_ACTION.feedback, {
+            p_session_id: sessionId,
+            p_question_id: questionId,
+          });
+          upstreamFetchMs += performance.now() - feedbackFetchStart;
+
+          const feedbackReadStart = performance.now();
+          const feedbackBody = await feedbackResponse.text();
+          responseReadMs += performance.now() - feedbackReadStart;
+
+          if (feedbackResponse.ok) {
+            const feedback = JSON.parse(feedbackBody) as unknown;
+            rawResponseBody = JSON.stringify({ ...submitResult, feedback });
+          } else {
+            rawResponseBody = JSON.stringify({
+              ...submitResult,
+              feedback: null,
+              feedback_pending: true,
+            });
+          }
+        } catch {
+          upstreamFetchMs += performance.now() - feedbackFetchStart;
+          rawResponseBody = JSON.stringify({
+            ...submitResult,
+            feedback: null,
+            feedback_pending: true,
+          });
+        }
+      }
     } else {
+      // All remaining R2-enabled actions are reads. They may safely fall back to
+      // the full Postgres read without repeating any mutation.
       const fallbackFetchStart = performance.now();
       try {
         upstream = await callRpc(legacyRpcName);
@@ -415,6 +483,7 @@ export async function POST(request: Request) {
       ? upstream.headers.get('content-type') || 'application/json; charset=utf-8'
       : 'application/json; charset=utf-8',
     'cache-control': 'no-store',
+    'x-royal-request-id': responseRequestId,
   });
 
   const retryAfter = upstream.headers.get('retry-after');
