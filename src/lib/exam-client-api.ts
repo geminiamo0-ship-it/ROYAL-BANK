@@ -22,11 +22,56 @@ import type {
 } from '@/types/exam';
 
 const inFlightExamCreates = new Map<string, Promise<ExamBootstrap>>();
+const CREATE_REQUEST_STORAGE_KEY = 'royal.exam.pending-create-request-ids';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type RawWindowAccessRenewal = {
   window_access_token?: string;
   window_access_expires_at?: number;
 };
+
+function loadCreateRequestIds(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.sessionStorage.getItem(CREATE_REQUEST_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === 'string' && UUID_PATTERN.test(entry[1]),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function persistCreateRequestIds(values: Record<string, string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (Object.keys(values).length === 0) window.sessionStorage.removeItem(CREATE_REQUEST_STORAGE_KEY);
+    else window.sessionStorage.setItem(CREATE_REQUEST_STORAGE_KEY, JSON.stringify(values));
+  } catch {
+    // Server-side idempotency remains authoritative if recovery storage is unavailable.
+  }
+}
+
+function getOrCreateCreateRequestId(requestKey: string): string {
+  const existing = loadCreateRequestIds();
+  if (existing[requestKey]) return existing[requestKey];
+  const requestId = crypto.randomUUID();
+  persistCreateRequestIds({ ...existing, [requestKey]: requestId });
+  return requestId;
+}
+
+function clearCreateRequestId(requestKey: string): void {
+  const existing = loadCreateRequestIds();
+  if (!existing[requestKey]) return;
+  delete existing[requestKey];
+  persistCreateRequestIds(existing);
+}
 
 export async function createExamSessionBootstrap(input: StartExamInput): Promise<ExamBootstrap> {
   const parsedTopics: Array<{ category: string; topic: string }> = [];
@@ -52,7 +97,10 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
   const existing = inFlightExamCreates.get(requestKey);
   if (existing) return existing;
 
-  const requestId = crypto.randomUUID();
+  // Keep the UUID until a complete bootstrap is returned. If DB creation commits
+  // but the response/R2 hydration is lost, an explicit user retry resolves the
+  // same session instead of consuming another session slot.
+  const requestId = getOrCreateCreateRequestId(requestKey);
   const args = {
     p_request_id: requestId,
     p_bank_id: input.bankId,
@@ -69,7 +117,9 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
     if (!data || typeof data !== 'object') {
       throw new Error('Exam bootstrap returned no result.');
     }
-    return normalizeExamBootstrap(data);
+    const bootstrap = normalizeExamBootstrap(data);
+    clearCreateRequestId(requestKey);
+    return bootstrap;
   })();
 
   inFlightExamCreates.set(requestKey, request);
