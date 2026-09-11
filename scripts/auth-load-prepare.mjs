@@ -8,6 +8,8 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
 if (!url || !serviceKey || !publishableKey) throw new Error('Missing Supabase load-test configuration.');
 
+const requestedCount = Number(process.env.LOAD_USER_COUNT || 25);
+const userCount = Math.max(1, Math.min(Number.isFinite(requestedCount) ? Math.floor(requestedCount) : 25, 100));
 const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 const password = `RoyalLoad!${crypto.randomBytes(24).toString('base64url')}`;
 const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
@@ -16,7 +18,7 @@ if (listed.error) throw listed.error;
 const byEmail = new Map((listed.data.users || []).map((u) => [u.email, u]));
 const rows = [];
 
-for (let i = 1; i <= 25; i += 1) {
+for (let i = 1; i <= userCount; i += 1) {
   const email = `royal-load-${String(i).padStart(3, '0')}@load.invalid`;
   let user = byEmail.get(email);
   if (!user) {
