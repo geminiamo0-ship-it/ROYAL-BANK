@@ -2,7 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 
 const PAGE_SIZE = 1000;
 const CONCURRENCY = 12;
-const DEFAULT_PREFIX = 'exam-content/v1';
+const DEFAULT_ROOT = 'exam-content';
 const args = new Set(process.argv.slice(2));
 const verifyOnly = args.has('--verify-only');
 const dryRun = args.has('--dry-run');
@@ -23,7 +23,7 @@ const secretAccessKey = dryRun
   ? process.env.R2_SECRET_ACCESS_KEY?.trim() || ''
   : requiredEnv('R2_SECRET_ACCESS_KEY');
 const bucket = dryRun ? process.env.R2_BUCKET_NAME?.trim() || '' : requiredEnv('R2_BUCKET_NAME');
-const prefix = (process.env.ROYAL_R2_CONTENT_PREFIX?.trim() || DEFAULT_PREFIX).replace(/^\/+|\/+$/g, '');
+const root = (process.env.ROYAL_R2_CONTENT_ROOT?.trim() || DEFAULT_ROOT).replace(/^\/+|\/+$/g, '');
 
 function sha256Hex(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -124,6 +124,23 @@ async function r2GetText(key) {
   return response.text();
 }
 
+async function r2PutJsonImmutable(key, raw) {
+  const existing = await r2GetText(key);
+  if (existing != null) {
+    if (sha256Hex(existing) !== sha256Hex(raw)) {
+      throw new Error(`Immutable R2 object already exists with different content: ${key}`);
+    }
+    return 'reused';
+  }
+
+  await r2PutJson(key, raw);
+  const stored = await r2GetText(key);
+  if (stored == null || sha256Hex(stored) !== sha256Hex(raw)) {
+    throw new Error(`Immutable R2 write verification failed: ${key}`);
+  }
+  return 'uploaded';
+}
+
 async function fetchAll(table, select, order = 'id.asc') {
   const rows = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -165,7 +182,7 @@ async function mapConcurrent(items, worker) {
   await Promise.all(workers);
 }
 
-function buildObjects(questions, options) {
+function buildCanonicalObjects(questions, options) {
   const optionsByQuestion = new Map();
   for (const option of options) {
     const questionId = Number(option.question_id);
@@ -193,7 +210,7 @@ function buildObjects(questions, options) {
       (a, b) => a.option_order - b.option_order || a.id - b.id,
     );
 
-    const questionPayload = {
+    const questionRaw = JSON.stringify({
       id: questionId,
       text_html: String(question.text_html ?? ''),
       category: String(question.category ?? ''),
@@ -202,20 +219,16 @@ function buildObjects(questions, options) {
       notes_id: question.notes_id == null ? null : String(question.notes_id),
       concept_id: question.concept_id == null ? null : String(question.concept_id),
       options: questionOptions,
-    };
-    const feedbackPayload = {
+    });
+    const feedbackRaw = JSON.stringify({
       question_id: questionId,
       explanation_html: String(question.explanation_html ?? ''),
-    };
+    });
 
-    const questionRaw = JSON.stringify(questionPayload);
-    const feedbackRaw = JSON.stringify(feedbackPayload);
     objects.push({
       questionId,
-      questionKey: `${prefix}/questions/${questionId}.json`,
       questionRaw,
       questionSha256: sha256Hex(questionRaw),
-      feedbackKey: `${prefix}/feedback/${questionId}.json`,
       feedbackRaw,
       feedbackSha256: sha256Hex(feedbackRaw),
     });
@@ -233,25 +246,72 @@ const [questions, options] = await Promise.all([
   fetchAll('options', 'id,question_id,text_html,option_order', 'question_id.asc,option_order.asc,id.asc'),
 ]);
 
-const objects = buildObjects(questions, options);
-if (objects.length !== questions.length) throw new Error('Question object count mismatch.');
+const canonicalObjects = buildCanonicalObjects(questions, options);
+if (canonicalObjects.length !== questions.length) throw new Error('Question object count mismatch.');
+
+const releaseDescriptor = {
+  schema_version: 2,
+  question_count: questions.length,
+  option_count: options.length,
+  objects: canonicalObjects.map((object) => ({
+    question_id: object.questionId,
+    question_sha256: object.questionSha256,
+    feedback_sha256: object.feedbackSha256,
+  })),
+};
+const releaseId = sha256Hex(JSON.stringify(releaseDescriptor));
+const releasePrefix = `${root}/releases/${releaseId}`;
+const objects = canonicalObjects.map((object) => ({
+  ...object,
+  questionKey: `${releasePrefix}/questions/${object.questionId}.json`,
+  feedbackKey: `${releasePrefix}/feedback/${object.questionId}.json`,
+}));
+const manifest = {
+  ...releaseDescriptor,
+  release_id: releaseId,
+  prefix: releasePrefix,
+  object_count: objects.length * 2,
+};
+const manifestRaw = JSON.stringify(manifest);
+const manifestSha256 = sha256Hex(manifestRaw);
+const manifestKey = `${releasePrefix}/manifest.json`;
+const activeKey = `${root}/active.json`;
 
 console.log(`Prepared ${objects.length} questions and ${options.length} options.`);
-console.log(`R2 prefix: ${prefix}`);
+console.log(`Release: ${releaseId}`);
+console.log(`Release prefix: ${releasePrefix}`);
 
 if (dryRun) {
   console.log('Dry run complete. No R2 objects were changed.');
   process.exit(0);
 }
 
+if (verifyOnly) {
+  const activeRaw = await r2GetText(activeKey);
+  if (activeRaw == null) throw new Error('R2 active release pointer is missing.');
+  const active = JSON.parse(activeRaw);
+  if (
+    active?.schema_version !== 1 ||
+    active?.release_id !== releaseId ||
+    active?.prefix !== releasePrefix ||
+    active?.manifest_sha256 !== manifestSha256
+  ) {
+    throw new Error('Active R2 release does not match canonical Supabase content.');
+  }
+}
+
 let uploaded = 0;
+let reused = 0;
 let verified = 0;
 
 await mapConcurrent(objects, async (object) => {
   if (!verifyOnly) {
-    await r2PutJson(object.questionKey, object.questionRaw);
-    await r2PutJson(object.feedbackKey, object.feedbackRaw);
-    uploaded += 2;
+    const questionResult = await r2PutJsonImmutable(object.questionKey, object.questionRaw);
+    const feedbackResult = await r2PutJsonImmutable(object.feedbackKey, object.feedbackRaw);
+    if (questionResult === 'uploaded') uploaded += 1;
+    else reused += 1;
+    if (feedbackResult === 'uploaded') uploaded += 1;
+    else reused += 1;
   }
 
   const [questionRemote, feedbackRemote] = await Promise.all([
@@ -268,36 +328,50 @@ await mapConcurrent(objects, async (object) => {
   verified += 2;
 
   if (verified % 1000 === 0) {
-    console.log(`Verified ${verified}/${objects.length * 2} objects...`);
+    console.log(`Verified ${verified}/${objects.length * 2} content objects...`);
   }
 });
 
-const manifest = {
-  schema_version: 1,
-  prefix,
-  generated_at: new Date().toISOString(),
-  question_count: questions.length,
-  option_count: options.length,
-  object_count: objects.length * 2,
-  objects: objects.map((object) => ({
-    question_id: object.questionId,
-    question_sha256: object.questionSha256,
-    feedback_sha256: object.feedbackSha256,
-  })),
-};
-const manifestRaw = JSON.stringify(manifest);
-const manifestKey = `${prefix}/manifest.json`;
+if (!verifyOnly) {
+  const manifestResult = await r2PutJsonImmutable(manifestKey, manifestRaw);
+  if (manifestResult === 'uploaded') uploaded += 1;
+  else reused += 1;
+}
 
-if (!verifyOnly) await r2PutJson(manifestKey, manifestRaw);
 const remoteManifest = await r2GetText(manifestKey);
-if (remoteManifest == null) throw new Error('R2 manifest is missing.');
-if (!verifyOnly && sha256Hex(remoteManifest) !== sha256Hex(manifestRaw)) {
-  throw new Error('R2 manifest parity failed.');
+if (remoteManifest == null || sha256Hex(remoteManifest) !== manifestSha256) {
+  throw new Error('R2 release manifest parity failed.');
+}
+
+if (!verifyOnly) {
+  // The only mutable object in the content system. It is written last, after the
+  // entire immutable release has passed parity verification, making activation
+  // one atomic pointer switch rather than thousands of in-place overwrites.
+  const activeRaw = JSON.stringify({
+    schema_version: 1,
+    release_id: releaseId,
+    prefix: releasePrefix,
+    manifest_sha256: manifestSha256,
+    activated_at: new Date().toISOString(),
+  });
+  await r2PutJson(activeKey, activeRaw);
+
+  const activatedRaw = await r2GetText(activeKey);
+  if (activatedRaw == null) throw new Error('R2 active release pointer write failed.');
+  const activated = JSON.parse(activatedRaw);
+  if (
+    activated?.release_id !== releaseId ||
+    activated?.prefix !== releasePrefix ||
+    activated?.manifest_sha256 !== manifestSha256
+  ) {
+    throw new Error('R2 active release pointer verification failed.');
+  }
 }
 
 console.log(
   verifyOnly
-    ? `Verification passed for ${verified} content objects.`
-    : `Sync passed: uploaded ${uploaded} content objects and verified ${verified}.`,
+    ? `Verification passed for active release ${releaseId} (${verified} content objects).`
+    : `Release activated: ${releaseId}; uploaded ${uploaded}, reused ${reused}, verified ${verified} content objects.`,
 );
 console.log(`Manifest: ${manifestKey}`);
+console.log(`Active pointer: ${activeKey}`);
