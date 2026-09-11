@@ -202,6 +202,7 @@ export async function trySignedExamWindowFastPath(options: {
   const contentPromise = hydrateExamR2QuestionIds(
     options.action as 'window' | 'reviewWindow',
     questionIds,
+    access.r,
   ).finally(() => {
     contentMs = performance.now() - contentStart;
   });
@@ -265,11 +266,18 @@ export function attachExamWindowAccess(options: {
   }
   if (!mode) return options.rawBody;
 
+  const nestedReleaseId =
+    typeof session?.content_release_id === 'string' ? session.content_release_id : null;
+  const topLevelReleaseId =
+    typeof bootstrap.content_release_id === 'string' ? bootstrap.content_release_id : null;
+  const contentReleaseId = nestedReleaseId || topLevelReleaseId;
+
   const access = issueExamWindowAccessToken({
     userId: options.userId,
     sessionId,
     mode,
     questionIds,
+    contentReleaseId,
     secret: options.secret,
   });
   if (!access) return options.rawBody;
