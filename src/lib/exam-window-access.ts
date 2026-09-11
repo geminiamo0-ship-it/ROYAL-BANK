@@ -27,7 +27,9 @@ function validQuestionIds(value: unknown): value is number[] {
   if (!Array.isArray(value) || value.length > MAX_SESSION_QUESTIONS) return false;
   const seen = new Set<number>();
   for (const item of value) {
-    if (!Number.isSafeInteger(item) || item <= 0 || seen.has(item)) return false;
+    if (typeof item !== 'number' || !Number.isSafeInteger(item) || item <= 0 || seen.has(item)) {
+      return false;
+    }
     seen.add(item);
   }
   return true;
@@ -105,10 +107,12 @@ export function verifyExamWindowAccessToken(options: {
     return null;
   }
   if (!validQuestionIds(payload.q)) return null;
-  if (!Number.isSafeInteger(payload.e) || Number(payload.e) <= 0) return null;
+  if (typeof payload.e !== 'number' || !Number.isSafeInteger(payload.e) || payload.e <= 0) {
+    return null;
+  }
 
   const nowSeconds = Math.floor(options.nowSeconds ?? Date.now() / 1000);
-  if (Number(payload.e) <= nowSeconds) return null;
+  if (payload.e <= nowSeconds) return null;
 
   return payload as ExamWindowAccessPayload;
 }
