@@ -58,10 +58,14 @@ BEGIN
         END IF;
     END IF;
 
+    -- Keep this overload aligned with the canonical materialized view shape:
+    -- question_bank_id, category, topic, total_questions. The legacy production
+    -- function referenced a non-existent difficulty column and therefore failed
+    -- for otherwise-authorized callers.
     SELECT json_agg(row_to_json(t))
     INTO v_result
     FROM (
-        SELECT category, topic, difficulty, total_questions
+        SELECT category, topic, total_questions
         FROM public.question_bank_topic_counts
         WHERE question_bank_id = p_bank_id
     ) t;
