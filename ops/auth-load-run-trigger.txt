@@ -1,0 +1,3 @@
+Authenticated production load test trigger
+Target: https://royal-bank-21be.vercel.app
+Requested: 2026-09-12
