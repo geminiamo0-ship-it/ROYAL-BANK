@@ -37,21 +37,32 @@ async function signInWithRateLimitRetry(client, email) {
   throw lastError || new Error(`Could not authenticate ${email}`);
 }
 
+async function createLoadUser(email, i) {
+  const created = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: `Royal Load ${i}` },
+  });
+  if (created.error || !created.data.user) throw created.error || new Error(`Could not create ${email}`);
+  return created.data.user;
+}
+
 for (let i = 1; i <= userCount; i += 1) {
   const email = `royal-load-${String(i).padStart(3, '0')}@load.invalid`;
   let user = byEmail.get(email);
   if (!user) {
-    const created = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: `Royal Load ${i}` },
-    });
-    if (created.error || !created.data.user) throw created.error || new Error(`Could not create ${email}`);
-    user = created.data.user;
+    user = await createLoadUser(email, i);
   } else {
     const updated = await admin.auth.admin.updateUserById(user.id, { password, email_confirm: true });
-    if (updated.error) throw updated.error;
+    if (updated.error) {
+      const staleListing = updated.error.status === 404 || updated.error.code === 'user_not_found';
+      if (!staleListing) throw updated.error;
+      console.log(`Auth listing was stale for ${email}; recreating the isolated load user.`);
+      user = await createLoadUser(email, i);
+    } else if (updated.data?.user) {
+      user = updated.data.user;
+    }
   }
 
   const profile = await admin.from('profiles').update({ is_active: true, role: 'student' }).eq('id', user.id);
