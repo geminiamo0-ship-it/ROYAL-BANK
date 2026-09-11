@@ -175,12 +175,14 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
   const [records, setRecords] = useState<AnnotationRecordMap>({});
   const [isLoading, setIsLoading] = useState(false);
   const [savingCount, setSavingCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
 
   const activeQuestionRef = useRef<number | null>(questionId);
   const statesRef = useRef(new Map<number, QuestionAnnotationState>());
-  const recoveryLoadedRef = useRef(false);
+  const recoveryLoadedScopeRef = useRef<string | null>(null);
+  const recoveryScheduledScopeRef = useRef<string | null>(null);
   const undoRef = useRef<HistoryEntry[]>([]);
   const redoRef = useRef<HistoryEntry[]>([]);
 
@@ -245,9 +247,10 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
   }, [getState]);
 
   useEffect(() => {
-    if (recoveryLoadedRef.current || !recoveryScope) return;
-    recoveryLoadedRef.current = true;
+    if (!recoveryScope || recoveryLoadedScopeRef.current === recoveryScope) return;
+    recoveryLoadedScopeRef.current = recoveryScope;
     const recovered = readRecovery(recoveryScope);
+    let recoveredPendingCount = 0;
 
     for (const [rawQuestionId, surfaces] of Object.entries(recovered)) {
       const targetQuestionId = Number(rawQuestionId);
@@ -269,7 +272,13 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
           version: pending.expectedVersion,
           updatedAt: new Date().toISOString(),
         };
+        recoveredPendingCount += 1;
       }
+    }
+
+    if (recoveredPendingCount > 0) {
+      const timeoutId = window.setTimeout(() => setPendingCount(recoveredPendingCount), 0);
+      return () => window.clearTimeout(timeoutId);
     }
   }, [getState, recoveryScope]);
 
@@ -389,6 +398,7 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
 
           if (state.pending[surface] === pending) {
             delete state.pending[surface];
+            setPendingCount((count) => Math.max(0, count - 1));
             state.records = { ...state.records, [surface]: saved };
           } else {
             const local = state.records[surface];
@@ -431,6 +441,20 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
     }, 900);
   }, [getState, persistSurface]);
 
+  useEffect(() => {
+    if (!recoveryScope || recoveryScheduledScopeRef.current === recoveryScope) return;
+    recoveryScheduledScopeRef.current = recoveryScope;
+    const timeoutId = window.setTimeout(() => {
+      for (const [targetQuestionId, state] of statesRef.current) {
+        for (const surface of ANNOTATION_SURFACES) {
+          if (!state.pending[surface] || typeof state.timers[surface] === 'number') continue;
+          schedulePersist(targetQuestionId, surface);
+        }
+      }
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [recoveryScope, schedulePersist]);
+
   const applySurface = useCallback((
     surface: AnnotationSurface,
     contentHash: string,
@@ -463,6 +487,7 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
         current?.contentHash === contentHash ? current.strokes : []
       ),
     };
+    if (!existingPending) setPendingCount((count) => count + 1);
     delete state.errors[surface];
     commitRecordMap(state.records, targetQuestionId);
     syncActiveError(targetQuestionId);
@@ -561,6 +586,7 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
     await clearQuestionAnnotationsAction(targetQuestionId);
 
     const state = getState(targetQuestionId);
+    const pendingToClear = ANNOTATION_SURFACES.filter((surface) => Boolean(state.pending[surface])).length;
     for (const timer of Object.values(state.timers)) {
       if (typeof timer === 'number') window.clearTimeout(timer);
     }
@@ -571,6 +597,9 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
     state.saveChains = {};
     state.errors = {};
     state.loaded = true;
+    if (pendingToClear > 0) {
+      setPendingCount((count) => Math.max(0, count - pendingToClear));
+    }
     undoRef.current = [];
     redoRef.current = [];
     persistRecovery();
@@ -585,7 +614,7 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
   return {
     records,
     isLoading,
-    isSaving: savingCount > 0,
+    isSaving: savingCount > 0 || pendingCount > 0,
     error,
     canUndo: historyState.canUndo,
     canRedo: historyState.canRedo,
