@@ -72,4 +72,6 @@ export interface ExamBootstrap {
   answers: Record<number, ExamClientAnswer>;
   flaggedQuestionIds: number[];
   currentIndex: number;
+  windowAccessToken: string | null;
+  windowAccessExpiresAt: number | null;
 }
