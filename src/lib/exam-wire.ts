@@ -50,6 +50,7 @@ export type RawExamBootstrap = {
     is_completed?: boolean;
     started_at?: string | null;
     deadline_at?: string | null;
+    content_release_id?: string | null;
   };
   question_ids?: number[];
   questions?: ExamClientQuestion[];
@@ -74,6 +75,10 @@ function normalizePercentages(raw: Record<string, number> | null | undefined): R
 function normalizeIsoDate(value: unknown): string | null {
   if (typeof value !== 'string' || !value) return null;
   return Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function normalizeReleaseId(value: unknown): string | null {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? value : null;
 }
 
 export function toClientExamAnswer(
@@ -154,6 +159,7 @@ export function normalizeExamBootstrap(raw: RawExamBootstrap): ExamBootstrap {
       is_completed: Boolean(raw.session.is_completed),
       started_at: normalizeIsoDate(raw.session.started_at),
       deadline_at: normalizeIsoDate(raw.session.deadline_at),
+      content_release_id: normalizeReleaseId(raw.session.content_release_id),
     },
     questionIds: (raw.question_ids || []).map(Number),
     questions: (raw.questions || []).map(normalizeExamQuestion),
