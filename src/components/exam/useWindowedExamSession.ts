@@ -19,6 +19,14 @@ const DEFAULT_WARM_AHEAD = 3;
 const WINDOW_ACCESS_RENEW_BEFORE_SECONDS = 60;
 const MIN_WINDOW_ACCESS_REFRESH_DELAY_MS = 15_000;
 
+type InFlightWindow = {
+  mode: 'active' | 'review';
+  start: number;
+  end: number;
+  accessToken: string | null;
+  promise: Promise<ExamClientQuestion[]>;
+};
+
 export function useWindowedExamSession({
   sessionId,
   reviewMode = false,
@@ -43,7 +51,7 @@ export function useWindowedExamSession({
   const questionsByIdRef = useRef<Record<number, ExamClientQuestion>>({});
   const currentIndexRef = useRef(0);
   const prefetchChainRef = useRef<Promise<void>>(Promise.resolve());
-  const inFlightWindowsRef = useRef(new Map<string, Promise<ExamClientQuestion[]>>());
+  const inFlightWindowsRef = useRef(new Map<string, InFlightWindow>());
   const navigationGenerationRef = useRef(0);
   const windowAccessTokenRef = useRef<string | null>(null);
   const windowAccessRefreshRef = useRef<Promise<void> | null>(null);
@@ -58,34 +66,92 @@ export function useWindowedExamSession({
     if (!reviewMode) mergeExamLaunchWindow(sessionId, questions);
   }, [reviewMode, sessionId]);
 
-  const loadWindow = useCallback((start: number, count: number) => {
-    if (count <= 0 || start >= questionIdsRef.current.length) {
-      return Promise.resolve<ExamClientQuestion[]>([]);
+  const loadWindow = useCallback(async (start: number, count: number): Promise<ExamClientQuestion[]> => {
+    const ids = questionIdsRef.current;
+    if (count <= 0 || start >= ids.length) return [];
+
+    const requestedEnd = Math.min(ids.length, start + Math.min(5, count));
+    const mode: 'active' | 'review' = reviewMode ? 'review' : 'active';
+    const accessToken = windowAccessTokenRef.current;
+
+    const cachedRequested = () => ids
+      .slice(start, requestedEnd)
+      .map((id) => questionsByIdRef.current[id])
+      .filter((question): question is ExamClientQuestion => Boolean(question));
+
+    if (cachedRequested().length === requestedEnd - start) return cachedRequested();
+
+    // An exact single-flight map is not enough: navigation can request [4..7]
+    // while prefetch already owns [3..5]. Await any overlapping range with the
+    // same capability first, then re-check the cache and fetch only the remainder.
+    // This also keeps fresh active-window disclosure requests serialized around
+    // their overlap instead of amplifying quota/security work under rapid clicks.
+    const overlapping = [...inFlightWindowsRef.current.values()].filter((entry) =>
+      entry.mode === mode &&
+      entry.accessToken === accessToken &&
+      entry.start < requestedEnd &&
+      entry.end > start,
+    );
+    if (overlapping.length > 0) {
+      await Promise.allSettled(overlapping.map((entry) => entry.promise));
+      if (cachedRequested().length === requestedEnd - start) return cachedRequested();
     }
 
-    const boundedCount = Math.min(5, count, questionIdsRef.current.length - start);
-    const accessToken = windowAccessTokenRef.current;
-    const key = `${reviewMode ? 'review' : 'active'}:${start}:${boundedCount}:${accessToken || 'auth'}`;
-    const existing = inFlightWindowsRef.current.get(key);
-    if (existing) return existing;
+    let firstMissing = start;
+    while (firstMissing < requestedEnd && questionsByIdRef.current[ids[firstMissing]]) {
+      firstMissing += 1;
+    }
+    if (firstMissing >= requestedEnd) return cachedRequested();
+
+    let fetchEnd = firstMissing + 1;
+    while (
+      fetchEnd < requestedEnd &&
+      !questionsByIdRef.current[ids[fetchEnd]] &&
+      fetchEnd - firstMissing < 5
+    ) {
+      fetchEnd += 1;
+    }
+    const fetchCount = fetchEnd - firstMissing;
+    const key = `${mode}:${firstMissing}:${fetchCount}:${accessToken || 'auth'}`;
+    const exact = inFlightWindowsRef.current.get(key);
+    if (exact) {
+      await exact.promise;
+      return cachedRequested();
+    }
 
     const request = (async () => {
       const questions = reviewMode
-        ? await getCompletedExamReviewWindowDirect(sessionId, start, boundedCount, accessToken)
-        : await getExamSessionWindowDirect(sessionId, start, boundedCount, accessToken);
+        ? await getCompletedExamReviewWindowDirect(sessionId, firstMissing, fetchCount, accessToken)
+        : await getExamSessionWindowDirect(sessionId, firstMissing, fetchCount, accessToken);
       addQuestions(questions);
       return questions;
     })();
 
-    inFlightWindowsRef.current.set(key, request);
+    const entry: InFlightWindow = {
+      mode,
+      start: firstMissing,
+      end: fetchEnd,
+      accessToken,
+      promise: request,
+    };
+    inFlightWindowsRef.current.set(key, entry);
     void request
       .finally(() => {
-        if (inFlightWindowsRef.current.get(key) === request) {
+        if (inFlightWindowsRef.current.get(key) === entry) {
           inFlightWindowsRef.current.delete(key);
         }
       })
       .catch(() => undefined);
-    return request;
+
+    await request;
+
+    // A cached island may have split the original range. Finish only the still
+    // missing suffix; recursive calls see the updated cache and cannot refetch the
+    // range that just completed.
+    if (cachedRequested().length < requestedEnd - start) {
+      await loadWindow(start, requestedEnd - start);
+    }
+    return cachedRequested();
   }, [addQuestions, reviewMode, sessionId]);
 
   const queuePrefetch = useCallback((count = DEFAULT_WARM_AHEAD) => {
