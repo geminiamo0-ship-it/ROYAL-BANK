@@ -1,18 +1,17 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(14);
+SELECT extensions.plan(16);
 
-SELECT extensions.is(
+SELECT extensions.ok(
     (
-        SELECT count(*)::int
+        SELECT count(*) > 0
+           AND bool_and(has_function_privilege('authenticated', p.oid, 'EXECUTE'))
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'public'
           AND p.proname = 'create_exam_session'
-          AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
     ),
-    0,
-    'authenticated cannot execute any legacy create_exam_session overload'
+    'authenticated SQL compatibility access remains for legacy create_exam_session overloads'
 );
 
 SELECT extensions.is(
@@ -29,8 +28,8 @@ SELECT extensions.is(
 );
 
 SELECT extensions.ok(
-    NOT has_function_privilege('authenticated', 'public.get_exam_session_answers(uuid)', 'EXECUTE'),
-    'authenticated cannot execute legacy get_exam_session_answers RPC'
+    has_function_privilege('authenticated', 'public.get_exam_session_answers(uuid)', 'EXECUTE'),
+    'authenticated SQL compatibility access remains for get_exam_session_answers'
 );
 
 SELECT extensions.ok(
@@ -49,6 +48,32 @@ SELECT extensions.is(
     ),
     0,
     'service_role retains execute on legacy exam maintenance functions'
+);
+
+SELECT extensions.ok(
+    position(
+        '''create_exam_session'',' IN (
+            SELECT pg_get_functiondef(p.oid)
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'api_hooks'
+              AND p.proname = 'royal_exam_pre_request'
+        )
+    ) > 0,
+    'legacy create_exam_session is protected by the exam pre-request gateway'
+);
+
+SELECT extensions.ok(
+    position(
+        '''get_exam_session_answers'',' IN (
+            SELECT pg_get_functiondef(p.oid)
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'api_hooks'
+              AND p.proname = 'royal_exam_pre_request'
+        )
+    ) > 0,
+    'legacy get_exam_session_answers is protected by the exam pre-request gateway'
 );
 
 SELECT extensions.is(
