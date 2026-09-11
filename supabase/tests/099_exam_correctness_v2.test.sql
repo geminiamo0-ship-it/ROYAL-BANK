@@ -231,10 +231,15 @@ SELECT public.create_exam_session(
 );
 SELECT public.get_exam_session_window((SELECT id FROM timed_session),0,1);
 
+-- Deadline tests need controlled historical clock values. Session configuration is
+-- correctly immutable at runtime, so test setup bypasses only that integrity trigger
+-- while running as postgres, then immediately restores it before exercising RPCs.
 RESET ROLE;
+ALTER TABLE public.test_sessions DISABLE TRIGGER enforce_test_session_update_integrity_trigger;
 UPDATE public.test_sessions
 SET time_limit_minutes=1, started_at=clock_timestamp()
 WHERE id=(SELECT id FROM timed_session);
+ALTER TABLE public.test_sessions ENABLE TRIGGER enforce_test_session_update_integrity_trigger;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
 SELECT set_config('request.jwt.claim.sub','99000000-0000-0000-0000-000000000001',true);
@@ -252,9 +257,11 @@ SELECT extensions.is(
 );
 
 RESET ROLE;
+ALTER TABLE public.test_sessions DISABLE TRIGGER enforce_test_session_update_integrity_trigger;
 UPDATE public.test_sessions
 SET started_at=clock_timestamp()-interval '2 minutes', time_limit_minutes=1
 WHERE id=(SELECT id FROM timed_session);
+ALTER TABLE public.test_sessions ENABLE TRIGGER enforce_test_session_update_integrity_trigger;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
 SELECT set_config('request.jwt.claim.sub','99000000-0000-0000-0000-000000000001',true);
@@ -303,11 +310,15 @@ END;
 $$;
 SELECT extensions.ok((SELECT blocked FROM timed_feedback),'Timed session cannot access pre-answer training feedback');
 
--- Non-timed modes never use the timed deadline rule even if old timing metadata exists.
+-- Non-timed modes never use the timed deadline rule even if historical timing metadata
+-- exists. Again, mutate only in test setup with the immutability trigger restored
+-- before the public answer RPC is called.
 RESET ROLE;
+ALTER TABLE public.test_sessions DISABLE TRIGGER enforce_test_session_update_integrity_trigger;
 UPDATE public.test_sessions
 SET started_at=clock_timestamp()-interval '2 hours', time_limit_minutes=1
 WHERE id=(SELECT id FROM tutor_session);
+ALTER TABLE public.test_sessions ENABLE TRIGGER enforce_test_session_update_integrity_trigger;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
 SELECT set_config('request.jwt.claim.sub','99000000-0000-0000-0000-000000000001',true);
