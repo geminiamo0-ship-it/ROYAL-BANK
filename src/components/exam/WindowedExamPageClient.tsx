@@ -34,6 +34,12 @@ interface WindowedExamPageClientProps {
   reviewMode?: boolean;
 }
 
+type ClockConfig = {
+  startedAtMs: number | null;
+  deadlineAtMs: number | null;
+  serverClockOffsetMs: number;
+};
+
 function feedbackFromTraining(
   training: ExamTrainingFeedback,
   selectedOptionId: number,
@@ -83,6 +89,11 @@ export function WindowedExamPageClient({
   const [annotationTool, setAnnotationTool] = useState<AnnotationTool | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sidebarStickyTop, setSidebarStickyTop] = useState(0);
+  const [clockConfig, setClockConfig] = useState<ClockConfig>({
+    startedAtMs: null,
+    deadlineAtMs: null,
+    serverClockOffsetMs: 0,
+  });
 
   const flagSaveChains = useRef<Record<number, Promise<void>>>({});
   const reviewFeedbackFetchingIds = useRef(new Set<number>());
@@ -95,18 +106,22 @@ export function WindowedExamPageClient({
     setFlaggedQuestionIds(bootstrapFlags);
 
     const serverNowMs = bootstrap.serverNow ? Date.parse(bootstrap.serverNow) : Number.NaN;
-    serverClockOffsetMsRef.current = Number.isFinite(serverNowMs)
+    const serverClockOffsetMs = Number.isFinite(serverNowMs)
       ? serverNowMs - Date.now()
       : 0;
+    serverClockOffsetMsRef.current = serverClockOffsetMs;
 
-    const startedAtMs = bootstrap.session.started_at
+    const rawStartedAtMs = bootstrap.session.started_at
       ? Date.parse(bootstrap.session.started_at)
       : Number.NaN;
-    const deadlineAtMs = bootstrap.session.deadline_at
+    const rawDeadlineAtMs = bootstrap.session.deadline_at
       ? Date.parse(bootstrap.session.deadline_at)
       : Number.NaN;
-    startedAtMsRef.current = Number.isFinite(startedAtMs) ? startedAtMs : null;
-    deadlineAtMsRef.current = Number.isFinite(deadlineAtMs) ? deadlineAtMs : null;
+    const startedAtMs = Number.isFinite(rawStartedAtMs) ? rawStartedAtMs : null;
+    const deadlineAtMs = Number.isFinite(rawDeadlineAtMs) ? rawDeadlineAtMs : null;
+    startedAtMsRef.current = startedAtMs;
+    deadlineAtMsRef.current = deadlineAtMs;
+    setClockConfig({ startedAtMs, deadlineAtMs, serverClockOffsetMs });
     autoSubmitStartedRef.current = false;
   }, []);
 
@@ -644,9 +659,9 @@ export function WindowedExamPageClient({
     <div ref={examRootRef} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#282828] text-white">
       <ExamHeader
         currentIndex={currentIndex}
-        clockStartedAtMs={startedAtMsRef.current}
-        clockDeadlineAtMs={deadlineAtMsRef.current}
-        serverClockOffsetMs={serverClockOffsetMsRef.current}
+        clockStartedAtMs={clockConfig.startedAtMs}
+        clockDeadlineAtMs={clockConfig.deadlineAtMs}
+        serverClockOffsetMs={clockConfig.serverClockOffsetMs}
         isFlagged={flaggedQuestionIds.has(currentQ.id)}
         isReviewMode={isReviewMode}
         questionCount={questionIds.length}
