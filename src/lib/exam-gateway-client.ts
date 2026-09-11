@@ -4,6 +4,7 @@ export const EXAM_RATE_LIMIT_EVENT = 'royal:exam-rate-limit';
 export const EXAM_RATE_LIMIT_STORAGE_KEY = 'royal.exam-rate-limit-until';
 
 const EXAM_WINDOW_ACCESS_HEADER = 'x-royal-window-access';
+const DEFAULT_CLIENT_TIMEOUT_MS = 10_000;
 
 type GatewayErrorInfo = {
   message: string;
@@ -12,6 +13,8 @@ type GatewayErrorInfo = {
 
 type ExamGatewayCallOptions = {
   windowAccessToken?: string | null;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 export class ExamGatewayError extends Error {
@@ -104,6 +107,26 @@ function publishRateLimitCountdown(retryAfterSeconds: number): void {
   );
 }
 
+function gatewaySignal(options?: ExamGatewayCallOptions): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeoutMs = Math.max(250, Math.floor(options?.timeoutMs ?? DEFAULT_CLIENT_TIMEOUT_MS));
+  const timeoutId = window.setTimeout(() => controller.abort('timeout'), timeoutMs);
+
+  const abortFromCaller = () => controller.abort(options?.signal?.reason);
+  if (options?.signal) {
+    if (options.signal.aborted) abortFromCaller();
+    else options.signal.addEventListener('abort', abortFromCaller, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timeoutId);
+      options?.signal?.removeEventListener('abort', abortFromCaller);
+    },
+  };
+}
+
 export async function callExamGateway<T, A extends ExamGatewayAction>(
   action: A,
   args: ExamGatewayArgsByAction[A],
@@ -116,13 +139,27 @@ export async function callExamGateway<T, A extends ExamGatewayAction>(
     headers[EXAM_WINDOW_ACCESS_HEADER] = options.windowAccessToken;
   }
 
-  const response = await fetch('/api/exam', {
-    method: 'POST',
-    cache: 'no-store',
-    credentials: 'same-origin',
-    headers,
-    body: JSON.stringify({ action, args }),
-  });
+  const { signal, cleanup } = gatewaySignal(options);
+  let response: Response;
+  try {
+    response = await fetch('/api/exam', {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers,
+      body: JSON.stringify({ action, args }),
+      signal,
+    });
+  } catch (error) {
+    if (signal.aborted) {
+      const aborted = new Error(options?.signal?.aborted ? 'Exam request was cancelled.' : 'Exam request timed out.');
+      aborted.name = options?.signal?.aborted ? 'AbortError' : 'TimeoutError';
+      throw aborted;
+    }
+    throw error;
+  } finally {
+    cleanup();
+  }
 
   const rawBody = await response.text();
   let payload: unknown = null;
