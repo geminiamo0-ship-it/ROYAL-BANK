@@ -6,17 +6,23 @@ import type { ExamClientAnswer } from '@/types/exam';
 export function useExamQuestionTimer(currentQuestionId: number | null) {
   const accumulatedRef = useRef<Record<number, number>>({});
   const activeQuestionRef = useRef<number | null>(null);
-  const activeSinceRef = useRef<number>(performance.now());
+  const activeSinceRef = useRef<number | null>(null);
 
-  const closeActiveVisit = useCallback((now = performance.now()) => {
+  const closeActiveVisit = useCallback((now?: number) => {
+    const resolvedNow = now ?? performance.now();
     const activeQuestionId = activeQuestionRef.current;
-    if (!activeQuestionId) return;
-    const elapsed = Math.max(0, Math.floor((now - activeSinceRef.current) / 1000));
+    const activeSince = activeSinceRef.current;
+    if (!activeQuestionId || activeSince == null) {
+      activeSinceRef.current = resolvedNow;
+      return;
+    }
+
+    const elapsed = Math.max(0, Math.floor((resolvedNow - activeSince) / 1000));
     if (elapsed > 0) {
       accumulatedRef.current[activeQuestionId] =
         (accumulatedRef.current[activeQuestionId] || 0) + elapsed;
     }
-    activeSinceRef.current = now;
+    activeSinceRef.current = resolvedNow;
   }, []);
 
   useEffect(() => {
@@ -37,8 +43,9 @@ export function useExamQuestionTimer(currentQuestionId: number | null) {
 
   const elapsedForQuestion = useCallback((questionId: number): number => {
     const accumulated = accumulatedRef.current[questionId] || 0;
-    if (activeQuestionRef.current !== questionId) return accumulated;
-    return accumulated + Math.max(0, Math.floor((performance.now() - activeSinceRef.current) / 1000));
+    const activeSince = activeSinceRef.current;
+    if (activeQuestionRef.current !== questionId || activeSince == null) return accumulated;
+    return accumulated + Math.max(0, Math.floor((performance.now() - activeSince) / 1000));
   }, []);
 
   return {
