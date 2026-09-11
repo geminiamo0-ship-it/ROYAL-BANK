@@ -71,4 +71,4 @@ jobs:
         if: always()
         run: node scripts/auth-load-cleanup.mjs
 
-# Retry marker: hardened against stale Supabase Auth listings.
+# Retry marker: unique per-run users + id-based cleanup.
