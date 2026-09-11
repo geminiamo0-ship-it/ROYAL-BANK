@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getExamTrainingFeedbackDirect } from '@/lib/exam-client-api';
+import { ExamGatewayError } from '@/lib/exam-gateway-client';
 import type { ExamTrainingFeedback } from '@/types/exam';
 
 type FeedbackState = {
@@ -9,11 +10,39 @@ type FeedbackState = {
   feedbackByQuestionId: Record<number, ExamTrainingFeedback>;
 };
 
+type FailureState = {
+  attempts: number;
+  nextRetryAt: number;
+  permanent: boolean;
+  error: Error;
+};
+
 function feedbackKey(sessionId: string, questionId: number): string {
   return `${sessionId}:${questionId}`;
 }
 
 const EMPTY_FEEDBACK: Record<number, ExamTrainingFeedback> = {};
+const MAX_AUTOMATIC_ATTEMPTS = 3;
+const BASE_RETRY_MS = 1_500;
+
+function normalizeError(error: unknown): Error {
+  return error instanceof Error ? error : new Error('Unable to load training feedback.');
+}
+
+function isPermanentFailure(error: unknown): boolean {
+  return error instanceof ExamGatewayError
+    && error.status >= 400
+    && error.status < 500
+    && error.status !== 408
+    && error.status !== 429;
+}
+
+function retryDelayMs(error: unknown, attempt: number): number {
+  if (error instanceof ExamGatewayError && error.retryAfterSeconds) {
+    return Math.max(BASE_RETRY_MS, error.retryAfterSeconds * 1000);
+  }
+  return Math.min(30_000, BASE_RETRY_MS * (2 ** Math.max(0, attempt - 1)));
+}
 
 export function useExamTrainingFeedback(options: {
   sessionId: string;
@@ -27,12 +56,16 @@ export function useExamTrainingFeedback(options: {
   });
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
   const inFlightRef = useRef(new Map<string, Promise<ExamTrainingFeedback>>());
+  const failuresRef = useRef(new Map<string, FailureState>());
 
   const feedbackByQuestionId = feedbackState.sessionId === sessionId
     ? feedbackState.feedbackByQuestionId
     : EMPTY_FEEDBACK;
 
-  const ensure = useCallback((questionId: number): Promise<ExamTrainingFeedback> => {
+  const ensureInternal = useCallback((
+    questionId: number,
+    automatic: boolean,
+  ): Promise<ExamTrainingFeedback> => {
     if (feedbackState.sessionId === sessionId) {
       const cached = feedbackState.feedbackByQuestionId[questionId];
       if (cached) return Promise.resolve(cached);
@@ -42,9 +75,18 @@ export function useExamTrainingFeedback(options: {
     const existing = inFlightRef.current.get(key);
     if (existing) return existing;
 
+    const failure = failuresRef.current.get(key);
+    if (failure?.permanent) return Promise.reject(failure.error);
+    if (automatic && failure) {
+      if (failure.attempts >= MAX_AUTOMATIC_ATTEMPTS || Date.now() < failure.nextRetryAt) {
+        return Promise.reject(failure.error);
+      }
+    }
+
     setLoadingKeys((previous) => new Set(previous).add(key));
     const request = getExamTrainingFeedbackDirect(sessionId, questionId)
       .then((feedback) => {
+        failuresRef.current.delete(key);
         setFeedbackState((previous) => {
           const base = previous.sessionId === sessionId
             ? previous.feedbackByQuestionId
@@ -55,6 +97,18 @@ export function useExamTrainingFeedback(options: {
           };
         });
         return feedback;
+      })
+      .catch((error) => {
+        const normalized = normalizeError(error);
+        const previous = failuresRef.current.get(key);
+        const attempts = (previous?.attempts || 0) + 1;
+        failuresRef.current.set(key, {
+          attempts,
+          nextRetryAt: Date.now() + retryDelayMs(error, attempts),
+          permanent: isPermanentFailure(error),
+          error: normalized,
+        });
+        throw normalized;
       })
       .finally(() => {
         inFlightRef.current.delete(key);
@@ -69,13 +123,24 @@ export function useExamTrainingFeedback(options: {
     return request;
   }, [feedbackState, sessionId]);
 
+  const ensure = useCallback(
+    (questionId: number) => ensureInternal(questionId, false),
+    [ensureInternal],
+  );
+
+  const warmKey = useMemo(() => (
+    [...new Set(warmQuestionIds.filter((id) => Number.isSafeInteger(id) && id > 0))]
+      .slice(0, 3)
+      .join(',')
+  ), [warmQuestionIds]);
+
   useEffect(() => {
-    if (!enabled) return;
-    const unique = [...new Set(warmQuestionIds.filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 3);
-    for (const questionId of unique) {
-      void ensure(questionId).catch(() => undefined);
+    if (!enabled || !warmKey) return;
+    for (const rawQuestionId of warmKey.split(',')) {
+      const questionId = Number(rawQuestionId);
+      void ensureInternal(questionId, true).catch(() => undefined);
     }
-  }, [enabled, ensure, warmQuestionIds]);
+  }, [enabled, ensureInternal, warmKey]);
 
   const loadingQuestionIds = useMemo(() => {
     const current = new Set<number>();
