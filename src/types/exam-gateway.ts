@@ -8,6 +8,7 @@ export type ExamGatewayAction =
   | 'reviewWindow'
   | 'reviewFeedback'
   | 'trainingFeedback'
+  | 'renewWindowAccess'
   | 'submit'
   | 'submitRaw'
   | 'feedback'
@@ -48,6 +49,9 @@ export type ExamGatewayArgsByAction = {
   trainingFeedback: {
     p_session_id: string;
     p_question_id: number;
+  };
+  renewWindowAccess: {
+    p_session_id: string;
   };
   submit: {
     p_request_id: string;
