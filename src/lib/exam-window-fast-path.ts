@@ -50,7 +50,7 @@ function modeForWindowAction(action: ExamGatewayAction): ExamWindowAccessMode | 
   return null;
 }
 
-function modeForBootstrapAction(action: ExamGatewayAction): ExamWindowAccessMode | null {
+function fixedModeForCapabilityAction(action: ExamGatewayAction): ExamWindowAccessMode | null {
   if (action === 'create' || action === 'bootstrap') return 'active';
   if (action === 'reviewBootstrap') return 'review';
   return null;
@@ -246,9 +246,6 @@ export function attachExamWindowAccess(options: {
   userId: string;
   secret: string;
 }): string {
-  const mode = modeForBootstrapAction(options.action);
-  if (!mode) return options.rawBody;
-
   let parsed: unknown;
   try {
     parsed = JSON.parse(options.rawBody) as unknown;
@@ -261,6 +258,12 @@ export function attachExamWindowAccess(options: {
   const sessionId = typeof session?.id === 'string' ? session.id : '';
   const questionIds = questionIdsFrom(bootstrap?.question_ids);
   if (!bootstrap || !sessionId || !questionIds) return options.rawBody;
+
+  let mode = fixedModeForCapabilityAction(options.action);
+  if (options.action === 'renewWindowAccess') {
+    mode = session?.is_completed === true ? 'review' : 'active';
+  }
+  if (!mode) return options.rawBody;
 
   const access = issueExamWindowAccessToken({
     userId: options.userId,
