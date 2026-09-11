@@ -196,6 +196,7 @@ export function WindowedExamPageClient({
   const {
     revealingQuestionIds,
     submitAnswer,
+    retrySave,
     retryFeedback,
   } = useExamTrainingSubmission({
     sessionId,
@@ -513,12 +514,8 @@ export function WindowedExamPageClient({
               onSelectOption={selectOption}
               onToggleStrikeOut={toggleStrikeOut}
               onSubmitAnswer={() => submitAnswer(currentQ.id)}
-              onRetryFeedback={() => {
-                if (!selectedOptionId) return;
-                const timeSpentSeconds = currentAnswer?.timeSpentSeconds
-                  ?? questionTimer.elapsedForQuestion(currentQ.id);
-                retryFeedback(currentQ.id, selectedOptionId, timeSpentSeconds);
-              }}
+              onRetrySave={() => retrySave(currentQ.id)}
+              onRetryFeedback={() => retryFeedback(currentQ.id)}
               onNext={handleNext}
               onExplanationClick={handleExplanationClick}
             />
