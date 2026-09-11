@@ -15,10 +15,9 @@ const authPacingMs = Math.max(0, Math.min(Number.isFinite(requestedPacingMs) ? M
 const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 const password = `RoyalLoad!${crypto.randomBytes(24).toString('base64url')}`;
 const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-if (listed.error) throw listed.error;
-const byEmail = new Map((listed.data.users || []).map((u) => [u.email, u]));
+const runTag = String(process.env.GITHUB_RUN_ID || Date.now()).replace(/\D/g, '').slice(-12) || String(Date.now());
 const rows = [];
+const ids = [];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -37,7 +36,8 @@ async function signInWithRateLimitRetry(client, email) {
   throw lastError || new Error(`Could not authenticate ${email}`);
 }
 
-async function createLoadUser(email, i) {
+for (let i = 1; i <= userCount; i += 1) {
+  const email = `royal-load-${runTag}-${String(i).padStart(3, '0')}@load.invalid`;
   const created = await admin.auth.admin.createUser({
     email,
     password,
@@ -45,34 +45,20 @@ async function createLoadUser(email, i) {
     user_metadata: { full_name: `Royal Load ${i}` },
   });
   if (created.error || !created.data.user) throw created.error || new Error(`Could not create ${email}`);
-  return created.data.user;
-}
-
-for (let i = 1; i <= userCount; i += 1) {
-  const email = `royal-load-${String(i).padStart(3, '0')}@load.invalid`;
-  let user = byEmail.get(email);
-  if (!user) {
-    user = await createLoadUser(email, i);
-  } else {
-    const updated = await admin.auth.admin.updateUserById(user.id, { password, email_confirm: true });
-    if (updated.error) {
-      const staleListing = updated.error.status === 404 || updated.error.code === 'user_not_found';
-      if (!staleListing) throw updated.error;
-      console.log(`Auth listing was stale for ${email}; recreating the isolated load user.`);
-      user = await createLoadUser(email, i);
-    } else if (updated.data?.user) {
-      user = updated.data.user;
-    }
-  }
+  const user = created.data.user;
+  ids.push(user.id);
+  fs.writeFileSync('load-user-ids.json', JSON.stringify(ids));
 
   const profile = await admin.from('profiles').update({ is_active: true, role: 'student' }).eq('id', user.id);
   if (profile.error) throw profile.error;
-  const grants = await admin.from('user_access_grants').select('id').eq('user_id', user.id).eq('scope_type', 'bank').eq('question_bank_id', 1).is('revoked_at', null).limit(1);
-  if (grants.error) throw grants.error;
-  if (!grants.data?.length) {
-    const grant = await admin.from('user_access_grants').insert({ user_id: user.id, scope_type: 'bank', question_bank_id: 1, starts_at: new Date().toISOString(), expires_at: expiresAt });
-    if (grant.error) throw grant.error;
-  }
+  const grant = await admin.from('user_access_grants').insert({
+    user_id: user.id,
+    scope_type: 'bank',
+    question_bank_id: 1,
+    starts_at: new Date().toISOString(),
+    expires_at: expiresAt,
+  });
+  if (grant.error) throw grant.error;
 
   const jar = new Map();
   const client = createServerClient(url, publishableKey, {
@@ -87,8 +73,8 @@ for (let i = 1; i <= userCount; i += 1) {
   const cookie = [...jar.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
   if (!cookie.includes('royal-auth')) throw new Error(`Auth cookie missing for ${email}`);
   rows.push({ email, cookie });
+  fs.writeFileSync('load-cookies.json', JSON.stringify(rows));
   if (authPacingMs > 0 && i < userCount) await sleep(authPacingMs);
 }
 
-fs.writeFileSync('load-cookies.json', JSON.stringify(rows));
-console.log(`Prepared ${rows.length} isolated authenticated users.`);
+console.log(`Prepared ${rows.length} isolated authenticated users for run ${runTag}.`);
