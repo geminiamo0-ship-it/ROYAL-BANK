@@ -1,5 +1,5 @@
 const QUESTION_MEDIA_PATTERN =
-  /(["'])(?:offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi;
+  /(["'])(?:\/?offline_media\/|https:\/\/media\.royalbank\.com\/questions\/)/gi;
 
 export function rewriteExamMediaHtml(html: string, mediaUrl: string) {
   if (!html) return '';
