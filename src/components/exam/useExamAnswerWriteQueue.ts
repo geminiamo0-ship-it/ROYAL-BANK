@@ -87,6 +87,7 @@ export function useExamAnswerWriteQueue(options: {
   const chainsRef = useRef<Record<number, Promise<ExamClientAnswer>>>({});
   const pendingWritesRef = useRef<PersistedPendingWrites>({});
   const [savingQuestionIds, setSavingQuestionIds] = useState<Set<number>>(new Set());
+  const [confirmedQuestionIds, setConfirmedQuestionIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const setSaving = useCallback((questionId: number, saving: boolean) => {
@@ -104,15 +105,22 @@ export function useExamAnswerWriteQueue(options: {
       [String(write.questionId)]: write,
     };
     persistPendingWrites(sessionId, pendingWritesRef.current);
+    setConfirmedQuestionIds((previous) => {
+      if (!previous.has(write.questionId)) return previous;
+      const next = new Set(previous);
+      next.delete(write.questionId);
+      return next;
+    });
   }, [sessionId]);
 
   const clearIfCurrent = useCallback((write: PendingWrite) => {
     const current = pendingWritesRef.current[String(write.questionId)];
-    if (!current || current.requestId !== write.requestId) return;
+    if (!current || current.requestId !== write.requestId) return false;
     const next = { ...pendingWritesRef.current };
     delete next[String(write.questionId)];
     pendingWritesRef.current = next;
     persistPendingWrites(sessionId, next);
+    return true;
   }, [sessionId]);
 
   const executeWrite = useCallback(async (write: PendingWrite): Promise<ExamClientAnswer> => {
@@ -126,9 +134,12 @@ export function useExamAnswerWriteQueue(options: {
           selectedOptionId: write.selectedOptionId,
           timeSpentSeconds: write.timeSpentSeconds,
         });
-        clearIfCurrent(write);
+        const wasLatest = clearIfCurrent(write);
         setError(null);
-        onConfirmed?.(answer);
+        if (wasLatest) {
+          setConfirmedQuestionIds((previous) => new Set(previous).add(write.questionId));
+          onConfirmed?.(answer);
+        }
         return answer;
       } catch (saveError) {
         lastError = saveError;
@@ -197,6 +208,7 @@ export function useExamAnswerWriteQueue(options: {
 
   return {
     savingQuestionIds,
+    confirmedQuestionIds,
     error,
     clearError: () => setError(null),
     enqueue,
