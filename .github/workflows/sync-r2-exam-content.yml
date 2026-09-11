@@ -8,11 +8,6 @@ on:
         required: true
         default: false
         type: boolean
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/sync-r2-exam-content.yml
 
 permissions:
   contents: read
@@ -39,11 +34,10 @@ jobs:
         with:
           node-version: 22
 
-      # One-shot retry after production option-integrity repair.
       - name: Sync and verify private R2 exam content
-        if: ${{ github.event_name == 'push' || !inputs.verify_only }}
+        if: ${{ !inputs.verify_only }}
         run: node scripts/sync-exam-content-to-r2.mjs
 
       - name: Verify private R2 exam content
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only }}
+        if: ${{ inputs.verify_only }}
         run: node scripts/sync-exam-content-to-r2.mjs --verify-only
