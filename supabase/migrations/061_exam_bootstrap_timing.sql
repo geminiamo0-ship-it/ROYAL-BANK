@@ -6,7 +6,7 @@
 CREATE OR REPLACE FUNCTION private.augment_exam_bootstrap_timing(p_payload jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public', 'private', 'pg_catalog', 'pg_temp'
 SET row_security TO 'off'
@@ -81,6 +81,7 @@ CREATE OR REPLACE FUNCTION public.create_exam_session_bootstrap_idempotent_v2(
 )
 RETURNS jsonb
 LANGUAGE sql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public', 'private', 'pg_catalog', 'pg_temp'
 SET row_security TO 'off'
@@ -102,6 +103,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.get_exam_session_bootstrap_v2(p_session_id uuid)
 RETURNS jsonb
 LANGUAGE sql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public', 'private', 'pg_catalog', 'pg_temp'
 SET row_security TO 'off'
@@ -114,6 +116,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.get_exam_session_bootstrap_ref_v2(p_session_id uuid)
 RETURNS jsonb
 LANGUAGE sql
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public', 'private', 'pg_catalog', 'pg_temp'
 SET row_security TO 'off'
