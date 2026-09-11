@@ -34,6 +34,7 @@ interface WindowedExamQuestionPaneProps {
   optionPercentages: Record<number, number>;
   isSaving: boolean;
   isSaveConfirmed?: boolean;
+  canRetrySave?: boolean;
   isSubmitting: boolean;
   annotationTool: AnnotationTool | null;
   annotationRecords: Partial<Record<AnnotationSurface, StoredQuestionAnnotation>>;
@@ -50,6 +51,7 @@ interface WindowedExamQuestionPaneProps {
   onSelectOption: (questionId: number, option: ExamClientOption) => void;
   onToggleStrikeOut: (optionId: number) => void;
   onSubmitAnswer: () => void;
+  onRetryFeedback: () => void;
   onNext: () => void;
   onExplanationClick: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
@@ -72,6 +74,7 @@ export function WindowedExamQuestionPane({
   optionPercentages,
   isSaving,
   isSaveConfirmed = false,
+  canRetrySave = false,
   isSubmitting,
   annotationTool,
   annotationRecords,
@@ -80,6 +83,7 @@ export function WindowedExamQuestionPane({
   onSelectOption,
   onToggleStrikeOut,
   onSubmitAnswer,
+  onRetryFeedback,
   onNext,
   onExplanationClick,
 }: WindowedExamQuestionPaneProps) {
@@ -137,7 +141,7 @@ export function WindowedExamQuestionPane({
             disabled={!selectedOptionId || isSaving || isSubmitting}
             className="inline-flex h-[34px] items-center rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {isSaving ? 'Preparing feedback...' : 'Submit answer'}
+            {isSaving ? 'Preparing feedback...' : canRetrySave ? 'Retry answer' : 'Submit answer'}
           </button>
           {!selectedOptionId ? (
             <span className="text-[12px] text-[#a8aeb4]">Choose one option first.</span>
@@ -152,9 +156,19 @@ export function WindowedExamQuestionPane({
       ) : null}
 
       {!isReviewMode && isAnswered ? (
-        <p className="mt-3 text-[11px] text-[#a8aeb4]" aria-live="polite">
-          {isSaving ? 'Saving answer…' : isSaveConfirmed ? 'Saved' : ''}
-        </p>
+        <div className="mt-3 flex items-center gap-3 text-[11px] text-[#a8aeb4]" aria-live="polite">
+          <span>{isSaving ? 'Saving answer…' : isSaveConfirmed ? 'Saved' : canRetrySave ? 'Answer save failed.' : ''}</span>
+          {canRetrySave && !isSaving ? (
+            <button
+              type="button"
+              onClick={onSubmitAnswer}
+              disabled={isSubmitting}
+              className="rounded-[3px] border border-[#6f7680] px-2 py-1 text-[#d9dce0] hover:border-[#9aa1aa] disabled:opacity-45"
+            >
+              Retry save
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {isAnswered && !isTimedMode ? (
@@ -170,8 +184,20 @@ export function WindowedExamQuestionPane({
               {hasFeedback ? (
                 <div dangerouslySetInnerHTML={{ __html: explanationHtml }} />
               ) : (
-                <div className="animate-pulse py-4 text-[#80868b]">
-                  {isReviewMode ? 'Loading review details...' : 'Fetching explanation...'}
+                <div className="py-4 text-[#80868b]">
+                  <div className="animate-pulse">
+                    {isReviewMode ? 'Loading review details...' : 'Fetching explanation...'}
+                  </div>
+                  {!isReviewMode && !isSaving ? (
+                    <button
+                      type="button"
+                      onClick={onRetryFeedback}
+                      disabled={isSubmitting}
+                      className="mt-3 rounded-[3px] border border-[#6f7680] px-2 py-1 text-[11px] text-[#d9dce0] hover:border-[#9aa1aa] disabled:opacity-45"
+                    >
+                      Retry explanation
+                    </button>
+                  ) : null}
                 </div>
               )}
             </div>
