@@ -56,6 +56,46 @@ if (windowedClient.includes('getExamSessionWindowDirect')) {
   failures.push('windowed exam: question window loading must stay inside useWindowedExamSession');
 }
 
+const trainingSubmissionPath = path.join(root, 'src/components/exam/useExamTrainingSubmission.ts');
+const trainingSubmission = await fs.readFile(trainingSubmissionPath, 'utf8');
+const acceptedFreezeIndex = trainingSubmission.indexOf('acceptedOperationsRef.current.set(questionId, operation)');
+const acceptedRenderIndex = trainingSubmission.indexOf('setAnswers((previous) => ({', acceptedFreezeIndex);
+const acceptedEnqueueIndex = trainingSubmission.indexOf('answerQueue.enqueue(operation)', acceptedFreezeIndex);
+if (acceptedFreezeIndex < 0 || acceptedRenderIndex < 0 || acceptedEnqueueIndex < 0) {
+  failures.push('exam retry recovery: accepted training operation must be pinned, rendered, and enqueued explicitly');
+} else if (!(acceptedFreezeIndex < acceptedRenderIndex && acceptedRenderIndex < acceptedEnqueueIndex)) {
+  failures.push('exam retry recovery: training selection must be frozen in UI before the accepted operation is enqueued');
+}
+if (!trainingSubmission.includes('const operation = getAcceptedOperation(questionId);')) {
+  failures.push('exam retry recovery: feedback retry must resolve the pinned accepted operation, not the latest pending selection');
+}
+
+const retrySaveStart = trainingSubmission.indexOf('const retrySave = useCallback((questionId: number) => {');
+const retrySaveEnd = trainingSubmission.indexOf('\n  const submitAnswer = useCallback', retrySaveStart);
+if (retrySaveStart < 0 || retrySaveEnd < 0) {
+  failures.push('exam retry recovery: independent retrySave callback must exist');
+} else {
+  const retrySaveBody = trainingSubmission.slice(retrySaveStart, retrySaveEnd);
+  if (!retrySaveBody.includes('answerQueue.retryPending(questionId)')) {
+    failures.push('exam retry recovery: retrySave must reuse the exact pending answer operation');
+  }
+  if (retrySaveBody.includes('isFeedbackLockedMode')) {
+    failures.push('exam retry recovery: timed/fixed_timed save retry must not be blocked by feedback mode');
+  }
+}
+
+const questionPanePath = path.join(root, 'src/components/exam/WindowedExamQuestionPane.tsx');
+const questionPane = await fs.readFile(questionPanePath, 'utf8');
+if (!questionPane.includes('onClick={onRetrySave}')) {
+  failures.push('exam retry recovery: Retry save button must use its dedicated persistence callback');
+}
+if (!windowedClient.includes('onRetrySave={() => retrySave(currentQ.id)}')) {
+  failures.push('exam retry recovery: controller must wire Retry save directly to the mode-agnostic retrySave callback');
+}
+if (!windowedClient.includes('onRetryFeedback={() => retryFeedback(currentQ.id)}')) {
+  failures.push('exam retry recovery: explanation retry must resolve the accepted operation inside the submission hook');
+}
+
 const launchCachePath = path.join(root, 'src/lib/exam-launch-cache.ts');
 const launchCache = await fs.readFile(launchCachePath, 'utf8');
 if (!launchCache.includes('launchCache.delete(sessionId)')) {
@@ -107,4 +147,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('Exam architecture audit passed: one windowed exam engine with bounded controller responsibilities remains active.');
+console.log('Exam architecture audit passed: one windowed exam engine with bounded controller responsibilities and retry invariants remains active.');
