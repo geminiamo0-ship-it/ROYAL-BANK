@@ -39,6 +39,7 @@ jobs:
         with:
           node-version: 22
 
+      # One-shot retry after production option-integrity repair.
       - name: Sync and verify private R2 exam content
         if: ${{ github.event_name == 'push' || !inputs.verify_only }}
         run: node scripts/sync-exam-content-to-r2.mjs
