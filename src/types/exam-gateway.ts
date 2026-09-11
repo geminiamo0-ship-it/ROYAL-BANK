@@ -7,6 +7,7 @@ export type ExamGatewayAction =
   | 'reviewBootstrap'
   | 'reviewWindow'
   | 'reviewFeedback'
+  | 'trainingFeedback'
   | 'submit'
   | 'submitRaw'
   | 'feedback'
@@ -44,13 +45,19 @@ export type ExamGatewayArgsByAction = {
     p_session_id: string;
     p_question_id: number;
   };
+  trainingFeedback: {
+    p_session_id: string;
+    p_question_id: number;
+  };
   submit: {
+    p_request_id: string;
     p_session_id: string;
     p_question_id: number;
     p_selected_option_id: number;
     p_time_spent_seconds: number;
   };
   submitRaw: {
+    p_request_id: string;
     p_session_id: string;
     p_question_id: number;
     p_selected_option_id: number;
