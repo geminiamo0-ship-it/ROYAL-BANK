@@ -16,7 +16,8 @@ import {
 import type { ExamBootstrap, ExamBootstrapSession, ExamClientQuestion } from '@/types/exam';
 
 const DEFAULT_WARM_AHEAD = 3;
-const WINDOW_ACCESS_REFRESH_MS = 5 * 60 * 1000;
+const WINDOW_ACCESS_RENEW_BEFORE_SECONDS = 60;
+const MIN_WINDOW_ACCESS_REFRESH_DELAY_MS = 15_000;
 
 export function useWindowedExamSession({
   sessionId,
@@ -36,11 +37,14 @@ export function useWindowedExamSession({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [loadingQuestionIndex, setLoadingQuestionIndex] = useState<number | null>(null);
+  const [windowAccessExpiresAt, setWindowAccessExpiresAt] = useState<number | null>(null);
 
   const questionIdsRef = useRef<number[]>([]);
   const questionsByIdRef = useRef<Record<number, ExamClientQuestion>>({});
   const currentIndexRef = useRef(0);
   const prefetchChainRef = useRef<Promise<void>>(Promise.resolve());
+  const inFlightWindowsRef = useRef(new Map<string, Promise<ExamClientQuestion[]>>());
+  const navigationGenerationRef = useRef(0);
   const windowAccessTokenRef = useRef<string | null>(null);
   const windowAccessRefreshRef = useRef<Promise<void> | null>(null);
 
@@ -54,14 +58,32 @@ export function useWindowedExamSession({
     if (!reviewMode) mergeExamLaunchWindow(sessionId, questions);
   }, [reviewMode, sessionId]);
 
-  const loadWindow = useCallback(async (start: number, count: number) => {
-    if (count <= 0 || start >= questionIdsRef.current.length) return [];
+  const loadWindow = useCallback((start: number, count: number) => {
+    if (count <= 0 || start >= questionIdsRef.current.length) {
+      return Promise.resolve<ExamClientQuestion[]>([]);
+    }
+
+    const boundedCount = Math.min(5, count, questionIdsRef.current.length - start);
     const accessToken = windowAccessTokenRef.current;
-    const questions = reviewMode
-      ? await getCompletedExamReviewWindowDirect(sessionId, start, count, accessToken)
-      : await getExamSessionWindowDirect(sessionId, start, count, accessToken);
-    addQuestions(questions);
-    return questions;
+    const key = `${reviewMode ? 'review' : 'active'}:${start}:${boundedCount}:${accessToken || 'auth'}`;
+    const existing = inFlightWindowsRef.current.get(key);
+    if (existing) return existing;
+
+    const request = (async () => {
+      const questions = reviewMode
+        ? await getCompletedExamReviewWindowDirect(sessionId, start, boundedCount, accessToken)
+        : await getExamSessionWindowDirect(sessionId, start, boundedCount, accessToken);
+      addQuestions(questions);
+      return questions;
+    })();
+
+    inFlightWindowsRef.current.set(key, request);
+    void request.finally(() => {
+      if (inFlightWindowsRef.current.get(key) === request) {
+        inFlightWindowsRef.current.delete(key);
+      }
+    });
+    return request;
   }, [addQuestions, reviewMode, sessionId]);
 
   const queuePrefetch = useCallback((count = DEFAULT_WARM_AHEAD) => {
@@ -82,14 +104,28 @@ export function useWindowedExamSession({
           }
         }
 
-        if (firstMissing >= 0) {
-          await loadWindow(firstMissing, Math.min(warmCount, ids.length - firstMissing));
+        if (firstMissing < 0) return;
+
+        const countToLoad = Math.min(warmCount, ids.length - firstMissing);
+        try {
+          await loadWindow(firstMissing, countToLoad);
+        } catch {
+          // One bounded retry handles a transient read failure without turning a
+          // speculative prefetch into a user-visible navigation failure.
+          try {
+            await loadWindow(firstMissing, countToLoad);
+          } catch (error) {
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn('[royal-exam-prefetch] window prefetch failed', error);
+            }
+          }
         }
       });
   }, [loadWindow]);
 
   const updateWindowAccess = useCallback((bootstrap: ExamBootstrap) => {
     windowAccessTokenRef.current = bootstrap.windowAccessToken;
+    setWindowAccessExpiresAt(bootstrap.windowAccessExpiresAt);
   }, []);
 
   const refreshWindowAccess = useCallback(() => {
@@ -102,8 +138,10 @@ export function useWindowedExamSession({
           : await getExamSessionBootstrapDirect(sessionId);
         updateWindowAccess(bootstrap);
       } catch {
-        // A stale or unavailable access token only disables the fast path. The
-        // regular authenticated reference path remains the automatic fallback.
+        // An unavailable capability only disables the fast path. Normal
+        // authenticated reads remain the fallback.
+        windowAccessTokenRef.current = null;
+        setWindowAccessExpiresAt(null);
       }
     })();
 
@@ -145,8 +183,7 @@ export function useWindowedExamSession({
     updateWindowAccess(bootstrap);
     onBootstrap(bootstrap);
     setIsBootstrapping(false);
-    queuePrefetch(DEFAULT_WARM_AHEAD);
-  }, [onBootstrap, queuePrefetch, reviewMode, router, updateWindowAccess]);
+  }, [onBootstrap, reviewMode, router, updateWindowAccess]);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +194,12 @@ export function useWindowedExamSession({
 
       if (cached) {
         applyBootstrap(cached.bootstrap, cached.questionsById);
+        if (cached.pendingWindow) {
+          const questions = await cached.pendingWindow;
+          if (cancelled) return;
+          addQuestions(questions);
+        }
+        if (!cancelled) queuePrefetch(DEFAULT_WARM_AHEAD);
         return;
       }
 
@@ -169,6 +212,7 @@ export function useWindowedExamSession({
         if (cancelled) return;
         if (!reviewMode) primeExamLaunchCache(bootstrap);
         applyBootstrap(bootstrap);
+        queuePrefetch(DEFAULT_WARM_AHEAD);
       } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : 'Unable to load the exam session.';
@@ -183,27 +227,46 @@ export function useWindowedExamSession({
 
     return () => {
       cancelled = true;
+      navigationGenerationRef.current += 1;
     };
-  }, [applyBootstrap, onError, reviewMode, router, sessionId]);
+  }, [addQuestions, applyBootstrap, onError, queuePrefetch, reviewMode, router, sessionId]);
+
+  useEffect(() => {
+    if (isBootstrapping || !windowAccessExpiresAt) return;
+
+    const refreshAtMs = (windowAccessExpiresAt - WINDOW_ACCESS_RENEW_BEFORE_SECONDS) * 1000;
+    const delay = Math.max(MIN_WINDOW_ACCESS_REFRESH_DELAY_MS, refreshAtMs - Date.now());
+    const timeoutId = window.setTimeout(() => {
+      if (document.visibilityState === 'hidden') return;
+      void refreshWindowAccess();
+    }, delay);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isBootstrapping, refreshWindowAccess, windowAccessExpiresAt]);
 
   useEffect(() => {
     if (isBootstrapping) return;
-
-    const intervalId = window.setInterval(() => {
-      void refreshWindowAccess();
-    }, WINDOW_ACCESS_REFRESH_MS);
-
-    return () => window.clearInterval(intervalId);
-  }, [isBootstrapping, refreshWindowAccess]);
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!windowAccessExpiresAt) return;
+      if (windowAccessExpiresAt <= Math.floor(Date.now() / 1000) + WINDOW_ACCESS_RENEW_BEFORE_SECONDS) {
+        void refreshWindowAccess();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [isBootstrapping, refreshWindowAccess, windowAccessExpiresAt]);
 
   const goToIndex = useCallback(async (targetIndex: number) => {
     const ids = questionIdsRef.current;
     if (targetIndex < 0 || targetIndex >= ids.length) return;
 
+    const generation = ++navigationGenerationRef.current;
     const targetId = ids[targetIndex];
     if (questionsByIdRef.current[targetId]) {
       currentIndexRef.current = targetIndex;
       setCurrentIndex(targetIndex);
+      setLoadingQuestionIndex(null);
       queuePrefetch(DEFAULT_WARM_AHEAD);
       return;
     }
@@ -211,15 +274,19 @@ export function useWindowedExamSession({
     setLoadingQuestionIndex(targetIndex);
     try {
       await loadWindow(targetIndex, Math.min(4, ids.length - targetIndex));
+      if (generation !== navigationGenerationRef.current) return;
       if (questionsByIdRef.current[targetId]) {
         currentIndexRef.current = targetIndex;
         setCurrentIndex(targetIndex);
         queuePrefetch(DEFAULT_WARM_AHEAD);
       }
     } catch (error) {
+      if (generation !== navigationGenerationRef.current) return;
       onError(error instanceof Error ? error.message : 'Unable to load the question.');
     } finally {
-      setLoadingQuestionIndex(null);
+      if (generation === navigationGenerationRef.current) {
+        setLoadingQuestionIndex(null);
+      }
     }
   }, [loadWindow, onError, queuePrefetch]);
 
