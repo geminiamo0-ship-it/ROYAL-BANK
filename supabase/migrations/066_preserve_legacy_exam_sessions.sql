@@ -63,12 +63,13 @@ CREATE OR REPLACE FUNCTION public.get_exam_session_bootstrap_v3(
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public', 'private', 'pg_catalog', 'pg_temp'
 SET row_security TO 'off'
 AS $function$
 BEGIN
+    -- Active bootstrap records disclosure through its underlying window path.
     RETURN private.augment_exam_bootstrap_existing_release(
         public.get_exam_session_bootstrap_v2(p_session_id)
     );
