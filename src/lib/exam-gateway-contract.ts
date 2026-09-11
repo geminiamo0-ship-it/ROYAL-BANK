@@ -2,8 +2,8 @@ import { z } from 'zod';
 import type { ExamGatewayAction } from '@/types/exam-gateway';
 
 export const EXAM_RPC_BY_ACTION: Record<ExamGatewayAction, string> = {
-  create: 'create_exam_session_bootstrap_idempotent',
-  bootstrap: 'get_exam_session_bootstrap',
+  create: 'create_exam_session_bootstrap_idempotent_v2',
+  bootstrap: 'get_exam_session_bootstrap_v2',
   window: 'get_exam_session_window',
   reviewBootstrap: 'get_completed_exam_review_bootstrap',
   reviewWindow: 'get_completed_exam_review_window',
