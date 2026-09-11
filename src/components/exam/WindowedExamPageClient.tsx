@@ -64,17 +64,18 @@ export function WindowedExamPageClient({
   const serverClockOffsetMsRef = useRef(0);
   const startedAtMsRef = useRef<number | null>(null);
   const deadlineAtMsRef = useRef<number | null>(null);
-  const fallbackClockStartedAtRef = useRef(Date.now());
   const timerSeededSessionRef = useRef<string | null>(null);
   const autoSubmitStartedRef = useRef(false);
   const bootstrapAnswersRef = useRef<Record<number, ExamClientAnswer>>({});
+  const persistedFlaggedQuestionIdsRef = useRef(new Set<number>());
+  const flagGenerationRef = useRef<Record<number, number>>({});
 
   const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>({});
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(new Set());
+  const [flagPersistenceError, setFlagPersistenceError] = useState<string | null>(null);
   const [struckOutOptionIds, setStruckOutOptionIds] = useState<Set<number>>(new Set());
   const [showClues, setShowClues] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [revealingQuestionIds, setRevealingQuestionIds] = useState<Set<number>>(new Set());
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,7 +90,9 @@ export function WindowedExamPageClient({
   const applyBootstrapState = useCallback((bootstrap: ExamBootstrap) => {
     setAnswers(bootstrap.answers);
     bootstrapAnswersRef.current = bootstrap.answers;
-    setFlaggedQuestionIds(new Set(bootstrap.flaggedQuestionIds));
+    const bootstrapFlags = new Set(bootstrap.flaggedQuestionIds);
+    persistedFlaggedQuestionIdsRef.current = new Set(bootstrapFlags);
+    setFlaggedQuestionIds(bootstrapFlags);
 
     const serverNowMs = bootstrap.serverNow ? Date.parse(bootstrap.serverNow) : Number.NaN;
     serverClockOffsetMsRef.current = Number.isFinite(serverNowMs)
@@ -104,17 +107,7 @@ export function WindowedExamPageClient({
       : Number.NaN;
     startedAtMsRef.current = Number.isFinite(startedAtMs) ? startedAtMs : null;
     deadlineAtMsRef.current = Number.isFinite(deadlineAtMs) ? deadlineAtMs : null;
-    fallbackClockStartedAtRef.current = Date.now();
     autoSubmitStartedRef.current = false;
-
-    const now = authoritativeNow(serverClockOffsetMsRef.current);
-    if (deadlineAtMsRef.current != null) {
-      setElapsedSeconds(Math.max(0, Math.ceil((deadlineAtMsRef.current - now) / 1000)));
-    } else if (startedAtMsRef.current != null) {
-      setElapsedSeconds(Math.max(0, Math.floor((now - startedAtMsRef.current) / 1000)));
-    } else {
-      setElapsedSeconds(0);
-    }
   }, []);
 
   const reportPersistenceError = useCallback((message: string) => {
@@ -181,7 +174,7 @@ export function WindowedExamPageClient({
     redo: redoAnnotation,
     clearAll: clearAllAnnotations,
     flush: flushAnnotations,
-  } = useQuestionAnnotations(currentQ?.id || null);
+  } = useQuestionAnnotations(currentQ?.id || null, sessionId);
 
   const isReviewMode = reviewMode && session?.is_completed === true;
   const sessionType = session?.session_type ?? 'standard';
@@ -319,9 +312,6 @@ export function WindowedExamPageClient({
         timeSpentSeconds,
       };
 
-      // Feedback is already authorized and prefetched for Standard/Tutor. Commit
-      // the visual state before starting the write so the Submit -> feedback path
-      // has no save/network dependency when the prefetch is warm.
       setAnswers((previous) => ({ ...previous, [questionId]: optimisticAnswer }));
       setFeedbackByQuestionId((previous) => ({ ...previous, [questionId]: feedback }));
       queuePrefetch(3);
@@ -345,6 +335,8 @@ export function WindowedExamPageClient({
   const toggleFlag = useCallback((questionId: number) => {
     if (isSubmitting) return;
     const nextFlagged = !flaggedQuestionIds.has(questionId);
+    const generation = (flagGenerationRef.current[questionId] || 0) + 1;
+    flagGenerationRef.current[questionId] = generation;
 
     setFlaggedQuestionIds((previous) => {
       const next = new Set(previous);
@@ -357,8 +349,27 @@ export function WindowedExamPageClient({
     const nextSave = previousSave
       .catch(() => undefined)
       .then(() => setQuestionFlagDirect(questionId, nextFlagged))
+      .then(() => {
+        if (flagGenerationRef.current[questionId] !== generation) return;
+        const persisted = new Set(persistedFlaggedQuestionIdsRef.current);
+        if (nextFlagged) persisted.add(questionId);
+        else persisted.delete(questionId);
+        persistedFlaggedQuestionIdsRef.current = persisted;
+        setFlagPersistenceError(null);
+      })
       .catch((error) => {
-        setPersistenceError(error instanceof Error ? error.message : 'Unable to update the question flag.');
+        if (flagGenerationRef.current[questionId] === generation) {
+          const persistedFlagged = persistedFlaggedQuestionIdsRef.current.has(questionId);
+          setFlaggedQuestionIds((previous) => {
+            const next = new Set(previous);
+            if (persistedFlagged) next.add(questionId);
+            else next.delete(questionId);
+            return next;
+          });
+          setFlagPersistenceError(
+            error instanceof Error ? error.message : 'Unable to update the question flag.',
+          );
+        }
         throw error;
       });
 
@@ -375,22 +386,20 @@ export function WindowedExamPageClient({
     });
   }, [isReviewMode, isSubmitting]);
 
-  const handleNext = useCallback(async () => {
-    try {
-      await flushAnnotations();
-      goNext();
-    } catch (error) {
-      setPersistenceError(error instanceof Error ? error.message : 'Unable to save annotations before moving on.');
-    }
+  const handleNext = useCallback(() => {
+    const backgroundSave = flushAnnotations();
+    goNext();
+    void backgroundSave.catch((error) => {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to save annotations.');
+    });
   }, [flushAnnotations, goNext]);
 
-  const handlePrev = useCallback(async () => {
-    try {
-      await flushAnnotations();
-      goPrev();
-    } catch (error) {
-      setPersistenceError(error instanceof Error ? error.message : 'Unable to save annotations before moving back.');
-    }
+  const handlePrev = useCallback(() => {
+    const backgroundSave = flushAnnotations();
+    goPrev();
+    void backgroundSave.catch((error) => {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to save annotations.');
+    });
   }, [flushAnnotations, goPrev]);
 
   const handleClearAnnotations = useCallback(async () => {
@@ -460,31 +469,35 @@ export function WindowedExamPageClient({
   }, [answerQueue, bankId, flushAnnotations, isReviewMode, router, sessionId]);
 
   useEffect(() => {
-    if (isReviewMode) return;
+    if (isReviewMode || !isCountdownSession) return;
 
-    const tick = () => {
-      const now = authoritativeNow(serverClockOffsetMsRef.current);
-      if (isCountdownSession && deadlineAtMsRef.current != null) {
-        const remaining = Math.max(0, Math.ceil((deadlineAtMsRef.current - now) / 1000));
-        setElapsedSeconds(remaining);
-        if (remaining <= 0 && !isSubmitting && !autoSubmitStartedRef.current) {
+    let timeoutId: number | null = null;
+    const checkDeadline = () => {
+      const deadline = deadlineAtMsRef.current;
+      if (deadline == null) return;
+      const remainingMs = deadline - authoritativeNow(serverClockOffsetMsRef.current);
+      if (remainingMs <= 0) {
+        if (!isSubmitting && !autoSubmitStartedRef.current) {
           autoSubmitStartedRef.current = true;
           void handleEndBlock(true);
         }
         return;
       }
-
-      if (startedAtMsRef.current != null) {
-        setElapsedSeconds(Math.max(0, Math.floor((now - startedAtMsRef.current) / 1000)));
-      } else {
-        setElapsedSeconds(Math.max(0, Math.floor((Date.now() - fallbackClockStartedAtRef.current) / 1000)));
-      }
+      timeoutId = window.setTimeout(checkDeadline, Math.min(remainingMs, 60_000));
     };
 
-    tick();
-    const timerId = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timerId);
-  }, [handleEndBlock, isCountdownSession, isReviewMode, isSubmitting]);
+    const initialId = window.setTimeout(checkDeadline, 0);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkDeadline();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      window.clearTimeout(initialId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [handleEndBlock, isCountdownSession, isReviewMode, isSubmitting, session?.deadline_at]);
 
   useExamKeyboardShortcuts({
     question: currentQ,
@@ -582,7 +595,7 @@ export function WindowedExamPageClient({
   if (!session || questionIds.length === 0) {
     return (
       <div className="flex h-dvh items-center justify-center overflow-hidden bg-[#282828] text-[#ff7a86]">
-        <p className="text-[12px] font-medium">{persistenceError || answerQueue.error || 'No questions matched this session.'}</p>
+        <p className="text-[12px] font-medium">{persistenceError || answerQueue.error || flagPersistenceError || 'No questions matched this session.'}</p>
       </div>
     );
   }
@@ -610,7 +623,7 @@ export function WindowedExamPageClient({
   const conceptHtml = explanationPanels.conceptHtml
     ? rewriteExamMediaHtml(explanationPanels.conceptHtml, mediaUrl)
     : null;
-  const visiblePersistenceError = persistenceError || answerQueue.error || annotationError;
+  const visiblePersistenceError = persistenceError || answerQueue.error || flagPersistenceError || annotationError;
   const isCurrentAnswerSaving =
     answerQueue.savingQuestionIds.has(currentQ.id) || revealingQuestionIds.has(currentQ.id);
 
@@ -631,7 +644,9 @@ export function WindowedExamPageClient({
     <div ref={examRootRef} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#282828] text-white">
       <ExamHeader
         currentIndex={currentIndex}
-        elapsedSeconds={elapsedSeconds}
+        clockStartedAtMs={startedAtMsRef.current}
+        clockDeadlineAtMs={deadlineAtMsRef.current}
+        serverClockOffsetMs={serverClockOffsetMsRef.current}
         isFlagged={flaggedQuestionIds.has(currentQ.id)}
         isReviewMode={isReviewMode}
         questionCount={questionIds.length}
@@ -644,8 +659,8 @@ export function WindowedExamPageClient({
         isFullscreen={isFullscreen}
         onSuspend={() => void handleSuspend()}
         onEndBlock={() => void handleEndBlock()}
-        onNext={() => void handleNext()}
-        onPrev={() => void handlePrev()}
+        onNext={handleNext}
+        onPrev={handlePrev}
         onToggleClues={() => setShowClues((value) => !value)}
         onToggleFlag={() => toggleFlag(currentQ.id)}
         onAnnotationToolChange={setAnnotationTool}
@@ -693,7 +708,7 @@ export function WindowedExamPageClient({
               onSelectOption={selectOption}
               onToggleStrikeOut={toggleStrikeOut}
               onSubmitAnswer={() => void submitAnswer(currentQ.id)}
-              onNext={() => void handleNext()}
+              onNext={handleNext}
               onExplanationClick={handleExplanationClick}
             />
           </div>
