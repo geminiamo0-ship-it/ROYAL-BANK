@@ -227,7 +227,21 @@ export async function trySignedExamWindowFastPath(options: {
     });
 
     const [contentBody, guard] = await Promise.all([contentPromise, guardPromise]);
-    if (!guard.ok || contentBody == null) return null;
+    if (!guard.ok) {
+      // A verified, pinned window capability has already passed local signature and
+      // session binding checks. If the authoritative disclosure guard itself times
+      // out or becomes unreachable, do not replay that same mutating guard through
+      // the regular v2 fallback path. Replaying amplifies load and can turn one
+      // 1.8-second guard timeout into a full 9-second request-budget exhaustion.
+      // Bubble a timeout-shaped error so /api/exam fails closed immediately.
+      if (guard.status === 0) {
+        const error = new Error('EXAM_WINDOW_GUARD_TIMEOUT');
+        error.name = 'TimeoutError';
+        throw error;
+      }
+      return null;
+    }
+    if (contentBody == null) return null;
 
     const authorizedIds = authorizedIdsFromGuard(guard.rawBody);
     if (!authorizedIds) return null;
