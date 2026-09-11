@@ -213,6 +213,7 @@ export function WindowedExamPageClient({
   const {
     feedbackByQuestionId: trainingFeedbackByQuestionId,
     ensure: ensureTrainingFeedback,
+    retry: retryTrainingFeedback,
   } = useExamTrainingFeedback({
     sessionId,
     enabled: capabilities.canPrefetchFeedback && !isReviewMode,
@@ -297,15 +298,69 @@ export function WindowedExamPageClient({
     }).catch(() => undefined);
   }, [answerQueue, answers, capabilities.canChangeAnswerBeforeCompletion, closingRef, isFeedbackLockedMode, isReviewMode, isSubmitting, questionTimer]);
 
-  const submitAnswer = useCallback(async (questionId: number) => {
-    if (
-      isReviewMode ||
-      isFeedbackLockedMode ||
-      isSubmitting ||
-      closingRef.current ||
-      answers[questionId] ||
-      acceptedSubmissionIdsRef.current.has(questionId)
-    ) return;
+  const applyTrainingFeedback = useCallback((
+    questionId: number,
+    selectedOptionId: number,
+    timeSpentSeconds: number,
+    training: ExamTrainingFeedback,
+  ) => {
+    const feedback = feedbackFromTraining(training, selectedOptionId);
+    setAnswers((previous) => ({
+      ...previous,
+      [questionId]: {
+        questionId,
+        selectedOptionId,
+        isCorrect: feedback.isCorrect,
+        correctOptionId: feedback.correctOptionId,
+        timeSpentSeconds,
+      },
+    }));
+    setFeedbackByQuestionId((previous) => ({ ...previous, [questionId]: feedback }));
+    queuePrefetch(3);
+  }, [queuePrefetch]);
+
+  const revealTrainingFeedback = useCallback(async (
+    questionId: number,
+    selectedOptionId: number,
+    timeSpentSeconds: number,
+    retry = false,
+  ) => {
+    setRevealingQuestionIds((previous) => new Set(previous).add(questionId));
+    setPersistenceError(null);
+    try {
+      const training = trainingFeedbackByQuestionId[questionId]
+        || await (retry ? retryTrainingFeedback(questionId) : ensureTrainingFeedback(questionId));
+      applyTrainingFeedback(questionId, selectedOptionId, timeSpentSeconds, training);
+    } catch (error) {
+      setPersistenceError(error instanceof Error ? error.message : 'Unable to prepare answer feedback.');
+    } finally {
+      setRevealingQuestionIds((previous) => {
+        const next = new Set(previous);
+        next.delete(questionId);
+        return next;
+      });
+    }
+  }, [applyTrainingFeedback, ensureTrainingFeedback, retryTrainingFeedback, trainingFeedbackByQuestionId]);
+
+  const submitAnswer = useCallback((questionId: number) => {
+    if (isReviewMode || isFeedbackLockedMode || isSubmitting || closingRef.current) return;
+
+    const retryingSave = answerQueue.failedQuestionIds.has(questionId);
+    if (retryingSave) {
+      const selectedOptionId = answers[questionId]?.selectedOptionId ?? pendingSelections[questionId];
+      if (!selectedOptionId) return;
+
+      setPersistenceError(null);
+      void answerQueue.retryPending(questionId).catch(() => undefined);
+      if (!feedbackByQuestionId[questionId]) {
+        const timeSpentSeconds = answers[questionId]?.timeSpentSeconds
+          ?? questionTimer.elapsedForQuestion(questionId);
+        void revealTrainingFeedback(questionId, selectedOptionId, timeSpentSeconds, true);
+      }
+      return;
+    }
+
+    if (answers[questionId] || acceptedSubmissionIdsRef.current.has(questionId)) return;
 
     const selectedOptionId = pendingSelections[questionId];
     if (!selectedOptionId) return;
@@ -318,43 +373,13 @@ export function WindowedExamPageClient({
     // answerQueue even if feedback hydration is slow or fails entirely.
     acceptedSubmissionIdsRef.current.add(questionId);
     const timeSpentSeconds = questionTimer.elapsedForQuestion(questionId);
-    const savePromise = answerQueue.enqueue({
+    void answerQueue.enqueue({
       questionId,
       selectedOptionId: option.id,
       timeSpentSeconds,
-    });
-    void savePromise.catch(() => undefined);
-
-    setRevealingQuestionIds((previous) => new Set(previous).add(questionId));
-    setPersistenceError(null);
-
-    try {
-      const training =
-        trainingFeedbackByQuestionId[questionId] ||
-        await ensureTrainingFeedback(questionId);
-      const feedback = feedbackFromTraining(training, option.id);
-      const optimisticAnswer: ExamClientAnswer = {
-        questionId,
-        selectedOptionId: option.id,
-        isCorrect: feedback.isCorrect,
-        correctOptionId: feedback.correctOptionId,
-        timeSpentSeconds,
-      };
-
-      setAnswers((previous) => ({ ...previous, [questionId]: optimisticAnswer }));
-      setFeedbackByQuestionId((previous) => ({ ...previous, [questionId]: feedback }));
-      queuePrefetch(3);
-    } catch (error) {
-      // The answer save is deliberately independent from content hydration.
-      setPersistenceError(error instanceof Error ? error.message : 'Unable to prepare answer feedback.');
-    } finally {
-      setRevealingQuestionIds((previous) => {
-        const next = new Set(previous);
-        next.delete(questionId);
-        return next;
-      });
-    }
-  }, [answerQueue, answers, closingRef, ensureTrainingFeedback, getQuestionById, isFeedbackLockedMode, isReviewMode, isSubmitting, pendingSelections, questionTimer, queuePrefetch, trainingFeedbackByQuestionId]);
+    }).catch(() => undefined);
+    void revealTrainingFeedback(questionId, option.id, timeSpentSeconds);
+  }, [answerQueue, answers, closingRef, feedbackByQuestionId, getQuestionById, isFeedbackLockedMode, isReviewMode, isSubmitting, pendingSelections, questionTimer, revealTrainingFeedback]);
 
   const toggleFlag = useCallback((questionId: number) => {
     if (isSubmitting || closingRef.current) return;
@@ -406,7 +431,7 @@ export function WindowedExamPageClient({
     onToggleFlag: toggleFlag,
     onSelectOption: selectOption,
     onSubmitAnswer: (questionId) => {
-      void submitAnswer(questionId);
+      submitAnswer(questionId);
     },
   });
 
@@ -452,35 +477,20 @@ export function WindowedExamPageClient({
     const answer = answers[currentQ.id];
     if (!answer?.selectedOptionId || feedbackByQuestionId[currentQ.id]) return;
 
-    const applyTraining = (training: ExamTrainingFeedback) => {
-      const feedback = feedbackFromTraining(training, answer.selectedOptionId as number);
-      setFeedbackByQuestionId((previous) => ({ ...previous, [currentQ.id]: feedback }));
-      setAnswers((previous) => {
-        const current = previous[currentQ.id];
-        if (!current) return previous;
-        return {
-          ...previous,
-          [currentQ.id]: {
-            ...current,
-            isCorrect: feedback.isCorrect,
-            correctOptionId: feedback.correctOptionId,
-          },
-        };
-      });
-    };
-
     const prefetched = trainingFeedbackByQuestionId[currentQ.id];
     if (prefetched) {
-      applyTraining(prefetched);
+      applyTrainingFeedback(currentQ.id, answer.selectedOptionId, answer.timeSpentSeconds, prefetched);
       return;
     }
 
     void ensureTrainingFeedback(currentQ.id)
-      .then(applyTraining)
+      .then((training) => {
+        applyTrainingFeedback(currentQ.id, answer.selectedOptionId as number, answer.timeSpentSeconds, training);
+      })
       .catch((error) => {
         setPersistenceError(error instanceof Error ? error.message : 'Unable to load answer feedback.');
       });
-  }, [answers, capabilities.canSeeFeedbackBeforeCompletion, currentQ, ensureTrainingFeedback, feedbackByQuestionId, isReviewMode, trainingFeedbackByQuestionId]);
+  }, [answers, applyTrainingFeedback, capabilities.canSeeFeedbackBeforeCompletion, currentQ, ensureTrainingFeedback, feedbackByQuestionId, isReviewMode, trainingFeedbackByQuestionId]);
 
   if (isBootstrapping) {
     return (
@@ -525,6 +535,7 @@ export function WindowedExamPageClient({
     persistenceError || lifecycleError || answerQueue.error || flagPersistenceError || annotationError;
   const isCurrentAnswerSaving =
     answerQueue.savingQuestionIds.has(currentQ.id) || revealingQuestionIds.has(currentQ.id);
+  const canRetryCurrentSave = answerQueue.failedQuestionIds.has(currentQ.id);
 
   const handleExplanationClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -599,6 +610,7 @@ export function WindowedExamPageClient({
               optionPercentages={optionPercentages}
               isSaving={isCurrentAnswerSaving}
               isSaveConfirmed={answerQueue.confirmedQuestionIds.has(currentQ.id)}
+              canRetrySave={canRetryCurrentSave}
               isSubmitting={isSubmitting}
               annotationTool={annotationTool}
               annotationRecords={annotationRecords}
@@ -606,7 +618,13 @@ export function WindowedExamPageClient({
               onEraseAnnotationStroke={eraseAnnotationStroke}
               onSelectOption={selectOption}
               onToggleStrikeOut={toggleStrikeOut}
-              onSubmitAnswer={() => void submitAnswer(currentQ.id)}
+              onSubmitAnswer={() => submitAnswer(currentQ.id)}
+              onRetryFeedback={() => {
+                if (!selectedOptionId) return;
+                const timeSpentSeconds = currentAnswer?.timeSpentSeconds
+                  ?? questionTimer.elapsedForQuestion(currentQ.id);
+                void revealTrainingFeedback(currentQ.id, selectedOptionId, timeSpentSeconds, true);
+              }}
               onNext={handleNext}
               onExplanationClick={handleExplanationClick}
             />
