@@ -6,6 +6,7 @@ import type { ExamGatewayAction } from '@/types/exam-gateway';
 const DEFAULT_PREFIX = 'exam-content/v1';
 
 const R2_RPC_BY_ACTION: Partial<Record<ExamGatewayAction, string>> = {
+  create: 'create_exam_session_bootstrap_idempotent',
   bootstrap: 'get_exam_session_bootstrap_ref',
   window: 'get_exam_session_window_refs',
   reviewBootstrap: 'get_completed_exam_review_bootstrap_ref',
@@ -149,7 +150,7 @@ export async function hydrateExamR2Response(
     return questions ? JSON.stringify(questions) : null;
   }
 
-  if (action === 'bootstrap' || action === 'reviewBootstrap') {
+  if (action === 'create' || action === 'bootstrap' || action === 'reviewBootstrap') {
     const bootstrap = asObject(parsed);
     if (!bootstrap) return null;
     const questions = await hydrateQuestionRefs(bootstrap.questions);
