@@ -4,10 +4,12 @@ import {
   normalizeExamQuestion,
   toClientExamAnswer,
   toClientExamFeedback,
+  toClientTrainingFeedback,
   type RawExamBootstrap,
   type RawExamInlineFeedbackResult,
   type RawExamQuestionFeedback,
   type RawExamSubmitResult,
+  type RawExamTrainingFeedback,
 } from '@/lib/exam-wire';
 import { decodeTopicFilter } from '@/lib/topic-filters';
 import type {
@@ -15,6 +17,7 @@ import type {
   ExamClientAnswer,
   ExamClientQuestion,
   ExamQuestionFeedback,
+  ExamTrainingFeedback,
   StartExamInput,
 } from '@/types/exam';
 
@@ -131,13 +134,32 @@ export async function getCompletedExamReviewWindowDirect(
   return data.map(normalizeExamQuestion);
 }
 
+export async function getExamTrainingFeedbackDirect(
+  sessionId: string,
+  questionId: number,
+): Promise<ExamTrainingFeedback> {
+  const data = await callExamGateway<RawExamTrainingFeedback, 'trainingFeedback'>('trainingFeedback', {
+    p_session_id: sessionId,
+    p_question_id: questionId,
+  });
+
+  if (!data || typeof data !== 'object') throw new Error('Training feedback was not returned.');
+  return toClientTrainingFeedback(data);
+}
+
 export async function submitExamAnswerWithFeedbackDirect(input: {
+  requestId?: string;
   sessionId: string;
   questionId: number;
   selectedOptionId: number;
   timeSpentSeconds?: number;
-}): Promise<{ answer: ExamClientAnswer; feedback: ExamQuestionFeedback }> {
+}): Promise<{
+  answer: ExamClientAnswer;
+  feedback: ExamQuestionFeedback | null;
+  feedbackPending: boolean;
+}> {
   const raw = await callExamGateway<RawExamInlineFeedbackResult, 'submit'>('submit', {
+    p_request_id: input.requestId || crypto.randomUUID(),
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,
@@ -145,26 +167,31 @@ export async function submitExamAnswerWithFeedbackDirect(input: {
   });
 
   if (!raw || typeof raw !== 'object') throw new Error('Answer feedback was not returned.');
-  if (!raw.answer || !raw.feedback) throw new Error('Answer feedback payload is incomplete.');
+  if (!raw.answer) throw new Error('Answer payload is incomplete.');
 
-  const feedback = toClientExamFeedback(raw.feedback);
+  const feedback = raw.feedback ? toClientExamFeedback(raw.feedback) : null;
   return {
-    answer: {
-      ...toClientExamAnswer(raw.answer),
-      isCorrect: feedback.isCorrect,
-      correctOptionId: feedback.correctOptionId,
-    },
+    answer: feedback
+      ? {
+          ...toClientExamAnswer(raw.answer),
+          isCorrect: feedback.isCorrect,
+          correctOptionId: feedback.correctOptionId,
+        }
+      : toClientExamAnswer(raw.answer),
     feedback,
+    feedbackPending: Boolean(raw.feedback_pending || !feedback),
   };
 }
 
 export async function submitExamAnswerDirect(input: {
+  requestId?: string;
   sessionId: string;
   questionId: number;
   selectedOptionId: number;
   timeSpentSeconds?: number;
 }): Promise<ExamClientAnswer> {
   const data = await callExamGateway<RawExamSubmitResult, 'submitRaw'>('submitRaw', {
+    p_request_id: input.requestId || crypto.randomUUID(),
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,
