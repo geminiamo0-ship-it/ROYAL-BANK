@@ -24,6 +24,7 @@ export const maxDuration = 10;
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 const RATE_LIMIT_RECORD_TIMEOUT_MS = 1500;
+const EXAM_UPSTREAM_TIMEOUT_MS = 6500;
 
 const RATE_LIMIT_FAIL_OPEN_ACTIONS = new Set<ExamGatewayAction>([
   'submit',
@@ -42,6 +43,10 @@ function requiresPasswordChange(claims: unknown): boolean {
       !Array.isArray(appMetadata) &&
       (appMetadata as Record<string, unknown>).must_change_password === true,
   );
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
 async function recordRateLimitRejection(options: {
@@ -254,8 +259,12 @@ export async function POST(request: Request) {
       cache: 'no-store',
       headers: gatewayHeaders(publishableKey, accessToken, proof),
       body: JSON.stringify(body.args),
+      signal: AbortSignal.timeout(EXAM_UPSTREAM_TIMEOUT_MS),
     });
-  } catch {
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      return jsonError(504, 'EXAM_UPSTREAM_TIMEOUT', 'Exam service took too long to respond.');
+    }
     return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
   }
   upstreamFetchMs = performance.now() - upstreamFetchStart;
