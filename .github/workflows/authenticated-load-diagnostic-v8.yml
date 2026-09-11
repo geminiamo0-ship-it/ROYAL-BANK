@@ -1,4 +1,4 @@
-# trigger: 2026-09-12 authenticated production diagnostic
+# trigger: 2026-09-12 post-071 authenticated production diagnostic
 name: Authenticated Production Diagnostic V8
 
 on:
