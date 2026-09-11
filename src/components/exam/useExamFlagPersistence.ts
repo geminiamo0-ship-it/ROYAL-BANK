@@ -3,11 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { setQuestionFlagDirect } from '@/lib/exam-client-api';
 
-export function useExamFlagPersistence(options: {
-  initialFlaggedQuestionIds?: number[];
-  isSubmitting: boolean;
-}) {
-  const { initialFlaggedQuestionIds = [], isSubmitting } = options;
+export function useExamFlagPersistence(initialFlaggedQuestionIds: number[] = []) {
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<number>>(
     () => new Set(initialFlaggedQuestionIds),
   );
@@ -24,7 +20,6 @@ export function useExamFlagPersistence(options: {
   }, []);
 
   const toggle = useCallback((questionId: number) => {
-    if (isSubmitting) return;
     const nextFlagged = !flaggedQuestionIds.has(questionId);
     const generation = (generationRef.current[questionId] || 0) + 1;
     generationRef.current[questionId] = generation;
@@ -63,7 +58,7 @@ export function useExamFlagPersistence(options: {
       });
 
     saveChainsRef.current[questionId] = nextSave;
-  }, [flaggedQuestionIds, isSubmitting]);
+  }, [flaggedQuestionIds]);
 
   const drain = useCallback(async () => {
     await Promise.all(Object.values(saveChainsRef.current));
