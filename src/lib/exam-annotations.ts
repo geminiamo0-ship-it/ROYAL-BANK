@@ -7,6 +7,7 @@ export type AnnotationTool = (typeof ANNOTATION_TOOLS)[number];
 export const ANNOTATION_COLORS = ['yellow', 'red', 'blue', 'green', 'purple'] as const;
 export type AnnotationColor = (typeof ANNOTATION_COLORS)[number];
 export const DEFAULT_ANNOTATION_COLOR: AnnotationColor = 'yellow';
+export const ANNOTATION_COLOR_STORAGE_KEY = 'royal.exam.annotationColor';
 
 export type AnnotationPoint = readonly [number, number];
 
