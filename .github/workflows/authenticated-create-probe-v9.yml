@@ -1,0 +1,41 @@
+name: Authenticated Create Probe V9
+
+on:
+  push:
+    branches:
+      - ops/authenticated-load-test
+    paths:
+      - .github/workflows/authenticated-create-probe-v9.yml
+
+permissions:
+  contents: read
+
+env:
+  TARGET_URL: https://royal-bank-21be.vercel.app
+  SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+  LOAD_USER_COUNT: 75
+  LOAD_AUTH_PACING_MS: 1200
+
+jobs:
+  create-probe-75:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: production
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Prepare 75 isolated authenticated users
+        run: node scripts/auth-load-prepare.mjs
+      - name: Run simultaneous Create-only timing probe
+        run: node scripts/auth-load-create-probe.mjs
+      - name: Cleanup isolated load users
+        if: always()
+        run: node scripts/auth-load-cleanup.mjs
