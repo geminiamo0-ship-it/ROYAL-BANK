@@ -1,8 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getExamTrainingFeedbackDirect } from '@/lib/exam-client-api';
 import type { ExamTrainingFeedback } from '@/types/exam';
+
+function feedbackKey(sessionId: string, questionId: number): string {
+  return `${sessionId}:${questionId}`;
+}
 
 export function useExamTrainingFeedback(options: {
   sessionId: string;
@@ -10,42 +14,36 @@ export function useExamTrainingFeedback(options: {
   warmQuestionIds: number[];
 }) {
   const { sessionId, enabled, warmQuestionIds } = options;
-  const [feedbackByQuestionId, setFeedbackByQuestionId] = useState<Record<number, ExamTrainingFeedback>>({});
-  const [loadingQuestionIds, setLoadingQuestionIds] = useState<Set<number>>(new Set());
-  const feedbackRef = useRef<Record<number, ExamTrainingFeedback>>({});
-  const inFlightRef = useRef(new Map<number, Promise<ExamTrainingFeedback>>());
-
-  useEffect(() => {
-    feedbackRef.current = {};
-    inFlightRef.current.clear();
-    setFeedbackByQuestionId({});
-    setLoadingQuestionIds(new Set());
-  }, [sessionId]);
+  const [cacheRevision, setCacheRevision] = useState(0);
+  const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
+  const feedbackRef = useRef(new Map<string, ExamTrainingFeedback>());
+  const inFlightRef = useRef(new Map<string, Promise<ExamTrainingFeedback>>());
 
   const ensure = useCallback((questionId: number): Promise<ExamTrainingFeedback> => {
-    const cached = feedbackRef.current[questionId];
+    const key = feedbackKey(sessionId, questionId);
+    const cached = feedbackRef.current.get(key);
     if (cached) return Promise.resolve(cached);
 
-    const existing = inFlightRef.current.get(questionId);
+    const existing = inFlightRef.current.get(key);
     if (existing) return existing;
 
-    setLoadingQuestionIds((previous) => new Set(previous).add(questionId));
+    setLoadingKeys((previous) => new Set(previous).add(key));
     const request = getExamTrainingFeedbackDirect(sessionId, questionId)
       .then((feedback) => {
-        feedbackRef.current = { ...feedbackRef.current, [questionId]: feedback };
-        setFeedbackByQuestionId(feedbackRef.current);
+        feedbackRef.current.set(key, feedback);
+        setCacheRevision((value) => value + 1);
         return feedback;
       })
       .finally(() => {
-        inFlightRef.current.delete(questionId);
-        setLoadingQuestionIds((previous) => {
+        inFlightRef.current.delete(key);
+        setLoadingKeys((previous) => {
           const next = new Set(previous);
-          next.delete(questionId);
+          next.delete(key);
           return next;
         });
       });
 
-    inFlightRef.current.set(questionId, request);
+    inFlightRef.current.set(key, request);
     return request;
   }, [sessionId]);
 
@@ -56,6 +54,27 @@ export function useExamTrainingFeedback(options: {
       void ensure(questionId).catch(() => undefined);
     }
   }, [enabled, ensure, warmQuestionIds]);
+
+  const feedbackByQuestionId = useMemo(() => {
+    const current: Record<number, ExamTrainingFeedback> = {};
+    const prefix = `${sessionId}:`;
+    for (const [key, feedback] of feedbackRef.current) {
+      if (!key.startsWith(prefix)) continue;
+      current[feedback.questionId] = feedback;
+    }
+    return current;
+  }, [cacheRevision, sessionId]);
+
+  const loadingQuestionIds = useMemo(() => {
+    const current = new Set<number>();
+    const prefix = `${sessionId}:`;
+    for (const key of loadingKeys) {
+      if (!key.startsWith(prefix)) continue;
+      const questionId = Number(key.slice(prefix.length));
+      if (Number.isSafeInteger(questionId) && questionId > 0) current.add(questionId);
+    }
+    return current;
+  }, [loadingKeys, sessionId]);
 
   return {
     feedbackByQuestionId,
