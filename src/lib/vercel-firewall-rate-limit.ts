@@ -8,6 +8,8 @@ type RateLimitResult = {
   error?: 'not-found' | 'blocked';
 };
 
+const VERCEL_RATE_LIMIT_TIMEOUT_MS = 1500;
+
 function parseCookies(headers: Headers): Record<string, string> {
   const raw = headers.get('cookie');
   if (!raw) return {};
@@ -88,6 +90,7 @@ export async function checkVercelRateLimit(
       headers,
       redirect: 'manual',
       cache: 'no-store',
+      signal: AbortSignal.timeout(VERCEL_RATE_LIMIT_TIMEOUT_MS),
     }
   );
 
