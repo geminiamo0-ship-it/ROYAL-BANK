@@ -33,6 +33,7 @@ interface WindowedExamQuestionPaneProps {
   correctOptionId: number | null;
   optionPercentages: Record<number, number>;
   isSaving: boolean;
+  isSaveConfirmed?: boolean;
   isSubmitting: boolean;
   annotationTool: AnnotationTool | null;
   annotationRecords: Partial<Record<AnnotationSurface, StoredQuestionAnnotation>>;
@@ -70,6 +71,7 @@ export function WindowedExamQuestionPane({
   correctOptionId,
   optionPercentages,
   isSaving,
+  isSaveConfirmed = false,
   isSubmitting,
   annotationTool,
   annotationRecords,
@@ -135,7 +137,7 @@ export function WindowedExamQuestionPane({
             disabled={!selectedOptionId || isSaving || isSubmitting}
             className="inline-flex h-[34px] items-center rounded-[4px] bg-[#7f1fff] px-4 text-[14px] font-medium text-white hover:bg-[#8d33ff] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {isSaving ? 'Submitting...' : 'Submit answer'}
+            {isSaving ? 'Preparing feedback...' : 'Submit answer'}
           </button>
           {!selectedOptionId ? (
             <span className="text-[12px] text-[#a8aeb4]">Choose one option first.</span>
@@ -145,7 +147,13 @@ export function WindowedExamQuestionPane({
 
       {!isReviewMode && isTimedMode ? (
         <p className="mt-3 text-[11px] text-[#a8aeb4]">
-          Timed selections are saved automatically and can be changed until End Block.
+          Selections are saved automatically and can be changed until End Block.
+        </p>
+      ) : null}
+
+      {!isReviewMode && isAnswered ? (
+        <p className="mt-3 text-[11px] text-[#a8aeb4]" aria-live="polite">
+          {isSaving ? 'Saving answer…' : isSaveConfirmed ? 'Saved' : ''}
         </p>
       ) : null}
 
