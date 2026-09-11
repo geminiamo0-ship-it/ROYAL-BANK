@@ -71,6 +71,7 @@ export interface ExamBootstrapSession extends ExamClientSession {
   is_completed: boolean;
   started_at: string | null;
   deadline_at: string | null;
+  content_release_id: string | null;
 }
 
 export interface ExamBootstrap {
