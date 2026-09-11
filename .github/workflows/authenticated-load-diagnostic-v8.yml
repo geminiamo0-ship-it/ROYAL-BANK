@@ -14,6 +14,7 @@ env:
   TARGET_URL: https://royal-bank-21be.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   LOAD_USER_COUNT: 100
+  LOAD_AUTH_PACING_MS: 1200
 
 jobs:
   diagnose-100:
