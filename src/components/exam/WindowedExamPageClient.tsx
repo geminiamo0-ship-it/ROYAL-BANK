@@ -65,11 +65,13 @@ export function WindowedExamPageClient({
 
   const {
     flaggedQuestionIds,
+    failedQuestionIds: failedFlagQuestionIds,
     error: flagPersistenceError,
     hydrate: hydrateFlags,
     toggle: persistFlagToggle,
+    retryPending: retryFlagPending,
     drain: drainFlags,
-  } = useExamFlagPersistence();
+  } = useExamFlagPersistence({ sessionId });
 
   const applyBootstrapState = useCallback((bootstrap: ExamBootstrap) => {
     setAnswers(bootstrap.answers);
@@ -431,6 +433,7 @@ export function WindowedExamPageClient({
   const isCurrentAnswerSaving =
     answerQueue.savingQuestionIds.has(currentQ.id) || revealingQuestionIds.has(currentQ.id);
   const canRetryCurrentSave = answerQueue.failedQuestionIds.has(currentQ.id);
+  const canRetryCurrentFlag = failedFlagQuestionIds.has(currentQ.id);
 
   const handleExplanationClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -476,8 +479,18 @@ export function WindowedExamPageClient({
       />
 
       {visiblePersistenceError ? (
-        <div className="mx-auto mt-2 w-[calc(100%-2rem)] max-w-[1240px] shrink-0 rounded-[4px] border border-[#95413d] bg-[#3a2d2c] px-3 py-2 text-[12px] text-[#ffd4ce]">
-          {visiblePersistenceError}
+        <div className="mx-auto mt-2 flex w-[calc(100%-2rem)] max-w-[1240px] shrink-0 items-center justify-between gap-3 rounded-[4px] border border-[#95413d] bg-[#3a2d2c] px-3 py-2 text-[12px] text-[#ffd4ce]">
+          <span>{visiblePersistenceError}</span>
+          {canRetryCurrentFlag ? (
+            <button
+              type="button"
+              onClick={() => void retryFlagPending(currentQ.id).catch(() => undefined)}
+              disabled={isSubmitting}
+              className="shrink-0 rounded-[3px] border border-[#b66b65] px-2 py-1 text-[#ffe5e1] hover:border-[#e0958e] disabled:opacity-45"
+            >
+              Retry flag save
+            </button>
+          ) : null}
         </div>
       ) : null}
 
