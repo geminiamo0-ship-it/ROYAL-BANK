@@ -21,6 +21,7 @@ import {
 } from '@/lib/exam-gateway-server';
 import {
   attachExamWindowAccess,
+  EXAM_WINDOW_ACCESS_HEADER,
   trySignedExamWindowFastPath,
 } from '@/lib/exam-window-fast-path';
 import { getSupabaseServerConfig } from '@/lib/supabase/env';
@@ -159,6 +160,8 @@ export async function POST(request: Request) {
   }
 
   const body = parsedRequest.value;
+  const windowAction = body.action === 'window' || body.action === 'reviewWindow';
+  const windowAccessPresented = Boolean(request.headers.get(EXAM_WINDOW_ACCESS_HEADER));
   const authStart = performance.now();
 
   const authClient = createClient(supabaseUrl, publishableKey, {
@@ -217,6 +220,34 @@ export async function POST(request: Request) {
 
   authMs = performance.now() - authStart;
 
+  const validateAuthoritativeUser = async (): Promise<Response | null> => {
+    const currentUserStart = performance.now();
+    const {
+      data: { user },
+      error,
+    } = await authClient.auth.getUser(accessToken);
+    authMs += performance.now() - currentUserStart;
+
+    if (error || !user || user.id !== userId) {
+      return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+    }
+    if (user.app_metadata?.must_change_password === true) {
+      return jsonError(
+        403,
+        'PASSWORD_CHANGE_REQUIRED',
+        'Change your password before continuing.',
+      );
+    }
+    return null;
+  };
+
+  // A caller cannot use the fast-path header to weaken authentication for any
+  // mutating or feedback action. Those requests are revalidated authoritatively.
+  if (windowAccessPresented && !windowAction) {
+    const authError = await validateAuthoritativeUser();
+    if (authError) return authError;
+  }
+
   const proof = buildGatewayProof({
     request,
     gatewayKeyId,
@@ -271,7 +302,7 @@ export async function POST(request: Request) {
   rateLimitMs = performance.now() - rateLimitStart;
 
   const r2ContentEnabled = isExamR2ContentEnabled();
-  if (r2ContentEnabled && (body.action === 'window' || body.action === 'reviewWindow')) {
+  if (r2ContentEnabled && windowAction) {
     const fastPathStart = performance.now();
     const fastPathBody = await trySignedExamWindowFastPath({
       request,
@@ -296,6 +327,14 @@ export async function POST(request: Request) {
         totalServerMs: performance.now() - totalServerStart,
       });
       return new Response(fastPathBody, { status: 200, headers });
+    }
+
+    // The middleware intentionally avoids its remote user lookup only when a
+    // signed window capability is presented. If that capability does not verify
+    // or cannot be served, restore authoritative validation before any fallback.
+    if (windowAccessPresented) {
+      const authError = await validateAuthoritativeUser();
+      if (authError) return authError;
     }
   }
 
