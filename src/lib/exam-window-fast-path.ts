@@ -190,6 +190,11 @@ export async function trySignedExamWindowFastPath(options: {
   });
   if (!access) return null;
 
+  // A null release is an explicit rollout marker for a session created before
+  // release pinning existed. Do not spend R2/guard work on it; the BFF will use the
+  // authenticated legacy Postgres path. Pinned sessions always carry a release id.
+  if (!access.r) return null;
+
   const end = Math.min(args.p_start + args.p_count, access.q.length);
   const questionIds =
     args.p_start >= access.q.length ? [] : access.q.slice(args.p_start, end);
