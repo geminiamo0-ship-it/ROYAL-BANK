@@ -69,6 +69,8 @@ export interface ExamClientSession {
 export interface ExamBootstrapSession extends ExamClientSession {
   total_questions: number;
   is_completed: boolean;
+  started_at: string | null;
+  deadline_at: string | null;
 }
 
 export interface ExamBootstrap {
@@ -81,4 +83,5 @@ export interface ExamBootstrap {
   currentIndex: number;
   windowAccessToken: string | null;
   windowAccessExpiresAt: number | null;
+  serverNow: string | null;
 }
