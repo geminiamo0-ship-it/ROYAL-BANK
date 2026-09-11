@@ -12,7 +12,6 @@ import {
 import {
   getExamLaunchCache,
   mergeExamLaunchWindow,
-  primeExamLaunchCache,
 } from '@/lib/exam-launch-cache';
 import type { ExamBootstrap, ExamBootstrapSession, ExamClientQuestion } from '@/types/exam';
 
@@ -79,11 +78,13 @@ export function useWindowedExamSession({
     })();
 
     inFlightWindowsRef.current.set(key, request);
-    void request.finally(() => {
-      if (inFlightWindowsRef.current.get(key) === request) {
-        inFlightWindowsRef.current.delete(key);
-      }
-    });
+    void request
+      .finally(() => {
+        if (inFlightWindowsRef.current.get(key) === request) {
+          inFlightWindowsRef.current.delete(key);
+        }
+      })
+      .catch(() => undefined);
     return request;
   }, [addQuestions, reviewMode, sessionId]);
 
@@ -142,11 +143,13 @@ export function useWindowedExamSession({
     })();
 
     windowAccessRefreshRef.current = refresh;
-    void refresh.finally(() => {
-      if (windowAccessRefreshRef.current === refresh) {
-        windowAccessRefreshRef.current = null;
-      }
-    });
+    void refresh
+      .finally(() => {
+        if (windowAccessRefreshRef.current === refresh) {
+          windowAccessRefreshRef.current = null;
+        }
+      })
+      .catch(() => undefined);
     return refresh;
   }, [sessionId]);
 
@@ -199,6 +202,9 @@ export function useWindowedExamSession({
         return;
       }
 
+      // No launch handoff means this is a resume/refresh. Session state, answers,
+      // completion state, current index, and server clock must come from the server.
+      // Only the create -> first mount path is allowed to populate exam-launch-cache.
       setIsBootstrapping(true);
 
       try {
@@ -206,7 +212,6 @@ export function useWindowedExamSession({
           ? await getCompletedExamReviewBootstrapDirect(sessionId)
           : await getExamSessionBootstrapDirect(sessionId);
         if (cancelled) return;
-        if (!reviewMode) primeExamLaunchCache(bootstrap);
         applyBootstrap(bootstrap);
         queuePrefetch(DEFAULT_WARM_AHEAD);
       } catch (error) {
