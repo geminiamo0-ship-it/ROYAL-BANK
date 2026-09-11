@@ -134,6 +134,20 @@ async function hydrateQuestionRefs(rawRefs: unknown): Promise<R2Question[] | nul
   return questions as R2Question[];
 }
 
+export async function hydrateExamR2QuestionIds(
+  action: 'window' | 'reviewWindow',
+  questionIds: number[],
+): Promise<string | null> {
+  try {
+    const questions = await Promise.all(questionIds.map((id) => readQuestion(id)));
+    if (questions.some((question) => question == null)) return null;
+    logContentSource('r2', action);
+    return JSON.stringify(questions as R2Question[]);
+  } catch {
+    return null;
+  }
+}
+
 async function hydrateFeedbackRecord(rawFeedback: unknown): Promise<JsonObject | null> {
   const feedback = asObject(rawFeedback);
   const questionId = positiveInteger(feedback?.question_id);
