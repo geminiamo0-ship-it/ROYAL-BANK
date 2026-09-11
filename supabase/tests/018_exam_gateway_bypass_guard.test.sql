@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(12);
+SELECT extensions.plan(14);
 
 SELECT extensions.ok(
     NOT (SELECT enforcement_enabled FROM private.exam_gateway_config WHERE singleton),
@@ -59,6 +59,26 @@ UPDATE private.exam_gateway_config
 SET enforcement_enabled = TRUE
 WHERE singleton;
 
+-- Protected exam RPCs are POST-only. Read-only PostgREST GET/HEAD invocation must
+-- not skip the BFF/gateway controls.
+SELECT set_config('request.method', 'GET', true);
+SELECT set_config('request.headers', '{}'::jsonb::text, true);
+SELECT extensions.throws_ok(
+    'SELECT api_hooks.royal_exam_pre_request()',
+    'PT405',
+    'Protected exam RPCs require POST',
+    'GET cannot bypass the exam gateway on a protected RPC'
+);
+
+SELECT set_config('request.method', 'HEAD', true);
+SELECT extensions.throws_ok(
+    'SELECT api_hooks.royal_exam_pre_request()',
+    'PT405',
+    'Protected exam RPCs require POST',
+    'HEAD cannot bypass the exam gateway on a protected RPC'
+);
+
+SELECT set_config('request.method', 'POST', true);
 SELECT set_config('request.headers', '{"x-royal-gateway-key-id":"test-key","x-royal-gateway-key":"wrong"}'::jsonb::text, true);
 SELECT extensions.throws_ok(
     'SELECT api_hooks.royal_exam_pre_request()',
