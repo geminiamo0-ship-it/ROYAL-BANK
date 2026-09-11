@@ -4,6 +4,8 @@ import { isSupabaseConfigured } from './config';
 import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
 
+const EXAM_WINDOW_ACCESS_HEADER = 'x-royal-window-access';
+
 export async function updateSession(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   let response = NextResponse.next({ request: { headers: requestHeaders } });
@@ -30,13 +32,45 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
+  const pathname = request.nextUrl.pathname;
+
+  function forwardExamSession(accessToken: string | null) {
+    if (accessToken) {
+      requestHeaders.set('authorization', `Bearer ${accessToken}`);
+    } else {
+      requestHeaders.delete('authorization');
+    }
+
+    const pendingCookies = response.cookies.getAll();
+    const pendingCacheHeaders = ['cache-control', 'expires', 'pragma']
+      .map((name) => [name, response.headers.get(name)] as const)
+      .filter((entry): entry is readonly [string, string] => Boolean(entry[1]));
+
+    response = NextResponse.next({ request: { headers: requestHeaders } });
+    pendingCookies.forEach((cookie) => response.cookies.set(cookie));
+    pendingCacheHeaders.forEach(([name, value]) => response.headers.set(name, value));
+    return response;
+  }
+
+  // A signed exam-window capability is verified again inside /api/exam and is
+  // bound to the cryptographically verified user/session there. For this narrow
+  // read-only path, only extract the cookie-backed access token here instead of
+  // doing a remote user lookup on every prefetch. getSession() is not trusted for
+  // authorization; the route verifies the JWT and the signed capability. If that
+  // capability is invalid or expired, the route performs authoritative validation
+  // before falling back to the regular backend path.
+  if (pathname === '/api/exam' && request.headers.get(EXAM_WINDOW_ACCESS_HEADER)) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return forwardExamSession(session?.access_token || null);
+  }
+
   // Validate/refresh the cookie-backed session before using it for authorization.
   await supabase.auth.getClaims();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const pathname = request.nextUrl.pathname;
 
   function withSessionState(target: NextResponse) {
     response.cookies.getAll().forEach((cookie) => target.cookies.set(cookie));
@@ -72,20 +106,7 @@ export async function updateSession(request: NextRequest) {
       data: { session },
     } = await supabase.auth.getSession();
 
-    if (user && session?.access_token) {
-      requestHeaders.set('authorization', `Bearer ${session.access_token}`);
-    } else {
-      requestHeaders.delete('authorization');
-    }
-
-    const pendingCookies = response.cookies.getAll();
-    const pendingCacheHeaders = ['cache-control', 'expires', 'pragma']
-      .map((name) => [name, response.headers.get(name)] as const)
-      .filter((entry): entry is readonly [string, string] => Boolean(entry[1]));
-
-    response = NextResponse.next({ request: { headers: requestHeaders } });
-    pendingCookies.forEach((cookie) => response.cookies.set(cookie));
-    pendingCacheHeaders.forEach(([name, value]) => response.headers.set(name, value));
+    return forwardExamSession(user && session?.access_token ? session.access_token : null);
   }
 
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
