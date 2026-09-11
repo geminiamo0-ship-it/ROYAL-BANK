@@ -2,6 +2,11 @@ name: Authenticated Production Load Test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - ops/auth-load-20260911
+    paths:
+      - ops/auth-load-run-trigger.txt
 
 permissions:
   contents: read
