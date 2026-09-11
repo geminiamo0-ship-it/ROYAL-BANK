@@ -8,7 +8,7 @@ const DEFAULT_PREFIX = 'exam-content/v1';
 const R2_RPC_BY_ACTION: Partial<Record<ExamGatewayAction, string>> = {
   // Creation already returns Q1 in full from Postgres. Do not immediately fetch
   // that same question from R2 again; the route handoff can use it as-is.
-  bootstrap: 'get_exam_session_bootstrap_ref',
+  bootstrap: 'get_exam_session_bootstrap_ref_v2',
   window: 'get_exam_session_window_refs',
   reviewBootstrap: 'get_completed_exam_review_bootstrap_ref',
   reviewWindow: 'get_completed_exam_review_window_refs',
