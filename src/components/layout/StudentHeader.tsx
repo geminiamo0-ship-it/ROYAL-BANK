@@ -22,6 +22,11 @@ interface StudentHeaderProps {
   userName?: string;
 }
 
+type BankOfferState = {
+  bankId: number;
+  offer: CatalogUpgradeOffer;
+};
+
 function formatAccessDate(value: string | null | undefined) {
   if (!value) return '—';
   const date = new Date(value);
@@ -52,21 +57,21 @@ export function StudentHeader({
   const bankId = bankMatch ? Number(bankMatch[1]) : null;
   const upgradeHref = bankId ? `/upgrade?bank=${bankId}` : '/upgrade';
 
-  const [offer, setOffer] = React.useState<CatalogUpgradeOffer | null>(null);
-  const [showAccessDetails, setShowAccessDetails] = React.useState(false);
+  const [offerState, setOfferState] = React.useState<BankOfferState | null>(null);
+  const [accessDetailsBankId, setAccessDetailsBankId] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
-    setOffer(null);
-    setShowAccessDetails(false);
 
-    if (!bankId) return () => {
-      cancelled = true;
-    };
+    if (!bankId) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     void getCatalogUpgradeOffer({ scopeType: 'bank', targetId: bankId }).then((result) => {
       if (cancelled || !result.ok) return;
-      setOffer(result.data);
+      setOfferState({ bankId, offer: result.data });
     });
 
     return () => {
@@ -74,9 +79,11 @@ export function StudentHeader({
     };
   }, [bankId]);
 
+  const offer = offerState?.bankId === bankId ? offerState.offer : null;
   const access = offer?.access;
   const isActivated = Boolean(access?.has_access);
   const isPending = !isActivated && offer?.mode === 'pending';
+  const showAccessDetails = bankId !== null && accessDetailsBankId === bankId;
 
   return (
     <>
@@ -95,7 +102,7 @@ export function StudentHeader({
           {isActivated ? (
             <button
               type="button"
-              onClick={() => setShowAccessDetails(true)}
+              onClick={() => setAccessDetailsBankId(bankId)}
               className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-2.5 text-[11px] font-bold text-white hover:bg-emerald-400"
               title="View activation details"
             >
@@ -140,7 +147,7 @@ export function StudentHeader({
           aria-modal="true"
           aria-label="Activation details"
           onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setShowAccessDetails(false);
+            if (event.currentTarget === event.target) setAccessDetailsBankId(null);
           }}
         >
           <section className="w-full max-w-[360px] rounded-lg border border-[#4b555e] bg-[#30373d] p-4 text-white shadow-2xl">
@@ -154,7 +161,7 @@ export function StudentHeader({
               </div>
               <button
                 type="button"
-                onClick={() => setShowAccessDetails(false)}
+                onClick={() => setAccessDetailsBankId(null)}
                 className="rounded p-1 text-[#aeb7bf] hover:bg-[#414a52] hover:text-white"
                 aria-label="Close activation details"
               >
