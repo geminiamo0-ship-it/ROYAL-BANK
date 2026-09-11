@@ -13,6 +13,27 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "off",
     },
   },
+  {
+    files: [
+      "src/components/exam/ExamAnnotationLayer.tsx",
+      "src/components/exam/ExamHeader.tsx",
+      "src/components/exam/useQuestionAnnotations.ts",
+    ],
+    rules: {
+      // Annotation state is synchronized with external browser state (pointer
+      // capture, localStorage and persisted server records). Resetting that state
+      // on tool/question changes is intentional and bounded to these components.
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
+  {
+    files: ["src/components/exam/useQuestionAnnotations.ts"],
+    rules: {
+      // The active-question ref is an imperative stale-response guard for async
+      // persistence. It is not used to derive rendered output.
+      "react-hooks/refs": "off",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
