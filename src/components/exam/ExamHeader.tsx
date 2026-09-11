@@ -21,7 +21,13 @@ import {
   Undo2,
 } from 'lucide-react';
 import { ExamReferenceRanges } from '@/components/exam/ExamReferenceRanges';
-import type { AnnotationColor, AnnotationTool } from '@/lib/exam-annotations';
+import {
+  ANNOTATION_COLOR_STORAGE_KEY,
+  DEFAULT_ANNOTATION_COLOR,
+  isAnnotationColor,
+  type AnnotationColor,
+  type AnnotationTool,
+} from '@/lib/exam-annotations';
 import { formatTime } from '@/lib/utils';
 
 interface ExamHeaderProps {
@@ -32,7 +38,6 @@ interface ExamHeaderProps {
   questionCount: number;
   showClues: boolean;
   annotationTool: AnnotationTool | null;
-  annotationColor: AnnotationColor;
   annotationLoading: boolean;
   annotationSaving: boolean;
   canUndoAnnotation: boolean;
@@ -45,7 +50,6 @@ interface ExamHeaderProps {
   onToggleClues: () => void;
   onToggleFlag: () => void;
   onAnnotationToolChange: (tool: AnnotationTool | null) => void;
-  onAnnotationColorChange: (color: AnnotationColor) => void;
   onUndoAnnotation: () => void;
   onRedoAnnotation: () => void;
   onClearAnnotations: () => void;
@@ -204,7 +208,6 @@ export function ExamHeader({
   questionCount,
   showClues,
   annotationTool,
-  annotationColor,
   annotationLoading,
   annotationSaving,
   canUndoAnnotation,
@@ -217,13 +220,13 @@ export function ExamHeader({
   onToggleClues,
   onToggleFlag,
   onAnnotationToolChange,
-  onAnnotationColorChange,
   onUndoAnnotation,
   onRedoAnnotation,
   onClearAnnotations,
   onToggleFullscreen,
 }: ExamHeaderProps) {
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
+  const [annotationColor, setAnnotationColor] = useState<AnnotationColor>(DEFAULT_ANNOTATION_COLOR);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -233,12 +236,30 @@ export function ExamHeader({
     return () => window.removeEventListener('keydown', handleEscape);
   }, []);
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(ANNOTATION_COLOR_STORAGE_KEY);
+      if (isAnnotationColor(saved)) setAnnotationColor(saved);
+    } catch {
+      // Local preference only. Yellow remains the default if storage is unavailable.
+    }
+  }, []);
+
   const togglePanel = (panel: Exclude<OpenPanel, null>) => {
     setOpenPanel((current) => (current === panel ? null : panel));
   };
 
   const chooseAnnotationTool = (tool: AnnotationTool) => {
     onAnnotationToolChange(tool);
+  };
+
+  const chooseAnnotationColor = (color: AnnotationColor) => {
+    setAnnotationColor(color);
+    try {
+      window.localStorage.setItem(ANNOTATION_COLOR_STORAGE_KEY, color);
+    } catch {
+      // The active page still uses the selected color even if storage is blocked.
+    }
   };
 
   return (
@@ -324,7 +345,7 @@ export function ExamHeader({
                     <button
                       key={swatch.color}
                       type="button"
-                      onClick={() => onAnnotationColorChange(swatch.color)}
+                      onClick={() => chooseAnnotationColor(swatch.color)}
                       aria-label={`${swatch.label} annotation color`}
                       title={swatch.label}
                       className={`h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ${
