@@ -2,6 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 
 const PAGE_SIZE = 1000;
 const CONCURRENCY = 12;
+const REGISTRATION_BATCH_SIZE = 500;
 const DEFAULT_ROOT = 'exam-content';
 const args = new Set(process.argv.slice(2));
 const verifyOnly = args.has('--verify-only');
@@ -169,6 +170,32 @@ async function fetchAll(table, select, order = 'id.asc') {
   return rows;
 }
 
+async function callSupabaseRpc(name, body) {
+  const response = await fetch(
+    `${supabaseUrl.replace(/\/+$/, '')}/rest/v1/rpc/${encodeURIComponent(name)}`,
+    {
+      method: 'POST',
+      headers: {
+        apikey: supabaseKey,
+        authorization: `Bearer ${supabaseKey}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`Supabase RPC ${name} failed (${response.status}): ${raw.slice(0, 500)}`);
+  }
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
 async function mapConcurrent(items, worker) {
   let cursor = 0;
   const workers = Array.from({ length: Math.min(CONCURRENCY, items.length) }, async () => {
@@ -186,15 +213,25 @@ function buildCanonicalObjects(questions, options) {
   const optionsByQuestion = new Map();
   for (const option of options) {
     const questionId = Number(option.question_id);
+    const optionId = Number(option.id);
+    const optionOrder = Number(option.option_order);
+    const percentage = Number(option.percentage ?? 0);
     if (!Number.isSafeInteger(questionId) || questionId <= 0) {
       throw new Error(`Invalid option question_id: ${option.question_id}`);
     }
+    if (!Number.isSafeInteger(optionId) || optionId <= 0 || !Number.isSafeInteger(optionOrder)) {
+      throw new Error(`Invalid option row: ${option.id}`);
+    }
+    if (!Number.isFinite(percentage)) throw new Error(`Invalid option percentage: ${option.id}`);
+
     const list = optionsByQuestion.get(questionId) || [];
     list.push({
-      id: Number(option.id),
+      id: optionId,
       question_id: questionId,
       text_html: String(option.text_html ?? ''),
-      option_order: Number(option.option_order),
+      option_order: optionOrder,
+      is_correct: option.is_correct === true,
+      percentage,
     });
     optionsByQuestion.set(questionId, list);
   }
@@ -206,9 +243,19 @@ function buildCanonicalObjects(questions, options) {
       throw new Error(`Invalid question id: ${question.id}`);
     }
 
-    const questionOptions = (optionsByQuestion.get(questionId) || []).sort(
+    const sourceOptions = (optionsByQuestion.get(questionId) || []).sort(
       (a, b) => a.option_order - b.option_order || a.id - b.id,
     );
+    const correctOptions = sourceOptions.filter((option) => option.is_correct);
+    if (sourceOptions.length < 1 || correctOptions.length !== 1) {
+      throw new Error(`Question ${questionId} must have exactly one correct option.`);
+    }
+
+    const safeOptions = sourceOptions.map(({ is_correct: _isCorrect, percentage: _percentage, ...option }) => option);
+    const optionPercentages = Object.fromEntries(
+      sourceOptions.map((option) => [String(option.id), option.percentage]),
+    );
+    const correctOptionId = correctOptions[0].id;
 
     const questionRaw = JSON.stringify({
       id: questionId,
@@ -218,10 +265,12 @@ function buildCanonicalObjects(questions, options) {
       difficulty: String(question.difficulty ?? '1'),
       notes_id: question.notes_id == null ? null : String(question.notes_id),
       concept_id: question.concept_id == null ? null : String(question.concept_id),
-      options: questionOptions,
+      options: safeOptions,
     });
     const feedbackRaw = JSON.stringify({
       question_id: questionId,
+      correct_option_id: correctOptionId,
+      option_percentages: optionPercentages,
       explanation_html: String(question.explanation_html ?? ''),
     });
 
@@ -231,6 +280,12 @@ function buildCanonicalObjects(questions, options) {
       questionSha256: sha256Hex(questionRaw),
       feedbackRaw,
       feedbackSha256: sha256Hex(feedbackRaw),
+      answerSnapshot: {
+        question_id: questionId,
+        correct_option_id: correctOptionId,
+        option_ids: sourceOptions.map((option) => option.id),
+        option_percentages: optionPercentages,
+      },
     });
   }
 
@@ -243,14 +298,18 @@ const [questions, options] = await Promise.all([
     'questions',
     'id,text_html,explanation_html,category,topic,difficulty,notes_id,concept_id',
   ),
-  fetchAll('options', 'id,question_id,text_html,option_order', 'question_id.asc,option_order.asc,id.asc'),
+  fetchAll(
+    'options',
+    'id,question_id,text_html,option_order,is_correct,percentage',
+    'question_id.asc,option_order.asc,id.asc',
+  ),
 ]);
 
 const canonicalObjects = buildCanonicalObjects(questions, options);
 if (canonicalObjects.length !== questions.length) throw new Error('Question object count mismatch.');
 
 const releaseDescriptor = {
-  schema_version: 2,
+  schema_version: 3,
   question_count: questions.length,
   option_count: options.length,
   objects: canonicalObjects.map((object) => ({
@@ -282,7 +341,7 @@ console.log(`Release: ${releaseId}`);
 console.log(`Release prefix: ${releasePrefix}`);
 
 if (dryRun) {
-  console.log('Dry run complete. No R2 objects were changed.');
+  console.log('Dry run complete. No R2 objects or release registry rows were changed.');
   process.exit(0);
 }
 
@@ -291,7 +350,7 @@ if (verifyOnly) {
   if (activeRaw == null) throw new Error('R2 active release pointer is missing.');
   const active = JSON.parse(activeRaw);
   if (
-    active?.schema_version !== 1 ||
+    active?.schema_version !== 2 ||
     active?.release_id !== releaseId ||
     active?.prefix !== releasePrefix ||
     active?.manifest_sha256 !== manifestSha256
@@ -344,11 +403,31 @@ if (remoteManifest == null || sha256Hex(remoteManifest) !== manifestSha256) {
 }
 
 if (!verifyOnly) {
-  // The only mutable object in the content system. It is written last, after the
-  // entire immutable release has passed parity verification, making activation
-  // one atomic pointer switch rather than thousands of in-place overwrites.
+  // Register the immutable answer key in Postgres before activation. A session can
+  // only pin a release whose complete snapshot has been finalized, so the mutable
+  // active pointer can never expose an R2 generation without matching scoring data.
+  await callSupabaseRpc('register_exam_content_release', {
+    p_release_id: releaseId,
+    p_manifest_sha256: manifestSha256,
+    p_question_count: questions.length,
+    p_option_count: options.length,
+  });
+
+  for (let offset = 0; offset < objects.length; offset += REGISTRATION_BATCH_SIZE) {
+    const batch = objects
+      .slice(offset, offset + REGISTRATION_BATCH_SIZE)
+      .map((object) => object.answerSnapshot);
+    await callSupabaseRpc('register_exam_content_release_answers', {
+      p_release_id: releaseId,
+      p_answers: batch,
+    });
+  }
+  await callSupabaseRpc('finalize_exam_content_release', { p_release_id: releaseId });
+
+  // The only mutable R2 object is switched last, after both R2 parity and the
+  // private Postgres answer-key snapshot are complete.
   const activeRaw = JSON.stringify({
-    schema_version: 1,
+    schema_version: 2,
     release_id: releaseId,
     prefix: releasePrefix,
     manifest_sha256: manifestSha256,
