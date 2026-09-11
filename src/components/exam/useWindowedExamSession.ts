@@ -42,7 +42,6 @@ export function useWindowedExamSession({
   const currentIndexRef = useRef(0);
   const prefetchChainRef = useRef<Promise<void>>(Promise.resolve());
   const windowAccessTokenRef = useRef<string | null>(null);
-  const windowAccessExpiresAtRef = useRef<number | null>(null);
   const windowAccessRefreshRef = useRef<Promise<void> | null>(null);
 
   const addQuestions = useCallback((questions: ExamClientQuestion[]) => {
@@ -84,14 +83,13 @@ export function useWindowedExamSession({
         }
 
         if (firstMissing >= 0) {
-          await loadWindow(firstMissing, end - firstMissing);
+          await loadWindow(firstMissing, Math.min(warmCount, ids.length - firstMissing));
         }
       });
   }, [loadWindow]);
 
   const updateWindowAccess = useCallback((bootstrap: ExamBootstrap) => {
     windowAccessTokenRef.current = bootstrap.windowAccessToken;
-    windowAccessExpiresAtRef.current = bootstrap.windowAccessExpiresAt;
   }, []);
 
   const refreshWindowAccess = useCallback(() => {
@@ -105,7 +103,7 @@ export function useWindowedExamSession({
         updateWindowAccess(bootstrap);
       } catch {
         // A stale or unavailable access token only disables the fast path. The
-        // regular authenticated Supabase-ref path remains the automatic fallback.
+        // regular authenticated reference path remains the automatic fallback.
       }
     })();
 
