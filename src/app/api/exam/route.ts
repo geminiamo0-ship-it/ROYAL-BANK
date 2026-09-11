@@ -2,6 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 import { checkVercelRateLimit } from '@/lib/vercel-firewall-rate-limit';
 import { EXAM_RPC_BY_ACTION, parseExamGatewayRequest } from '@/lib/exam-gateway-contract';
 import {
+  hydrateExamR2Response,
+  isExamR2ContentEnabled,
+  r2RpcNameForAction,
+} from '@/lib/exam-r2-content';
+import {
   audienceIncludesAuthenticated,
   buildGatewayProof,
   gatewayHeaders,
@@ -136,11 +141,6 @@ export async function POST(request: Request) {
   const body = parsedRequest.value;
   const authStart = performance.now();
 
-  // Verify the JWT before using sub as a security/rate-limit identity. When a
-  // public SUPABASE_JWKS value is pinned in the server environment, getClaims()
-  // verifies ES256/RS256 signatures entirely in-process and never needs the JWKS
-  // discovery request on this hot path. Without the optional pin, preserve the
-  // managed getClaims() JWKS cache/fallback behavior.
   const authClient = createClient(supabaseUrl, publishableKey, {
     auth: {
       autoRefreshToken: false,
@@ -249,18 +249,25 @@ export async function POST(request: Request) {
   }
 
   rateLimitMs = performance.now() - rateLimitStart;
-  const rpcName = EXAM_RPC_BY_ACTION[body.action];
+
+  const legacyRpcName = EXAM_RPC_BY_ACTION[body.action];
+  const r2RpcName = isExamR2ContentEnabled() ? r2RpcNameForAction(body.action) : null;
+  const primaryRpcName = r2RpcName || legacyRpcName;
+  const rpcBody = JSON.stringify(body.args);
+
+  const callRpc = (rpcName: string) =>
+    fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: gatewayHeaders(publishableKey, accessToken, proof),
+      body: rpcBody,
+      signal: AbortSignal.timeout(EXAM_UPSTREAM_TIMEOUT_MS),
+    });
 
   const upstreamFetchStart = performance.now();
   let upstream: Response;
   try {
-    upstream = await fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: gatewayHeaders(publishableKey, accessToken, proof),
-      body: JSON.stringify(body.args),
-      signal: AbortSignal.timeout(EXAM_UPSTREAM_TIMEOUT_MS),
-    });
+    upstream = await callRpc(primaryRpcName);
   } catch (error) {
     if (isTimeoutError(error)) {
       return jsonError(504, 'EXAM_UPSTREAM_TIMEOUT', 'Exam service took too long to respond.');
@@ -270,8 +277,40 @@ export async function POST(request: Request) {
   upstreamFetchMs = performance.now() - upstreamFetchStart;
 
   const responseReadStart = performance.now();
-  const rawResponseBody = await upstream.text();
+  let rawResponseBody = await upstream.text();
   responseReadMs = performance.now() - responseReadStart;
+
+  if (r2RpcName) {
+    let hydratedBody: string | null = null;
+
+    if (upstream.ok) {
+      try {
+        hydratedBody = await hydrateExamR2Response(body.action, rawResponseBody);
+      } catch {
+        hydratedBody = null;
+      }
+    }
+
+    if (hydratedBody != null) {
+      rawResponseBody = hydratedBody;
+    } else {
+      const fallbackFetchStart = performance.now();
+      try {
+        upstream = await callRpc(legacyRpcName);
+      } catch (error) {
+        if (isTimeoutError(error)) {
+          return jsonError(504, 'EXAM_UPSTREAM_TIMEOUT', 'Exam service took too long to respond.');
+        }
+        return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+      }
+      upstreamFetchMs += performance.now() - fallbackFetchStart;
+
+      const fallbackReadStart = performance.now();
+      rawResponseBody = await upstream.text();
+      responseReadMs += performance.now() - fallbackReadStart;
+    }
+  }
+
   const responseBody = upstream.ok ? rawResponseBody : safeUpstreamErrorBody(rawResponseBody);
 
   const headers = new Headers({
