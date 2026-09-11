@@ -23,6 +23,11 @@ import type {
 
 const inFlightExamCreates = new Map<string, Promise<ExamBootstrap>>();
 
+type RawWindowAccessRenewal = {
+  window_access_token?: string;
+  window_access_expires_at?: number;
+};
+
 export async function createExamSessionBootstrap(input: StartExamInput): Promise<ExamBootstrap> {
   const parsedTopics: Array<{ category: string; topic: string }> = [];
   const parsedCategories: string[] = [];
@@ -92,6 +97,25 @@ export async function getCompletedExamReviewBootstrapDirect(sessionId: string): 
   });
   if (!data || typeof data !== 'object') throw new Error('Review bootstrap returned no result.');
   return normalizeExamBootstrap(data);
+}
+
+export async function renewExamWindowAccessDirect(sessionId: string): Promise<{
+  windowAccessToken: string | null;
+  windowAccessExpiresAt: number | null;
+}> {
+  const data = await callExamGateway<RawWindowAccessRenewal, 'renewWindowAccess'>('renewWindowAccess', {
+    p_session_id: sessionId,
+  });
+
+  const rawExpiry = Number(data?.window_access_expires_at || 0);
+  return {
+    windowAccessToken:
+      typeof data?.window_access_token === 'string' && data.window_access_token
+        ? data.window_access_token
+        : null,
+    windowAccessExpiresAt:
+      Number.isSafeInteger(rawExpiry) && rawExpiry > 0 ? rawExpiry : null,
+  };
 }
 
 export async function getExamSessionWindowDirect(
