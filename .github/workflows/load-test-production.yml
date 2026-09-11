@@ -1,0 +1,148 @@
+name: Production Load Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Owned Royal deployment URL'
+        required: true
+        default: 'https://royal-bank-21be.vercel.app'
+  push:
+    paths:
+      - '.github/workflows/load-test-production.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: royal-production-load-test
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DEFAULT_TARGET_URL: https://royal-bank-21be.vercel.app
+    steps:
+      - name: Resolve target
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET='${{ inputs.target_url }}'
+          else
+            TARGET="$DEFAULT_TARGET_URL"
+          fi
+          TARGET="${TARGET%/}"
+          case "$TARGET" in
+            https://*.vercel.app|https://royalbank.com|https://www.royalbank.com) ;;
+            *) echo "Refusing non-Royal/non-Vercel HTTPS target: $TARGET" >&2; exit 1 ;;
+          esac
+          echo "url=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Target: $TARGET"
+
+      - name: Preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET='${{ steps.target.outputs.url }}'
+          for path in / /bank/1; do
+            echo "== $path =="
+            curl -sS -o /dev/null -D - --max-time 15 "$TARGET$path" | sed -n '1,12p'
+          done
+
+      - name: Write k6 scenario
+        shell: bash
+        run: |
+          cat > loadtest.js <<'EOF'
+          import http from 'k6/http';
+          import { check, sleep } from 'k6';
+          import { Rate } from 'k6/metrics';
+
+          const serverErrors = new Rate('server_errors');
+          const healthyResponses = new Rate('healthy_responses');
+          const target = (__ENV.TARGET_URL || '').replace(/\/$/, '');
+
+          export const options = {
+            discardResponseBodies: true,
+            stages: [
+              { duration: '10s', target: 5 },
+              { duration: '20s', target: 15 },
+              { duration: '30s', target: 30 },
+              { duration: '30s', target: 50 },
+              { duration: '10s', target: 0 },
+            ],
+            thresholds: {
+              server_errors: ['rate<0.01'],
+              healthy_responses: ['rate>0.99'],
+              http_req_duration: ['p(95)<1500', 'p(99)<3000'],
+            },
+            userAgent: 'RoyalBank-Authorized-LoadTest/1.0',
+          };
+
+          function observe(res, label) {
+            const transportFailure = res.status === 0;
+            const isServerError = transportFailure || res.status >= 500;
+            const healthy = !isServerError;
+            serverErrors.add(isServerError, { route: label });
+            healthyResponses.add(healthy, { route: label });
+            check(res, {
+              [`${label}: no transport/5xx failure`]: () => healthy,
+            });
+          }
+
+          export default function () {
+            const home = http.get(`${target}/`, {
+              redirects: 0,
+              tags: { route: 'home' },
+            });
+            observe(home, 'home');
+
+            const bank = http.get(`${target}/bank/1`, {
+              redirects: 0,
+              tags: { route: 'bank-1' },
+            });
+            observe(bank, 'bank-1');
+
+            sleep(1);
+          }
+          EOF
+
+      - name: Run controlled k6 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e TARGET_URL='${{ steps.target.outputs.url }}' \
+            -v "$PWD:/work" \
+            -w /work \
+            grafana/k6:0.52.0 \
+            run --summary-export=/work/load-summary.json /work/loadtest.js
+
+      - name: Publish summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f load-summary.json ]; then
+            echo '## Production Load Baseline' >> "$GITHUB_STEP_SUMMARY"
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            jq -r '
+              "- Requests: " + ((.metrics.http_reqs.values.count // 0)|tostring),
+              "- Request rate: " + ((.metrics.http_reqs.values.rate // 0)|tostring) + " req/s",
+              "- p95: " + ((.metrics.http_req_duration.values["p(95)"] // 0)|tostring) + " ms",
+              "- p99: " + ((.metrics.http_req_duration.values["p(99)"] // 0)|tostring) + " ms",
+              "- Max: " + ((.metrics.http_req_duration.values.max // 0)|tostring) + " ms",
+              "- Server error rate: " + (((.metrics.server_errors.values.rate // 0) * 100)|tostring) + "%"
+            ' load-summary.json >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+
+      - name: Upload load summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-load-baseline
+          path: load-summary.json
+          if-no-files-found: ignore
+          retention-days: 3
