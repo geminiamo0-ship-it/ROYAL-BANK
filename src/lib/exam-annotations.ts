@@ -4,6 +4,10 @@ export type AnnotationSurface = (typeof ANNOTATION_SURFACES)[number];
 export const ANNOTATION_TOOLS = ['pencil', 'highlighter', 'eraser'] as const;
 export type AnnotationTool = (typeof ANNOTATION_TOOLS)[number];
 
+export const ANNOTATION_COLORS = ['yellow', 'red', 'blue', 'green', 'purple'] as const;
+export type AnnotationColor = (typeof ANNOTATION_COLORS)[number];
+export const DEFAULT_ANNOTATION_COLOR: AnnotationColor = 'yellow';
+
 export type AnnotationPoint = readonly [number, number];
 
 export interface AnnotationStroke {
@@ -11,6 +15,9 @@ export interface AnnotationStroke {
   tool: 'pencil' | 'highlighter';
   width: number;
   points: AnnotationPoint[];
+  // Optional for backward compatibility with marks saved before color support.
+  // Legacy strokes render as DEFAULT_ANNOTATION_COLOR.
+  color?: AnnotationColor;
 }
 
 export interface StoredQuestionAnnotation {
@@ -34,6 +41,10 @@ export function isAnnotationTool(value: unknown): value is AnnotationTool {
   return typeof value === 'string' && (ANNOTATION_TOOLS as readonly string[]).includes(value);
 }
 
+export function isAnnotationColor(value: unknown): value is AnnotationColor {
+  return typeof value === 'string' && (ANNOTATION_COLORS as readonly string[]).includes(value);
+}
+
 function isFiniteUnitNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 }
@@ -43,6 +54,7 @@ export function isValidAnnotationStroke(value: unknown): value is AnnotationStro
   const stroke = value as Partial<AnnotationStroke>;
   if (typeof stroke.id !== 'string' || stroke.id.length < 1 || stroke.id.length > 80) return false;
   if (stroke.tool !== 'pencil' && stroke.tool !== 'highlighter') return false;
+  if (stroke.color !== undefined && !isAnnotationColor(stroke.color)) return false;
   if (typeof stroke.width !== 'number' || !Number.isFinite(stroke.width) || stroke.width < 0.5 || stroke.width > 48) {
     return false;
   }
