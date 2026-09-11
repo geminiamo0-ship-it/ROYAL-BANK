@@ -3,6 +3,7 @@ import type {
   ExamClientAnswer,
   ExamClientQuestion,
   ExamQuestionFeedback,
+  ExamTrainingFeedback,
 } from '@/types/exam';
 
 export type RawExamSubmitResult = {
@@ -25,9 +26,17 @@ export type RawExamQuestionFeedback = {
   option_percentages: Record<string, number> | null;
 };
 
+export type RawExamTrainingFeedback = {
+  question_id: number;
+  correct_option_id: number | null;
+  explanation_html: string | null;
+  option_percentages: Record<string, number> | null;
+};
+
 export type RawExamInlineFeedbackResult = {
   answer: RawExamSubmitResult;
-  feedback: RawExamQuestionFeedback;
+  feedback: RawExamQuestionFeedback | null;
+  feedback_pending?: boolean;
 };
 
 export type RawExamBootstrap = {
@@ -49,6 +58,16 @@ export type RawExamBootstrap = {
   window_access_expires_at?: number;
 };
 
+function normalizePercentages(raw: Record<string, number> | null | undefined): Record<number, number> {
+  const optionPercentages: Record<number, number> = {};
+  for (const [optionId, percentage] of Object.entries(raw || {})) {
+    const parsedOptionId = Number(optionId);
+    if (!Number.isFinite(parsedOptionId)) continue;
+    optionPercentages[parsedOptionId] = Number(percentage || 0);
+  }
+  return optionPercentages;
+}
+
 export function toClientExamAnswer(
   row: RawExamSubmitResult | RawExamSessionAnswer,
 ): ExamClientAnswer {
@@ -65,20 +84,22 @@ export function toClientExamAnswer(
 }
 
 export function toClientExamFeedback(raw: RawExamQuestionFeedback): ExamQuestionFeedback {
-  const optionPercentages: Record<number, number> = {};
-  for (const [optionId, percentage] of Object.entries(raw.option_percentages || {})) {
-    const parsedOptionId = Number(optionId);
-    if (!Number.isFinite(parsedOptionId)) continue;
-    optionPercentages[parsedOptionId] = Number(percentage || 0);
-  }
-
   return {
     questionId: Number(raw.question_id),
     selectedOptionId: raw.selected_option_id == null ? null : Number(raw.selected_option_id),
     isCorrect: Boolean(raw.is_correct),
     correctOptionId: raw.correct_option_id == null ? null : Number(raw.correct_option_id),
     explanationHtml: raw.explanation_html || '',
-    optionPercentages,
+    optionPercentages: normalizePercentages(raw.option_percentages),
+  };
+}
+
+export function toClientTrainingFeedback(raw: RawExamTrainingFeedback): ExamTrainingFeedback {
+  return {
+    questionId: Number(raw.question_id),
+    correctOptionId: raw.correct_option_id == null ? null : Number(raw.correct_option_id),
+    explanationHtml: raw.explanation_html || '',
+    optionPercentages: normalizePercentages(raw.option_percentages),
   };
 }
 
