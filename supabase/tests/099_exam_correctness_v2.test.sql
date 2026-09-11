@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(8);
+SELECT extensions.plan(13);
 
 INSERT INTO auth.users (
     instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -17,24 +17,29 @@ VALUES (9199,'Exam V2 Pathway','test-exam-v2-pathway');
 
 INSERT INTO public.question_banks (id,pathway_id,name,is_free_trial,free_trial_block_limit) VALUES
 (92991,9199,'Exam V2 Standard Bank',FALSE,NULL),
-(92992,9199,'Exam V2 Timed Bank',FALSE,NULL);
+(92992,9199,'Exam V2 Timed Bank',FALSE,NULL),
+(92993,9199,'Exam V2 Tutor Bank',FALSE,NULL);
 
 INSERT INTO public.user_access_grants (user_id,scope_type,question_bank_id) VALUES
 ('99000000-0000-0000-0000-000000000001','bank',92991),
-('99000000-0000-0000-0000-000000000001','bank',92992);
+('99000000-0000-0000-0000-000000000001','bank',92992),
+('99000000-0000-0000-0000-000000000001','bank',92993);
 
 INSERT INTO public.questions (id,main_id,text_html,explanation_html,category,topic,difficulty) VALUES
 (93991,193991,'Standard question','Standard explanation','Medicine','V2 standard','1'),
-(93992,193992,'Timed question','Timed explanation','Medicine','V2 timed','1');
+(93992,193992,'Timed question','Timed explanation','Medicine','V2 timed','1'),
+(93993,193993,'Tutor question','Tutor explanation','Medicine','V2 tutor','1');
 
 INSERT INTO public.question_bank_questions (question_bank_id,question_id) VALUES
-(92991,93991),(92992,93992);
+(92991,93991),(92992,93992),(92993,93993);
 
 INSERT INTO public.options (id,question_id,text_html,is_correct,option_order,percentage) VALUES
 (949911,93991,'Correct standard',TRUE,0,70),
 (949912,93991,'Wrong standard',FALSE,1,30),
 (949921,93992,'Correct timed',TRUE,0,65),
-(949922,93992,'Wrong timed',FALSE,1,35);
+(949922,93992,'Wrong timed',FALSE,1,35),
+(949931,93993,'Correct tutor',TRUE,0,60),
+(949932,93993,'Wrong tutor',FALSE,1,40);
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
@@ -47,6 +52,44 @@ SELECT public.create_exam_session(
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
 );
 SELECT public.get_exam_session_window((SELECT id FROM standard_session),0,1);
+
+CREATE TEMP TABLE standard_bootstrap_v2(payload jsonb);
+INSERT INTO standard_bootstrap_v2
+SELECT public.get_exam_session_bootstrap_v2((SELECT id FROM standard_session));
+SELECT extensions.ok(
+    (SELECT payload IS NOT NULL FROM standard_bootstrap_v2),
+    'Standard v2 bootstrap returns a payload instead of SQL NULL'
+);
+SELECT extensions.is(
+    jsonb_typeof((SELECT payload FROM standard_bootstrap_v2)->'session'->'deadline_at'),
+    'null',
+    'Standard v2 bootstrap encodes deadline_at as JSON null'
+);
+
+CREATE TEMP TABLE standard_bootstrap_ref_v2(payload jsonb);
+INSERT INTO standard_bootstrap_ref_v2
+SELECT public.get_exam_session_bootstrap_ref_v2((SELECT id FROM standard_session));
+SELECT extensions.ok(
+    (SELECT payload IS NOT NULL FROM standard_bootstrap_ref_v2),
+    'Standard v2 ref bootstrap also returns a payload'
+);
+
+CREATE TEMP TABLE tutor_bootstrap_v2(payload jsonb);
+INSERT INTO tutor_bootstrap_v2
+SELECT public.create_exam_session_bootstrap_idempotent_v2(
+    '99000000-0000-0000-0000-000000000201',
+    92993,'tutor',1,
+    ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
+);
+SELECT extensions.ok(
+    (SELECT payload IS NOT NULL FROM tutor_bootstrap_v2),
+    'Tutor create v2 returns a payload instead of SQL NULL'
+);
+SELECT extensions.is(
+    jsonb_typeof((SELECT payload FROM tutor_bootstrap_v2)->'session'->'deadline_at'),
+    'null',
+    'Tutor create v2 encodes deadline_at as JSON null'
+);
 
 CREATE TEMP TABLE training_feedback(payload jsonb);
 INSERT INTO training_feedback
