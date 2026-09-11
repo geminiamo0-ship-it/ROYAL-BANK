@@ -58,11 +58,13 @@ export async function trySignedExamWindowFastPath(options: {
   const args = options.args as Partial<WindowArgs>;
   if (
     typeof args.p_session_id !== 'string' ||
+    typeof args.p_start !== 'number' ||
     !Number.isSafeInteger(args.p_start) ||
-    Number(args.p_start) < 0 ||
+    args.p_start < 0 ||
+    typeof args.p_count !== 'number' ||
     !Number.isSafeInteger(args.p_count) ||
-    Number(args.p_count) < 1 ||
-    Number(args.p_count) > 5
+    args.p_count < 1 ||
+    args.p_count > 5
   ) {
     return null;
   }
@@ -76,9 +78,9 @@ export async function trySignedExamWindowFastPath(options: {
   });
   if (!access) return null;
 
-  const start = Number(args.p_start);
-  const end = Math.min(start + Number(args.p_count), access.q.length);
-  const questionIds = start >= access.q.length ? [] : access.q.slice(start, end);
+  const end = Math.min(args.p_start + args.p_count, access.q.length);
+  const questionIds =
+    args.p_start >= access.q.length ? [] : access.q.slice(args.p_start, end);
 
   return hydrateExamR2QuestionIds(options.action as 'window' | 'reviewWindow', questionIds);
 }
