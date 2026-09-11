@@ -38,10 +38,36 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
+  function withSessionState(target: NextResponse) {
+    response.cookies.getAll().forEach((cookie) => target.cookies.set(cookie));
+    for (const headerName of ['cache-control', 'expires', 'pragma']) {
+      const value = response.headers.get(headerName);
+      if (value) target.headers.set(headerName, value);
+    }
+    return target;
+  }
+
   // The browser never receives or supplies the access token. For the existing exam
   // gateway contract, middleware injects the validated cookie session server-side.
   // Any caller-supplied Authorization header is overwritten or removed.
   if (pathname === '/api/exam') {
+    // Admin-issued temporary passwords must not retain exam/API access. getUser()
+    // reads the current Auth user, so this remains authoritative even when an older
+    // access-token claim has not yet refreshed after the administrative reset.
+    if (user?.app_metadata?.must_change_password === true) {
+      const blocked = NextResponse.json(
+        {
+          error: {
+            code: 'PASSWORD_CHANGE_REQUIRED',
+            message: 'Change your password before continuing.',
+          },
+        },
+        { status: 403 },
+      );
+      blocked.headers.set('cache-control', 'no-store');
+      return withSessionState(blocked);
+    }
+
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -77,13 +103,7 @@ export async function updateSession(request: NextRequest) {
     isPasswordChangeRoute;
 
   function redirectWithSession(urlToUse: URL) {
-    const redirectResponse = NextResponse.redirect(urlToUse);
-    response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie));
-    for (const headerName of ['cache-control', 'expires', 'pragma']) {
-      const value = response.headers.get(headerName);
-      if (value) redirectResponse.headers.set(headerName, value);
-    }
-    return redirectResponse;
+    return withSessionState(NextResponse.redirect(urlToUse));
   }
 
   if (!user && isProtectedRoute) {
