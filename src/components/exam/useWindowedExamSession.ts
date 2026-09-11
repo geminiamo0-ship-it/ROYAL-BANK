@@ -7,6 +7,7 @@ import {
   getCompletedExamReviewWindowDirect,
   getExamSessionBootstrapDirect,
   getExamSessionWindowDirect,
+  renewExamWindowAccessDirect,
 } from '@/lib/exam-client-api';
 import {
   getExamLaunchCache,
@@ -110,8 +111,6 @@ export function useWindowedExamSession({
         try {
           await loadWindow(firstMissing, countToLoad);
         } catch {
-          // One bounded retry handles a transient read failure without turning a
-          // speculative prefetch into a user-visible navigation failure.
           try {
             await loadWindow(firstMissing, countToLoad);
           } catch (error) {
@@ -133,13 +132,10 @@ export function useWindowedExamSession({
 
     const refresh = (async () => {
       try {
-        const bootstrap = reviewMode
-          ? await getCompletedExamReviewBootstrapDirect(sessionId)
-          : await getExamSessionBootstrapDirect(sessionId);
-        updateWindowAccess(bootstrap);
+        const renewed = await renewExamWindowAccessDirect(sessionId);
+        windowAccessTokenRef.current = renewed.windowAccessToken;
+        setWindowAccessExpiresAt(renewed.windowAccessExpiresAt);
       } catch {
-        // An unavailable capability only disables the fast path. Normal
-        // authenticated reads remain the fallback.
         windowAccessTokenRef.current = null;
         setWindowAccessExpiresAt(null);
       }
@@ -152,7 +148,7 @@ export function useWindowedExamSession({
       }
     });
     return refresh;
-  }, [reviewMode, sessionId, updateWindowAccess]);
+  }, [sessionId]);
 
   const applyBootstrap = useCallback((
     bootstrap: ExamBootstrap,
