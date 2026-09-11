@@ -5,7 +5,6 @@ import { ChevronRight } from 'lucide-react';
 import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamAnnotationLayer } from '@/components/exam/ExamAnnotationLayer';
 import type {
-  AnnotationColor,
   AnnotationStroke,
   AnnotationSurface,
   AnnotationTool,
@@ -36,7 +35,6 @@ interface WindowedExamQuestionPaneProps {
   isSaving: boolean;
   isSubmitting: boolean;
   annotationTool: AnnotationTool | null;
-  annotationColor: AnnotationColor;
   annotationRecords: Partial<Record<AnnotationSurface, StoredQuestionAnnotation>>;
   onAppendAnnotationStroke: (
     surface: AnnotationSurface,
@@ -74,7 +72,6 @@ export function WindowedExamQuestionPane({
   isSaving,
   isSubmitting,
   annotationTool,
-  annotationColor,
   annotationRecords,
   onAppendAnnotationStroke,
   onEraseAnnotationStroke,
@@ -101,7 +98,6 @@ export function WindowedExamQuestionPane({
           surface="stem"
           contentFingerprint={questionHtml}
           tool={annotationTool}
-          color={annotationColor}
           record={annotationRecords.stem}
           onAppendStroke={onAppendAnnotationStroke}
           onEraseStroke={onEraseAnnotationStroke}
@@ -125,7 +121,6 @@ export function WindowedExamQuestionPane({
           surface="options"
           contentFingerprint={optionsFingerprint}
           tool={annotationTool}
-          color={annotationColor}
           record={annotationRecords.options}
           onAppendStroke={onAppendAnnotationStroke}
           onEraseStroke={onEraseAnnotationStroke}
@@ -177,7 +172,6 @@ export function WindowedExamQuestionPane({
                 surface="explanation"
                 contentFingerprint={explanationHtml}
                 tool={annotationTool}
-                color={annotationColor}
                 record={annotationRecords.explanation}
                 onAppendStroke={onAppendAnnotationStroke}
                 onEraseStroke={onEraseAnnotationStroke}
