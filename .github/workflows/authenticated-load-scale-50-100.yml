@@ -70,3 +70,5 @@ jobs:
       - name: Cleanup isolated load users and test exam data
         if: always()
         run: node scripts/auth-load-cleanup.mjs
+
+# Retry marker: hardened against stale Supabase Auth listings.
