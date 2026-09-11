@@ -81,8 +81,18 @@ export async function trySignedExamWindowFastPath(options: {
   const end = Math.min(args.p_start + args.p_count, access.q.length);
   const questionIds =
     args.p_start >= access.q.length ? [] : access.q.slice(args.p_start, end);
+  const hydrated = await hydrateExamR2QuestionIds(
+    options.action as 'window' | 'reviewWindow',
+    questionIds,
+  );
 
-  return hydrateExamR2QuestionIds(options.action as 'window' | 'reviewWindow', questionIds);
+  if (hydrated != null && process.env.ROYAL_R2_DIAGNOSTICS === 'true') {
+    process.stdout.write(
+      `[royal-exam-window] fast_path=1 action=${options.action} count=${questionIds.length}\n`,
+    );
+  }
+
+  return hydrated;
 }
 
 export function attachExamWindowAccess(options: {
