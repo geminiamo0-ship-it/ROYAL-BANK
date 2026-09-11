@@ -91,17 +91,17 @@ SELECT extensions.is(
     'Idempotent create replay preserves the original session release after active release changes'
 );
 
-CREATE TEMP TABLE standard_bootstrap_v2(payload jsonb);
-INSERT INTO standard_bootstrap_v2
-SELECT public.get_exam_session_bootstrap_v2((SELECT id FROM standard_session));
+CREATE TEMP TABLE standard_bootstrap_ref_v3(payload jsonb);
+INSERT INTO standard_bootstrap_ref_v3
+SELECT public.get_exam_session_bootstrap_ref_v3((SELECT id FROM standard_session),NULL);
 SELECT extensions.ok(
-    (SELECT payload IS NOT NULL FROM standard_bootstrap_v2),
-    'Standard v2 bootstrap returns a payload instead of SQL NULL'
+    (SELECT payload IS NOT NULL FROM standard_bootstrap_ref_v3),
+    'Pinned Standard v3 ref bootstrap returns a payload instead of using mutable full content'
 );
 SELECT extensions.is(
-    jsonb_typeof((SELECT payload FROM standard_bootstrap_v2)->'session'->'deadline_at'),
+    jsonb_typeof((SELECT payload FROM standard_bootstrap_ref_v3)->'session'->'deadline_at'),
     'null',
-    'Standard v2 bootstrap encodes deadline_at as JSON null'
+    'Pinned Standard v3 ref bootstrap encodes deadline_at as JSON null'
 );
 
 CREATE TEMP TABLE standard_bootstrap_ref_v2(payload jsonb);
