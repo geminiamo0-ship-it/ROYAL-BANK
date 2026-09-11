@@ -5,6 +5,8 @@ import { createHash, createHmac } from 'node:crypto';
 const EMPTY_SHA256 = createHash('sha256').update('').digest('hex');
 const DEFAULT_TIMEOUT_MS = 1800;
 const DEFAULT_MAX_JSON_BYTES = 1024 * 1024;
+const MEMORY_CACHE_TTL_MS = 5 * 60 * 1000;
+const MEMORY_CACHE_MAX_ENTRIES = 512;
 
 type R2Config = {
   accountId: string;
@@ -12,6 +14,13 @@ type R2Config = {
   secretAccessKey: string;
   bucket: string;
 };
+
+type MemoryCacheEntry = {
+  value: unknown;
+  expiresAt: number;
+};
+
+const memoryJsonCache = new Map<string, MemoryCacheEntry>();
 
 function readConfig(): R2Config | null {
   const accountId = process.env.R2_ACCOUNT_ID?.trim() || '';
@@ -101,10 +110,49 @@ function signedHeadersForGet(config: R2Config, key: string, now = new Date()) {
   };
 }
 
+function memoryCacheEnabled(): boolean {
+  return process.env.ROYAL_R2_MEMORY_CACHE_ENABLED !== 'false';
+}
+
+function getMemoryCached<T>(key: string): { hit: true; value: T } | { hit: false } {
+  if (!memoryCacheEnabled()) return { hit: false };
+
+  const entry = memoryJsonCache.get(key);
+  if (!entry) return { hit: false };
+
+  if (entry.expiresAt <= Date.now()) {
+    memoryJsonCache.delete(key);
+    return { hit: false };
+  }
+
+  memoryJsonCache.delete(key);
+  memoryJsonCache.set(key, entry);
+  return { hit: true, value: entry.value as T };
+}
+
+function setMemoryCached(key: string, value: unknown): void {
+  if (!memoryCacheEnabled()) return;
+
+  memoryJsonCache.delete(key);
+  memoryJsonCache.set(key, {
+    value,
+    expiresAt: Date.now() + MEMORY_CACHE_TTL_MS,
+  });
+
+  while (memoryJsonCache.size > MEMORY_CACHE_MAX_ENTRIES) {
+    const oldestKey = memoryJsonCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    memoryJsonCache.delete(oldestKey);
+  }
+}
+
 export async function readPrivateR2Json<T>(
   key: string,
   options?: { timeoutMs?: number; maxBytes?: number },
 ): Promise<T | null> {
+  const cached = getMemoryCached<T>(key);
+  if (cached.hit) return cached.value;
+
   const config = readConfig();
   if (!config) throw new Error('Private R2 is not configured.');
 
@@ -130,5 +178,7 @@ export async function readPrivateR2Json<T>(
     throw new Error('Private R2 object exceeded the maximum allowed size.');
   }
 
-  return JSON.parse(raw) as T;
+  const parsed = JSON.parse(raw) as T;
+  setMemoryCached(key, parsed);
+  return parsed;
 }
