@@ -21,7 +21,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { ExamReferenceRanges } from '@/components/exam/ExamReferenceRanges';
-import type { AnnotationTool } from '@/lib/exam-annotations';
+import type { AnnotationColor, AnnotationTool } from '@/lib/exam-annotations';
 import { formatTime } from '@/lib/utils';
 
 interface ExamHeaderProps {
@@ -32,6 +32,7 @@ interface ExamHeaderProps {
   questionCount: number;
   showClues: boolean;
   annotationTool: AnnotationTool | null;
+  annotationColor: AnnotationColor;
   annotationLoading: boolean;
   annotationSaving: boolean;
   canUndoAnnotation: boolean;
@@ -44,6 +45,7 @@ interface ExamHeaderProps {
   onToggleClues: () => void;
   onToggleFlag: () => void;
   onAnnotationToolChange: (tool: AnnotationTool | null) => void;
+  onAnnotationColorChange: (color: AnnotationColor) => void;
   onUndoAnnotation: () => void;
   onRedoAnnotation: () => void;
   onClearAnnotations: () => void;
@@ -52,6 +54,14 @@ interface ExamHeaderProps {
 
 type CalcOperator = '+' | '-' | '×' | '÷';
 type OpenPanel = 'marker' | 'reference' | 'calculator' | null;
+
+const COLOR_SWATCHES: readonly { color: AnnotationColor; label: string; hex: string }[] = [
+  { color: 'yellow', label: 'Yellow', hex: '#ffd84d' },
+  { color: 'red', label: 'Red', hex: '#ff4d5a' },
+  { color: 'blue', label: 'Blue', hex: '#4da3ff' },
+  { color: 'green', label: 'Green', hex: '#55d66b' },
+  { color: 'purple', label: 'Purple', hex: '#b27cff' },
+];
 
 function applyOperator(left: number, right: number, operator: CalcOperator): number {
   if (operator === '+') return left + right;
@@ -194,6 +204,7 @@ export function ExamHeader({
   questionCount,
   showClues,
   annotationTool,
+  annotationColor,
   annotationLoading,
   annotationSaving,
   canUndoAnnotation,
@@ -206,6 +217,7 @@ export function ExamHeader({
   onToggleClues,
   onToggleFlag,
   onAnnotationToolChange,
+  onAnnotationColorChange,
   onUndoAnnotation,
   onRedoAnnotation,
   onClearAnnotations,
@@ -227,13 +239,12 @@ export function ExamHeader({
 
   const chooseAnnotationTool = (tool: AnnotationTool) => {
     onAnnotationToolChange(tool);
-    setOpenPanel(null);
   };
 
   return (
     <header className="relative z-[70] shrink-0 overflow-visible border-b border-[#3f4348] bg-[#282828] px-3 py-2 text-white">
-      <div className="mx-auto grid max-w-[1240px] grid-cols-[auto_1fr_auto] items-center gap-3">
-        <div className="flex items-center gap-3">
+      <div className="mx-auto grid max-w-[1240px] grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="flex items-end gap-[3px]">
               <span className="h-[14px] w-[5px] bg-[#ff2020]" />
@@ -242,15 +253,6 @@ export function ExamHeader({
             </div>
             <span className="text-[15px] font-semibold tracking-[-0.2px] text-[#f5f5f5]">RoyalBank</span>
           </div>
-          <button
-            type="button"
-            onClick={onPrev}
-            disabled={currentIndex === 0}
-            className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#2f80ff] text-white disabled:cursor-not-allowed disabled:opacity-35"
-            title="Previous question"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
           {isReviewMode ? (
             <span className="hidden items-center gap-1.5 rounded-full border border-[#745b91] bg-[#3a3045] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#d9b7ff] md:inline-flex">
               <Eye className="h-3 w-3" /> Completed review
@@ -258,29 +260,32 @@ export function ExamHeader({
           ) : null}
         </div>
 
-        <div className="text-center text-[14px] font-semibold text-[#f4f4f4]">
-          Question {currentIndex + 1} of {questionCount || 1}
-        </div>
-
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-center gap-2">
           <button
             type="button"
-            onClick={onToggleFlag}
-            className={`flex h-[30px] w-[30px] items-center justify-center ${isFlagged ? 'text-[#ffd36e]' : 'text-[#73797f]'}`}
-            title="Flag question"
+            onClick={onPrev}
+            disabled={currentIndex === 0}
+            className="flex h-[28px] w-[28px] items-center justify-center rounded-full bg-[#2f80ff] text-white disabled:cursor-not-allowed disabled:opacity-35"
+            title="Previous question"
           >
-            <Flag className={`h-4 w-4 ${isFlagged ? 'fill-[#ffd36e]' : ''}`} />
+            <ArrowLeft className="h-3.5 w-3.5" />
           </button>
+          <div className="min-w-[132px] text-center text-[14px] font-semibold text-[#f4f4f4]">
+            Question {currentIndex + 1} of {questionCount || 1}
+          </div>
           <button
             type="button"
             onClick={onNext}
             disabled={currentIndex >= questionCount - 1}
-            className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#2f80ff] text-white disabled:cursor-not-allowed disabled:opacity-35"
+            className="flex h-[28px] w-[28px] items-center justify-center rounded-full bg-[#2f80ff] text-white disabled:cursor-not-allowed disabled:opacity-35"
             title="Next question"
           >
-            <ArrowRight className="h-4 w-4" />
+            <ArrowRight className="h-3.5 w-3.5" />
           </button>
-          <button type="button" onClick={onSuspend} className="ml-2 text-[12px] text-[#cf95ff] hover:text-white">
+        </div>
+
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" onClick={onSuspend} className="text-[12px] text-[#cf95ff] hover:text-white">
             {isReviewMode ? 'Exit review' : 'Suspend'}
           </button>
           {!isReviewMode ? (
@@ -305,12 +310,34 @@ export function ExamHeader({
           </ToolButton>
 
           {openPanel === 'marker' ? (
-            <div className="absolute left-0 top-[36px] z-[90] w-[230px] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-2 shadow-2xl">
+            <div className="absolute left-0 top-[36px] z-[90] w-[250px] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-2 shadow-2xl">
               <div className="grid grid-cols-3 gap-1.5">
-                <button type="button" onClick={() => chooseAnnotationTool('pencil')} className="flex flex-col items-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] hover:bg-[#464e55]"><Pencil className="h-4 w-4" />Pencil</button>
-                <button type="button" onClick={() => chooseAnnotationTool('highlighter')} className="flex flex-col items-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] hover:bg-[#464e55]"><Highlighter className="h-4 w-4" />Highlight</button>
-                <button type="button" onClick={() => chooseAnnotationTool('eraser')} className="flex flex-col items-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] hover:bg-[#464e55]"><Eraser className="h-4 w-4" />Eraser</button>
+                <button type="button" onClick={() => chooseAnnotationTool('pencil')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'pencil' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Pencil className="h-4 w-4" />Pencil</button>
+                <button type="button" onClick={() => chooseAnnotationTool('highlighter')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'highlighter' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Highlighter className="h-4 w-4" />Highlight</button>
+                <button type="button" onClick={() => chooseAnnotationTool('eraser')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'eraser' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Eraser className="h-4 w-4" />Eraser</button>
               </div>
+
+              <div className="mt-2 border-t border-[#4c5359] pt-2">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9fa6ac]">Color</div>
+                <div className="flex items-center gap-2">
+                  {COLOR_SWATCHES.map((swatch) => (
+                    <button
+                      key={swatch.color}
+                      type="button"
+                      onClick={() => onAnnotationColorChange(swatch.color)}
+                      aria-label={`${swatch.label} annotation color`}
+                      title={swatch.label}
+                      className={`h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ${
+                        annotationColor === swatch.color
+                          ? 'border-white ring-2 ring-[#8a9095] ring-offset-1 ring-offset-[#30363b]'
+                          : 'border-[#6c7379]'
+                      }`}
+                      style={{ backgroundColor: swatch.hex }}
+                    />
+                  ))}
+                </div>
+              </div>
+
               <div className="mt-2 grid grid-cols-3 gap-1.5 border-t border-[#4c5359] pt-2">
                 <button type="button" disabled={!canUndoAnnotation} onClick={onUndoAnnotation} className="flex items-center justify-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] disabled:opacity-35"><Undo2 className="h-3.5 w-3.5" />Undo</button>
                 <button type="button" disabled={!canRedoAnnotation} onClick={onRedoAnnotation} className="flex items-center justify-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] disabled:opacity-35"><Redo2 className="h-3.5 w-3.5" />Redo</button>
@@ -323,6 +350,11 @@ export function ExamHeader({
         <ToolButton active={isFullscreen} onClick={onToggleFullscreen} title="Toggle full screen">
           {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
           <span>Full screen</span>
+        </ToolButton>
+
+        <ToolButton active={isFlagged} onClick={onToggleFlag} title="Flag question">
+          <Flag className={`h-3.5 w-3.5 ${isFlagged ? 'fill-current' : ''}`} />
+          <span>{isFlagged ? 'Flagged' : 'Flag'}</span>
         </ToolButton>
 
         <ToolButton
