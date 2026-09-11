@@ -1,3 +1,4 @@
+import { logExamClientMetric } from '@/lib/exam-client-diagnostics';
 import type { ExamGatewayAction, ExamGatewayArgsByAction } from '@/types/exam-gateway';
 
 export const EXAM_RATE_LIMIT_EVENT = 'royal:exam-rate-limit';
@@ -132,6 +133,7 @@ export async function callExamGateway<T, A extends ExamGatewayAction>(
   args: ExamGatewayArgsByAction[A],
   options?: ExamGatewayCallOptions,
 ): Promise<T> {
+  const startedAt = performance.now();
   const headers: Record<string, string> = {
     'content-type': 'application/json',
   };
@@ -151,6 +153,13 @@ export async function callExamGateway<T, A extends ExamGatewayAction>(
       signal,
     });
   } catch (error) {
+    logExamClientMetric('gateway', {
+      action,
+      ok: false,
+      status: 0,
+      duration_ms: Number((performance.now() - startedAt).toFixed(1)),
+      aborted: signal.aborted,
+    });
     if (signal.aborted) {
       const aborted = new Error(options?.signal?.aborted ? 'Exam request was cancelled.' : 'Exam request timed out.');
       aborted.name = options?.signal?.aborted ? 'AbortError' : 'TimeoutError';
@@ -162,6 +171,15 @@ export async function callExamGateway<T, A extends ExamGatewayAction>(
   }
 
   const rawBody = await response.text();
+  logExamClientMetric('gateway', {
+    action,
+    ok: response.ok,
+    status: response.status,
+    duration_ms: Number((performance.now() - startedAt).toFixed(1)),
+    request_id: response.headers.get('x-royal-request-id'),
+    server_timing: response.headers.get('server-timing'),
+  });
+
   let payload: unknown = null;
 
   if (rawBody) {
