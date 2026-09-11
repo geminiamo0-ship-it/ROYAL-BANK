@@ -104,6 +104,30 @@ function validateFeedback(value: unknown, expectedId: number): R2Feedback | null
   return record as unknown as R2Feedback;
 }
 
+function sanitizePrefetchedFeedback(value: unknown, expectedId: number): JsonObject | null {
+  const record = asObject(value);
+  if (!record || positiveInteger(record.question_id) !== expectedId) return null;
+
+  const correctOptionId = positiveInteger(record.correct_option_id);
+  if (!correctOptionId || typeof record.explanation_html !== 'string') return null;
+
+  const rawPercentages = asObject(record.option_percentages) || {};
+  const optionPercentages: Record<string, number> = {};
+  for (const [optionId, percentage] of Object.entries(rawPercentages)) {
+    const parsedId = positiveInteger(optionId);
+    const parsedPercentage = Number(percentage);
+    if (!parsedId || !Number.isFinite(parsedPercentage)) continue;
+    optionPercentages[String(parsedId)] = parsedPercentage;
+  }
+
+  return {
+    question_id: expectedId,
+    correct_option_id: correctOptionId,
+    explanation_html: record.explanation_html,
+    option_percentages: optionPercentages,
+  };
+}
+
 async function readQuestion(questionId: number): Promise<R2Question | null> {
   const raw = await readPrivateR2Json<unknown>(
     `${contentPrefix()}/questions/${questionId}.json`,
@@ -118,20 +142,30 @@ async function readFeedback(questionId: number): Promise<R2Feedback | null> {
   return validateFeedback(raw, questionId);
 }
 
-async function hydrateQuestionRefs(rawRefs: unknown): Promise<R2Question[] | null> {
+async function hydrateQuestionRefs(rawRefs: unknown): Promise<Array<R2Question & JsonObject> | null> {
   if (!Array.isArray(rawRefs)) return null;
 
-  const ids: number[] = [];
+  const refs: Array<{ id: number; prefetchedFeedback: JsonObject | null }> = [];
   for (const rawRef of rawRefs) {
     const ref = asObject(rawRef);
     const id = positiveInteger(ref?.id);
     if (!id) return null;
-    ids.push(id);
+    refs.push({
+      id,
+      prefetchedFeedback: sanitizePrefetchedFeedback(ref?.prefetched_feedback, id),
+    });
   }
 
-  const questions = await Promise.all(ids.map((id) => readQuestion(id)));
+  const questions = await Promise.all(refs.map(({ id }) => readQuestion(id)));
   if (questions.some((question) => question == null)) return null;
-  return questions as R2Question[];
+
+  return questions.map((question, index) => {
+    const hydrated = question as R2Question;
+    const prefetchedFeedback = refs[index]?.prefetchedFeedback;
+    return prefetchedFeedback
+      ? { ...hydrated, prefetched_feedback: prefetchedFeedback }
+      : hydrated;
+  });
 }
 
 export async function hydrateExamR2QuestionIds(
