@@ -6,13 +6,15 @@ import type { ExamGatewayAction } from '@/types/exam-gateway';
 const DEFAULT_PREFIX = 'exam-content/v1';
 
 const R2_RPC_BY_ACTION: Partial<Record<ExamGatewayAction, string>> = {
-  create: 'create_exam_session_bootstrap_idempotent',
+  // Creation already returns Q1 in full from Postgres. Do not immediately fetch
+  // that same question from R2 again; the route handoff can use it as-is.
   bootstrap: 'get_exam_session_bootstrap_ref',
   window: 'get_exam_session_window_refs',
   reviewBootstrap: 'get_completed_exam_review_bootstrap_ref',
   reviewWindow: 'get_completed_exam_review_window_refs',
   feedback: 'get_exam_question_feedback_ref',
-  submit: 'submit_exam_answer_with_feedback_ref',
+  trainingFeedback: 'get_exam_training_feedback_ref',
+  submit: 'submit_exam_answer_with_feedback_ref_idempotent',
 };
 
 type JsonObject = Record<string, unknown>;
@@ -180,13 +182,13 @@ export async function hydrateExamR2Response(
     if (action === 'window' || action === 'reviewWindow') {
       const questions = await hydrateQuestionRefs(parsed);
       hydrated = questions ? JSON.stringify(questions) : null;
-    } else if (action === 'create' || action === 'bootstrap' || action === 'reviewBootstrap') {
+    } else if (action === 'bootstrap' || action === 'reviewBootstrap') {
       const bootstrap = asObject(parsed);
       if (bootstrap) {
         const questions = await hydrateQuestionRefs(bootstrap.questions);
         if (questions) hydrated = JSON.stringify({ ...bootstrap, questions });
       }
-    } else if (action === 'feedback') {
+    } else if (action === 'feedback' || action === 'trainingFeedback') {
       const feedback = await hydrateFeedbackRecord(parsed);
       hydrated = feedback ? JSON.stringify(feedback) : null;
     } else if (action === 'submit') {
