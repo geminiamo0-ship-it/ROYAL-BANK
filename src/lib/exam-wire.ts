@@ -45,6 +45,8 @@ export type RawExamBootstrap = {
   answers?: RawExamSessionAnswer[];
   flagged_question_ids?: number[];
   current_index?: number;
+  window_access_token?: string;
+  window_access_expires_at?: number;
 };
 
 export function toClientExamAnswer(
@@ -109,6 +111,8 @@ export function normalizeExamBootstrap(raw: RawExamBootstrap): ExamBootstrap {
     answers[answer.questionId] = answer;
   }
 
+  const rawExpiry = Number(raw.window_access_expires_at || 0);
+
   return {
     status: raw.status === 'completed' ? 'completed' : 'active',
     session: {
@@ -125,5 +129,11 @@ export function normalizeExamBootstrap(raw: RawExamBootstrap): ExamBootstrap {
     answers,
     flaggedQuestionIds: (raw.flagged_question_ids || []).map(Number),
     currentIndex: Math.max(0, Number(raw.current_index || 0)),
+    windowAccessToken:
+      typeof raw.window_access_token === 'string' && raw.window_access_token
+        ? raw.window_access_token
+        : null,
+    windowAccessExpiresAt:
+      Number.isSafeInteger(rawExpiry) && rawExpiry > 0 ? rawExpiry : null,
   };
 }
