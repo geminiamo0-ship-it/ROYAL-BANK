@@ -62,6 +62,7 @@ export function WindowedExamPageClient({
   const timerSeededSessionRef = useRef<string | null>(null);
   const bootstrapAnswersRef = useRef<Record<number, ExamClientAnswer>>({});
   const reviewFeedbackFetchingIds = useRef(new Set<number>());
+  const acceptedSubmissionIdsRef = useRef(new Set<number>());
 
   const [answers, setAnswers] = useState<Record<number, ExamClientAnswer>>({});
   const [pendingSelections, setPendingSelections] = useState<Record<number, number | null>>({});
@@ -91,6 +92,7 @@ export function WindowedExamPageClient({
     setAnswers(bootstrap.answers);
     bootstrapAnswersRef.current = bootstrap.answers;
     hydrateFlags(bootstrap.flaggedQuestionIds);
+    acceptedSubmissionIdsRef.current.clear();
 
     const serverNowMs = bootstrap.serverNow ? Date.parse(bootstrap.serverNow) : Number.NaN;
     const serverClockOffsetMs = Number.isFinite(serverNowMs)
@@ -186,6 +188,7 @@ export function WindowedExamPageClient({
 
   const {
     isSubmitting,
+    closingRef,
     error: lifecycleError,
     handleSuspend,
     handleEndBlock,
@@ -271,7 +274,7 @@ export function WindowedExamPageClient({
   }, []);
 
   const selectOption = useCallback((questionId: number, option: ExamClientOption) => {
-    if (isReviewMode || isSubmitting) return;
+    if (isReviewMode || isSubmitting || closingRef.current) return;
     if (!capabilities.canChangeAnswerBeforeCompletion && answers[questionId]) return;
 
     setPendingSelections((previous) => ({ ...previous, [questionId]: option.id }));
@@ -292,15 +295,16 @@ export function WindowedExamPageClient({
       selectedOptionId: option.id,
       timeSpentSeconds,
     }).catch(() => undefined);
-  }, [answerQueue, answers, capabilities.canChangeAnswerBeforeCompletion, isFeedbackLockedMode, isReviewMode, isSubmitting, questionTimer]);
+  }, [answerQueue, answers, capabilities.canChangeAnswerBeforeCompletion, closingRef, isFeedbackLockedMode, isReviewMode, isSubmitting, questionTimer]);
 
   const submitAnswer = useCallback(async (questionId: number) => {
     if (
       isReviewMode ||
       isFeedbackLockedMode ||
       isSubmitting ||
+      closingRef.current ||
       answers[questionId] ||
-      revealingQuestionIds.has(questionId)
+      acceptedSubmissionIdsRef.current.has(questionId)
     ) return;
 
     const selectedOptionId = pendingSelections[questionId];
@@ -310,6 +314,17 @@ export function WindowedExamPageClient({
     const option = question?.options?.find((item) => item.id === selectedOptionId);
     if (!option) return;
 
+    // Acceptance is synchronous. From this point End/Suspend must see the write in
+    // answerQueue even if feedback hydration is slow or fails entirely.
+    acceptedSubmissionIdsRef.current.add(questionId);
+    const timeSpentSeconds = questionTimer.elapsedForQuestion(questionId);
+    const savePromise = answerQueue.enqueue({
+      questionId,
+      selectedOptionId: option.id,
+      timeSpentSeconds,
+    });
+    void savePromise.catch(() => undefined);
+
     setRevealingQuestionIds((previous) => new Set(previous).add(questionId));
     setPersistenceError(null);
 
@@ -318,7 +333,6 @@ export function WindowedExamPageClient({
         trainingFeedbackByQuestionId[questionId] ||
         await ensureTrainingFeedback(questionId);
       const feedback = feedbackFromTraining(training, option.id);
-      const timeSpentSeconds = questionTimer.elapsedForQuestion(questionId);
       const optimisticAnswer: ExamClientAnswer = {
         questionId,
         selectedOptionId: option.id,
@@ -330,13 +344,8 @@ export function WindowedExamPageClient({
       setAnswers((previous) => ({ ...previous, [questionId]: optimisticAnswer }));
       setFeedbackByQuestionId((previous) => ({ ...previous, [questionId]: feedback }));
       queuePrefetch(3);
-
-      void answerQueue.enqueue({
-        questionId,
-        selectedOptionId: option.id,
-        timeSpentSeconds,
-      }).catch(() => undefined);
     } catch (error) {
+      // The answer save is deliberately independent from content hydration.
       setPersistenceError(error instanceof Error ? error.message : 'Unable to prepare answer feedback.');
     } finally {
       setRevealingQuestionIds((previous) => {
@@ -345,22 +354,22 @@ export function WindowedExamPageClient({
         return next;
       });
     }
-  }, [answerQueue, answers, ensureTrainingFeedback, getQuestionById, isFeedbackLockedMode, isReviewMode, isSubmitting, pendingSelections, questionTimer, queuePrefetch, revealingQuestionIds, trainingFeedbackByQuestionId]);
+  }, [answerQueue, answers, closingRef, ensureTrainingFeedback, getQuestionById, isFeedbackLockedMode, isReviewMode, isSubmitting, pendingSelections, questionTimer, queuePrefetch, trainingFeedbackByQuestionId]);
 
   const toggleFlag = useCallback((questionId: number) => {
-    if (isSubmitting) return;
+    if (isSubmitting || closingRef.current) return;
     persistFlagToggle(questionId);
-  }, [isSubmitting, persistFlagToggle]);
+  }, [closingRef, isSubmitting, persistFlagToggle]);
 
   const toggleStrikeOut = useCallback((optionId: number) => {
-    if (isReviewMode || isSubmitting) return;
+    if (isReviewMode || isSubmitting || closingRef.current) return;
     setStruckOutOptionIds((previous) => {
       const next = new Set(previous);
       if (next.has(optionId)) next.delete(optionId);
       else next.add(optionId);
       return next;
     });
-  }, [isReviewMode, isSubmitting]);
+  }, [closingRef, isReviewMode, isSubmitting]);
 
   const handleNext = useCallback(() => {
     const backgroundSave = flushAnnotations();
