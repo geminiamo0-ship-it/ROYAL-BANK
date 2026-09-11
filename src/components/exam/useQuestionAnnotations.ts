@@ -84,12 +84,10 @@ function mergeAnnotationDelta(
   const localById = new Map(pending.strokes.map((stroke) => [stroke.id, stroke]));
   const latestById = new Map(latest.strokes.map((stroke) => [stroke.id, stroke]));
 
-  // Erasures are explicit deletions relative to the draft's original base.
   for (const id of baseById.keys()) {
     if (!localById.has(id)) latestById.delete(id);
   }
 
-  // Additions or edits made locally win only for those specific stroke ids.
   for (const [id, localStroke] of localById) {
     if (!strokeEquals(baseById.get(id), localStroke)) latestById.set(id, localStroke);
   }
@@ -97,7 +95,6 @@ function mergeAnnotationDelta(
   const merged: AnnotationStroke[] = [];
   const emitted = new Set<string>();
 
-  // Preserve the latest server ordering for strokes that still exist.
   for (const stroke of latest.strokes) {
     const value = latestById.get(stroke.id);
     if (!value || emitted.has(stroke.id)) continue;
@@ -105,7 +102,6 @@ function mergeAnnotationDelta(
     emitted.add(stroke.id);
   }
 
-  // Append genuinely local additions in their local order.
   for (const stroke of pending.strokes) {
     const value = latestById.get(stroke.id);
     if (!value || emitted.has(stroke.id)) continue;
@@ -312,11 +308,7 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
 
         for (const surface of ANNOTATION_SURFACES) {
           const serverRecord = serverRecords[surface];
-          if (currentState.pending[surface]) {
-            // Never replace a dirty local draft with a late read. Keep the draft's
-            // expected version so a conflict is detected and merged on write.
-            continue;
-          }
+          if (currentState.pending[surface]) continue;
 
           if (serverRecord) {
             currentState.records[surface] = serverRecord;
@@ -343,8 +335,6 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
 
     return () => {
       cancelled = true;
-      // Deliberately do not clear timers, pending drafts, or save chains here.
-      // They belong to the question, not to the currently visible route position.
     };
   }, [getState, questionId, syncActiveError, syncHistoryState]);
 
@@ -401,13 +391,38 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
             setPendingCount((count) => Math.max(0, count - 1));
             state.records = { ...state.records, [surface]: saved };
           } else {
-            const local = state.records[surface];
-            if (local) {
-              state.records = {
-                ...state.records,
-                [surface]: { ...local, version: saved.version, updatedAt: saved.updatedAt },
-              };
+            const newerPending = state.pending[surface];
+            if (!newerPending || newerPending.contentHash !== saved.contentHash) {
+              throw new Error('Annotation content changed while resolving a save conflict. Reload this question before editing these marks again.');
             }
+
+            // Reapply only the edits that happened after this request started on
+            // top of the exact server snapshot that was just saved. This preserves
+            // remote strokes merged during the request and prevents the next local
+            // save from silently replacing them with an older local snapshot.
+            const rebasedStrokes = mergeAnnotationDelta(
+              {
+                contentHash: newerPending.contentHash,
+                strokes: newerPending.strokes,
+                baseContentHash: pending.contentHash,
+                baseStrokes: pending.strokes,
+              },
+              saved,
+            );
+            if (!rebasedStrokes) {
+              throw new Error('Annotation edits could not be rebased safely after a concurrent update. Reload this question before editing these marks again.');
+            }
+
+            state.pending[surface] = {
+              contentHash: newerPending.contentHash,
+              strokes: rebasedStrokes,
+              baseContentHash: saved.contentHash,
+              baseStrokes: saved.strokes,
+            };
+            state.records = {
+              ...state.records,
+              [surface]: { ...saved, strokes: rebasedStrokes },
+            };
           }
 
           persistRecovery();
