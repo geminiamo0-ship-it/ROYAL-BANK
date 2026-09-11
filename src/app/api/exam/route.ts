@@ -38,6 +38,7 @@ const RATE_LIMIT_RECORD_TIMEOUT_MS = 1500;
 const EXAM_UPSTREAM_TIMEOUT_MS = 6500;
 const EXAM_REQUEST_BUDGET_MS = 9000;
 const ACTIVE_RELEASE_LOOKUP_CAP_MS = 1800;
+const RELEASE_ID_PATTERN = /^[0-9a-f]{64}$/;
 
 const RATE_LIMIT_FAIL_OPEN_ACTIONS = new Set<ExamGatewayAction>([
   'submit',
@@ -48,13 +49,12 @@ const RATE_LIMIT_FAIL_OPEN_ACTIONS = new Set<ExamGatewayAction>([
   'complete',
 ]);
 
-const RELEASE_PIN_ACTIONS = new Set<ExamGatewayAction>([
-  'create',
-  'bootstrap',
-  'reviewBootstrap',
-]);
+// Only Create may choose a release. Resume/review must report the release already
+// stored on the session so pre-065 sessions remain explicit legacy sessions.
+const RELEASE_PIN_ACTIONS = new Set<ExamGatewayAction>(['create']);
 
 type JsonObject = Record<string, unknown>;
+type ContentReleaseState = 'pinned' | 'legacy' | 'invalid';
 
 class ExamRequestBudgetError extends Error {
   constructor() {
@@ -67,6 +67,42 @@ function asJsonObject(value: unknown): JsonObject | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonObject)
     : null;
+}
+
+function contentReleaseStateForResponse(
+  action: ExamGatewayAction,
+  rawBody: string,
+): ContentReleaseState {
+  let payload: JsonObject | null = null;
+  try {
+    payload = asJsonObject(JSON.parse(rawBody) as unknown);
+  } catch {
+    return 'invalid';
+  }
+  if (!payload) return 'invalid';
+
+  let container: JsonObject | null = null;
+  if (action === 'create' || action === 'bootstrap' || action === 'reviewBootstrap') {
+    container = asJsonObject(payload.session);
+  } else if (
+    action === 'window' ||
+    action === 'reviewWindow' ||
+    action === 'feedback' ||
+    action === 'trainingFeedback' ||
+    action === 'reviewFeedback'
+  ) {
+    container = payload;
+  } else if (action === 'submit') {
+    container = asJsonObject(payload.feedback);
+  }
+
+  if (!container || !Object.prototype.hasOwnProperty.call(container, 'content_release_id')) {
+    return 'invalid';
+  }
+  const releaseId = container.content_release_id;
+  if (releaseId === null) return 'legacy';
+  if (typeof releaseId === 'string' && RELEASE_ID_PATTERN.test(releaseId)) return 'pinned';
+  return 'invalid';
 }
 
 function requiresPasswordChange(claims: unknown): boolean {
@@ -402,15 +438,15 @@ export async function POST(request: Request) {
         ACTIVE_RELEASE_LOOKUP_CAP_MS,
       );
     } catch (error) {
-      if (isTimeoutError(error) && body.action === 'create') return requestTimeoutResponse();
+      if (isTimeoutError(error)) return requestTimeoutResponse();
     }
 
-    if (body.action === 'create' && !activeRelease) {
+    if (!activeRelease) {
       return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
     }
     rpcArgs = {
       ...body.args,
-      p_content_release_id: activeRelease?.releaseId ?? null,
+      p_content_release_id: activeRelease.releaseId,
     };
   }
 
@@ -445,9 +481,8 @@ export async function POST(request: Request) {
   }
   responseReadMs = performance.now() - responseReadStart;
 
-  // A successful R2/ref RPC is tied to one immutable release. If its R2 object is
-  // unavailable, never mix in mutable/live Postgres content from another generation.
   if (r2RpcName && upstream.ok) {
+    const releaseState = contentReleaseStateForResponse(body.action, rawResponseBody);
     let hydratedBody: string | null = null;
     try {
       hydratedBody = await withinRequestBudget(
@@ -455,14 +490,88 @@ export async function POST(request: Request) {
         () => hydrateExamR2Response(body.action, rawResponseBody),
       );
     } catch (error) {
-      if (isTimeoutError(error)) return requestTimeoutResponse();
+      // submit may already be committed. Never turn an R2 timeout after mutation
+      // into a replay requirement; acknowledge persistence with feedback pending.
+      if (isTimeoutError(error) && body.action !== 'submit') return requestTimeoutResponse();
     }
 
     if (hydratedBody != null) {
       rawResponseBody = hydratedBody;
+    } else if (releaseState === 'legacy' && body.action !== 'create') {
+      // Explicitly unpinned sessions predate release pinning. They intentionally
+      // keep the proven live Postgres path until completion. This branch is never
+      // available to a pinned session, so immutable generations cannot be mixed.
+      if (body.action === 'submit') {
+        let submitResult: JsonObject | null = null;
+        try {
+          submitResult = asJsonObject(JSON.parse(rawResponseBody) as unknown);
+        } catch {
+          submitResult = null;
+        }
+
+        const sessionId = body.args.p_session_id;
+        const questionId = body.args.p_question_id;
+        if (
+          !submitResult ||
+          !asJsonObject(submitResult.answer) ||
+          typeof sessionId !== 'string' ||
+          typeof questionId !== 'number'
+        ) {
+          return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
+        }
+
+        const feedbackFetchStart = performance.now();
+        try {
+          const feedbackResponse = await callRpc(EXAM_RPC_BY_ACTION.feedback, {
+            p_session_id: sessionId,
+            p_question_id: questionId,
+          });
+          upstreamFetchMs += performance.now() - feedbackFetchStart;
+
+          const feedbackReadStart = performance.now();
+          const feedbackBody = await withinRequestBudget(requestDeadline, () => feedbackResponse.text());
+          responseReadMs += performance.now() - feedbackReadStart;
+
+          if (feedbackResponse.ok) {
+            const feedback = JSON.parse(feedbackBody) as unknown;
+            rawResponseBody = JSON.stringify({ ...submitResult, feedback });
+          } else {
+            rawResponseBody = JSON.stringify({
+              ...submitResult,
+              feedback: null,
+              feedback_pending: true,
+            });
+          }
+        } catch {
+          upstreamFetchMs += performance.now() - feedbackFetchStart;
+          rawResponseBody = JSON.stringify({
+            ...submitResult,
+            feedback: null,
+            feedback_pending: true,
+          });
+        }
+      } else {
+        const fallbackFetchStart = performance.now();
+        try {
+          upstream = await callRpc(legacyRpcName, body.args);
+        } catch (error) {
+          if (isTimeoutError(error)) return requestTimeoutResponse();
+          return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+        }
+        upstreamFetchMs += performance.now() - fallbackFetchStart;
+
+        const fallbackReadStart = performance.now();
+        try {
+          rawResponseBody = await withinRequestBudget(requestDeadline, () => upstream.text());
+        } catch (error) {
+          if (isTimeoutError(error)) return requestTimeoutResponse();
+          return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+        }
+        responseReadMs += performance.now() - fallbackReadStart;
+      }
     } else if (body.action === 'submit') {
-      // Persistence already committed. Never replay the mutation and never hydrate
-      // correctness from live content. The client can retry pinned feedback later.
+      // A pinned mutation already committed. Never replay it or read correctness
+      // from live content; the client retries feedback against the same release.
       let submitResult: JsonObject | null = null;
       try {
         submitResult = asJsonObject(JSON.parse(rawResponseBody) as unknown);
