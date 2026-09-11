@@ -52,6 +52,13 @@ export interface ExamQuestionFeedback {
   optionPercentages: Record<number, number>;
 }
 
+export interface ExamTrainingFeedback {
+  questionId: number;
+  correctOptionId: number | null;
+  explanationHtml: string;
+  optionPercentages: Record<number, number>;
+}
+
 export interface ExamClientSession {
   id: string;
   question_bank_id: number;
