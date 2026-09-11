@@ -1,11 +1,7 @@
 name: Authenticated Production Load Test
 
 on:
-  push:
-    branches:
-      - ops/auth-load-20260911
-    paths:
-      - .github/workflows/authenticated-load-test.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,20 +14,36 @@ jobs:
   load:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: production
     env:
       TARGET_URL: https://royal-bank-21be.vercel.app
       SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
       EXPECTED_RELEASE_ID: 8ff494831d8e000213876bef397532f997ce15ca3749228de9bb2edc1a28a956
+      ROYAL_LOAD_USERS_JSON: ${{ secrets.ROYAL_LOAD_USERS_JSON }}
+
     steps:
-      - name: Wait for ephemeral load credentials
-        run: sleep 45
+      - name: Validate isolated load-user bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$ROYAL_LOAD_USERS_JSON" ]; then
+            echo 'ROYAL_LOAD_USERS_JSON is not configured in the production GitHub Environment.' >&2
+            exit 2
+          fi
+          node - <<'NODE'
+          const rows = JSON.parse(process.env.ROYAL_LOAD_USERS_JSON || '[]');
+          if (!Array.isArray(rows) || rows.length < 10) throw new Error('Expected at least 10 isolated load users.');
+          const usable = rows.filter((r) => r && (r.refresh_token || r.refreshToken || r.access_token || r.accessToken || r.token));
+          if (usable.length !== rows.length) throw new Error('Every load user must contain a refresh_token or access_token.');
+          console.log(`Load bundle ready: ${rows.length} isolated users.`);
+          NODE
 
       - name: Run authenticated end-to-end load scenario
         shell: bash
         run: |
           set -euo pipefail
-          cat > authenticated-load.mjs <<'EOF'
+          cat > /tmp/royal-auth-load.mjs <<'NODE'
           import { randomUUID } from 'node:crypto';
           import fs from 'node:fs/promises';
 
@@ -39,28 +51,23 @@ jobs:
           const SUPABASE_URL = process.env.SUPABASE_URL.replace(/\/$/, '');
           const KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
           const EXPECTED_RELEASE = process.env.EXPECTED_RELEASE_ID;
-          const COMMIT = process.env.GITHUB_SHA;
-          const USER_COUNT = 25;
-          const WINDOW_STAGES = [10, 20, 30, 40, 50];
+          const rawUsers = JSON.parse(process.env.ROYAL_LOAD_USERS_JSON || '[]').slice(0, 25);
+          const STAGES = [10, 20, 30, 40, 50];
           const STAGE_SECONDS = 8;
-          const COOLDOWN_MS = 4000;
-
           const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-          const pct = (sorted, p) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p / 100) - 1))] : null;
-          const pad = (n) => String(n).padStart(3, '0');
+          const pctl = (xs, p) => xs.length ? xs[Math.min(xs.length - 1, Math.max(0, Math.ceil(xs.length * p / 100) - 1))] : null;
 
           function summarize(label, results) {
             const lat = results.map((r) => r.ms).filter(Number.isFinite).sort((a,b) => a-b);
             const statuses = {};
-            for (const r of results) statuses[r.status || 'network'] = (statuses[r.status || 'network'] || 0) + 1;
+            for (const r of results) statuses[String(r.status || 'network')] = (statuses[String(r.status || 'network')] || 0) + 1;
+            const pick = (p) => { const v = pctl(lat, p); return v == null ? null : +v.toFixed(1); };
             const out = {
               label,
               requests: results.length,
               status_counts: statuses,
-              p50_ms: pct(lat, 50) == null ? null : +pct(lat, 50).toFixed(1),
-              p95_ms: pct(lat, 95) == null ? null : +pct(lat, 95).toFixed(1),
-              p99_ms: pct(lat, 99) == null ? null : +pct(lat, 99).toFixed(1),
-              max_ms: lat.length ? +lat[lat.length - 1].toFixed(1) : null,
+              p50_ms: pick(50), p95_ms: pick(95), p99_ms: pick(99),
+              max_ms: lat.length ? +lat.at(-1).toFixed(1) : null,
               network_or_5xx: results.filter((r) => r.status === 0 || r.status >= 500).length,
               rate_limited_429: results.filter((r) => r.status === 429).length,
             };
@@ -75,244 +82,142 @@ jobs:
               const text = await res.text();
               let json = null;
               try { json = text ? JSON.parse(text) : null; } catch {}
-              return {
-                status: res.status,
-                ms: performance.now() - started,
-                text,
-                json,
-                serverTiming: res.headers.get('server-timing'),
-              };
+              return { status: res.status, ms: performance.now() - started, text, json };
             } catch (error) {
-              return { status: 0, ms: performance.now() - started, text: String(error?.message || error), json: null, serverTiming: null };
+              return { status: 0, ms: performance.now() - started, text: String(error?.message || error), json: null };
             }
           }
 
-          async function login(index) {
-            const suffix = pad(index);
-            const email = `royal-load-${suffix}@load.invalid`;
-            const password = `${COMMIT}-${suffix}`;
-            const r = await request(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-              method: 'POST',
-              headers: { apikey: KEY, 'content-type': 'application/json' },
-              body: JSON.stringify({ email, password }),
-            });
-            if (r.status !== 200 || !r.json?.access_token || !r.json?.user?.id) {
-              throw new Error(`Load user ${suffix} login failed: HTTP ${r.status} ${r.text.slice(0,180)}`);
+          async function resolveToken(row, index) {
+            const refresh = row.refresh_token || row.refreshToken || '';
+            if (refresh) {
+              const res = await request(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+                method: 'POST', headers: { apikey: KEY, 'content-type': 'application/json' },
+                body: JSON.stringify({ refresh_token: refresh }),
+              });
+              if (res.status !== 200 || !res.json?.access_token) throw new Error(`Load user ${index + 1} refresh failed: HTTP ${res.status}`);
+              return { index, token: res.json.access_token, authMs: res.ms };
             }
-            return { index, email, userId: r.json.user.id, token: r.json.access_token, loginMs: r.ms };
+            const token = row.access_token || row.accessToken || row.token || '';
+            if (!token) throw new Error(`Load user ${index + 1} has no usable token.`);
+            return { index, token, authMs: 0 };
           }
 
-          async function gateway(user, action, args, extraHeaders = {}) {
-            return request(`${TARGET}/api/exam`, {
-              method: 'POST',
-              headers: {
-                authorization: `Bearer ${user.token}`,
-                'content-type': 'application/json',
-                ...extraHeaders,
-              },
-              body: JSON.stringify({ action, args }),
-            });
+          async function gateway(user, action, args, windowToken = null) {
+            const headers = { authorization: `Bearer ${user.token}`, 'content-type': 'application/json' };
+            if (windowToken) headers['x-royal-window-access'] = windowToken;
+            return request(`${TARGET}/api/exam`, { method: 'POST', headers, body: JSON.stringify({ action, args }) });
           }
 
           async function createSession(user) {
-            const r = await gateway(user, 'create', {
-              p_request_id: randomUUID(),
-              p_bank_id: 1,
-              p_session_type: 'standard',
-              p_limit: 40,
-              p_difficulties: [],
-              p_categories: [],
-              p_topics: [],
-              p_question_selection: 'all',
+            const res = await gateway(user, 'create', {
+              p_request_id: randomUUID(), p_bank_id: 1, p_session_type: 'standard', p_limit: 40,
+              p_difficulties: [], p_categories: [], p_topics: [], p_question_selection: 'all',
             });
-            const sessionId = r.json?.session?.id;
-            const windowToken = r.json?.window_access_token;
-            const releaseId = r.json?.session?.content_release_id;
-            if (r.status !== 200 || !sessionId || !windowToken) {
-              throw new Error(`Create failed for load user ${user.index}: HTTP ${r.status} ${r.text.slice(0,220)}`);
-            }
-            return {
-              ...user,
-              sessionId,
-              windowToken,
-              releaseId,
-              totalQuestions: Number(r.json?.session?.total_questions || 0),
-              createMs: r.ms,
-            };
+            const sessionId = res.json?.session?.id;
+            const windowToken = res.json?.window_access_token;
+            if (res.status !== 200 || !sessionId || !windowToken) throw new Error(`Create failed for load user ${user.index + 1}: HTTP ${res.status} ${res.text.slice(0,160)}`);
+            return { ...user, sessionId, windowToken, totalQuestions: Number(res.json?.session?.total_questions || 0), releaseId: res.json?.session?.content_release_id || null, createMs: res.ms };
           }
 
-          async function windowHit(user, start = 0, count = 3, keepBody = false) {
-            const r = await gateway(user, 'window', {
-              p_session_id: user.sessionId,
-              p_start: start,
-              p_count: count,
-            }, { 'x-royal-window-access': user.windowToken });
-            return keepBody ? r : { status: r.status, ms: r.ms, text: r.status === 200 ? '' : r.text.slice(0,180), serverTiming: r.serverTiming };
+          async function windowHit(user, start = 0, keepBody = false) {
+            const res = await gateway(user, 'window', { p_session_id: user.sessionId, p_start: start, p_count: 3 }, user.windowToken);
+            return keepBody ? res : { status: res.status, ms: res.ms, text: res.status === 200 ? '' : res.text.slice(0,160) };
           }
 
-          async function runWindowStage(users, targetRps) {
-            const startAt = performance.now();
-            const endAt = startAt + STAGE_SECONDS * 1000;
-            const interval = 1000 / targetRps;
-            const busy = new Set();
-            const inFlight = new Set();
-            const results = [];
-            let cursor = 0;
-            let nextAt = startAt;
-            let offered = 0;
-            let skipped = 0;
-            let seq = 0;
-
-            const launch = (user) => {
-              busy.add(user.index);
-              const span = Math.max(1, user.totalQuestions - 3);
-              const start = (seq++ * 3) % span;
-              const p = windowHit(user, start, 3).then((r) => results.push(r)).finally(() => busy.delete(user.index));
-              inFlight.add(p);
-              p.finally(() => inFlight.delete(p));
+          async function runStage(users, targetRps) {
+            const started = performance.now(), endAt = started + STAGE_SECONDS * 1000, interval = 1000 / targetRps;
+            const busy = new Set(), pending = new Set(), results = [];
+            let cursor = 0, nextAt = started, offered = 0, skipped = 0, seq = 0;
+            const launch = (u) => {
+              busy.add(u.index);
+              const span = Math.max(1, u.totalQuestions - 3), start = (seq++ * 3) % span;
+              const p = windowHit(u, start).then((r) => results.push(r)).finally(() => busy.delete(u.index));
+              pending.add(p); p.finally(() => pending.delete(p));
             };
-
             while (performance.now() < endAt) {
               const now = performance.now();
-              if (now < nextAt) {
-                await sleep(Math.min(2, nextAt - now));
-                continue;
-              }
+              if (now < nextAt) { await sleep(Math.min(2, nextAt - now)); continue; }
               while (nextAt <= now && nextAt < endAt) {
-                offered++;
-                let chosen = null;
-                for (let i = 0; i < users.length; i++) {
-                  const u = users[(cursor + i) % users.length];
-                  if (!busy.has(u.index)) {
-                    chosen = u;
-                    cursor = (cursor + i + 1) % users.length;
-                    break;
-                  }
-                }
+                offered++; let chosen = null;
+                for (let i = 0; i < users.length; i++) { const u = users[(cursor + i) % users.length]; if (!busy.has(u.index)) { chosen = u; cursor = (cursor + i + 1) % users.length; break; } }
                 if (chosen) launch(chosen); else skipped++;
                 nextAt += interval;
               }
               await sleep(0);
             }
-            await Promise.allSettled([...inFlight]);
-            const summary = summarize(`window_${targetRps}rps`, results);
-            summary.offered = offered;
-            summary.sent = results.length;
-            summary.scheduler_skips = skipped;
-            summary.dispatch_rps = +(results.length / STAGE_SECONDS).toFixed(2);
-            summary.backpressure_rate = offered ? +(skipped / offered).toFixed(4) : 0;
-            return summary;
+            await Promise.allSettled([...pending]);
+            const out = summarize(`window_${targetRps}rps`, results);
+            out.offered = offered; out.sent = results.length; out.scheduler_skips = skipped;
+            out.dispatch_rps = +(results.length / STAGE_SECONDS).toFixed(2);
+            out.backpressure_rate = offered ? +(skipped / offered).toFixed(4) : 0;
+            return out;
           }
 
-          async function prepareAnswerTargets(user) {
-            const r = await windowHit(user, 0, 3, true);
-            if (r.status !== 200 || !Array.isArray(r.json) || r.json.length < 2) {
-              throw new Error(`Could not prepare answers for user ${user.index}: HTTP ${r.status}`);
-            }
-            const targets = r.json.slice(0,2).map((q) => ({
-              questionId: Number(q.id),
-              optionId: Number(q.options?.[0]?.id),
-            }));
-            if (targets.some((t) => !Number.isFinite(t.questionId) || !Number.isFinite(t.optionId))) {
-              throw new Error(`Invalid question/option payload for user ${user.index}`);
-            }
-            return targets;
-          }
+          const report = { target: TARGET, generated_at: new Date().toISOString(), virtual_users: rawUsers.length, phases: [] };
+          console.log(`Resolving ${rawUsers.length} isolated user sessions...`);
+          const users = await Promise.all(rawUsers.map(resolveToken));
+          report.phases.push(summarize('auth_refresh', users.map((u) => ({ status: 200, ms: u.authMs }))));
 
-          async function submitOne(user, target) {
-            const r = await gateway(user, 'submit', {
-              p_request_id: randomUUID(),
-              p_session_id: user.sessionId,
-              p_question_id: target.questionId,
-              p_selected_option_id: target.optionId,
-              p_time_spent_seconds: 15,
-            });
-            return { status: r.status, ms: r.ms, text: r.status === 200 ? '' : r.text.slice(0,180), serverTiming: r.serverTiming };
-          }
-
-          const report = { target: TARGET, users: USER_COUNT, session_questions: 40, generated_at: new Date().toISOString(), phases: [] };
-
-          console.log('Authenticating 25 isolated load-test users in batches of five...');
-          const users = [];
-          for (let start = 1; start <= USER_COUNT; start += 5) {
-            const batch = await Promise.all(Array.from({length: Math.min(5, USER_COUNT-start+1)}, (_,k) => login(start+k)));
-            users.push(...batch);
-            await sleep(500);
-          }
-          report.phases.push(summarize('auth_login', users.map((u) => ({status:200, ms:u.loginMs}))));
-
-          console.log('Creating 25 concurrent 40-question Standard sessions...');
-          const createStarted = performance.now();
+          console.log('Creating concurrent 40-question Standard sessions...');
           const sessions = await Promise.all(users.map(createSession));
-          const createSummary = summarize('create_40q', sessions.map((u) => ({status:200, ms:u.createMs})));
-          createSummary.wall_ms = +(performance.now() - createStarted).toFixed(1);
-          createSummary.release_ids = [...new Set(sessions.map((u) => u.releaseId))];
-          report.phases.push(createSummary);
-          if (!createSummary.release_ids.every((id) => id === EXPECTED_RELEASE)) {
-            throw new Error(`Unexpected content release: ${JSON.stringify(createSummary.release_ids)}`);
+          const create = summarize('create_40q', sessions.map((u) => ({ status: 200, ms: u.createMs })));
+          create.release_ids = [...new Set(sessions.map((u) => u.releaseId))];
+          report.phases.push(create);
+          if (!create.release_ids.every((id) => id === EXPECTED_RELEASE)) throw new Error(`Unexpected release: ${JSON.stringify(create.release_ids)}`);
+
+          const warm = await Promise.all(sessions.map((u) => windowHit(u, 0)));
+          report.phases.push(summarize('window_warmup', warm));
+          if (warm.some((r) => r.status !== 200)) throw new Error('Window warmup returned a non-200 response.');
+
+          for (const rps of STAGES) {
+            const stage = await runStage(sessions, rps); report.phases.push(stage);
+            const errorRate = stage.requests ? stage.network_or_5xx / stage.requests : 1;
+            if (errorRate >= 0.02 || stage.rate_limited_429 > 0 || (stage.p95_ms ?? 0) > 3000 || stage.backpressure_rate >= 0.15) { stage.stop = true; break; }
+            await sleep(4000);
           }
 
-          console.log('Warm R2 windows: one request per user...');
-          const warm = await Promise.all(sessions.map((u) => windowHit(u, 0, 3)));
-          report.phases.push(summarize('window_warmup_25', warm));
-          if (warm.some((r) => r.status !== 200)) throw new Error('Window warmup had non-200 responses.');
-
-          console.log('Running R2 window load stages 10 -> 20 -> 30 -> 40 -> 50 req/s...');
-          for (const targetRps of WINDOW_STAGES) {
-            const s = await runWindowStage(sessions, targetRps);
-            report.phases.push(s);
-            const errorRate = s.requests ? s.network_or_5xx / s.requests : 1;
-            if (errorRate >= 0.02 || s.rate_limited_429 > 0 || (s.p95_ms ?? 0) > 3000 || s.backpressure_rate >= 0.15) {
-              s.stop = true;
-              console.log(`Stopping read ramp at ${targetRps} req/s due to threshold.`);
-              break;
-            }
-            await sleep(COOLDOWN_MS);
-          }
-
-          console.log('Cooling 65s before write-path test to isolate rate-limit windows...');
+          console.log('Cooling 65s before write path...');
           await sleep(65000);
+          const targets = await Promise.all(sessions.map(async (u) => {
+            const res = await windowHit(u, 0, true);
+            if (res.status !== 200 || !Array.isArray(res.json) || res.json.length < 2) throw new Error(`Cannot prepare answer target for user ${u.index + 1}.`);
+            return res.json.slice(0,2).map((q) => ({ questionId: Number(q.id), optionId: Number(q.options?.[0]?.id) }));
+          }));
 
-          console.log('Preparing two real answer targets per session...');
-          const answerTargets = await Promise.all(sessions.map(prepareAnswerTargets));
+          async function submit(u, t) {
+            const res = await gateway(u, 'submit', { p_request_id: randomUUID(), p_session_id: u.sessionId, p_question_id: t.questionId, p_selected_option_id: t.optionId, p_time_spent_seconds: 15 });
+            return { status: res.status, ms: res.ms, text: res.status === 200 ? '' : res.text.slice(0,160) };
+          }
 
-          console.log('Submitting answer wave 1: 25 concurrent writes + Standard feedback hydration...');
-          const wave1 = await Promise.all(sessions.map((u, i) => submitOne(u, answerTargets[i][0])));
-          const wave1Summary = summarize('submit_wave_1_25', wave1);
-          report.phases.push(wave1Summary);
-          if (wave1.some((r) => r.status !== 200)) throw new Error('Submit wave 1 had non-200 responses.');
+          const wave1 = await Promise.all(sessions.map((u,i) => submit(u, targets[i][0])));
+          report.phases.push(summarize('submit_wave_1', wave1));
+          if (wave1.some((r) => r.status !== 200)) throw new Error('Submit wave 1 returned non-200 responses.');
+          await sleep(3000);
+          const wave2 = await Promise.all(sessions.map((u,i) => submit(u, targets[i][1])));
+          report.phases.push(summarize('submit_wave_2', wave2));
+          if (wave2.some((r) => r.status !== 200)) throw new Error('Submit wave 2 returned non-200 responses.');
 
           await sleep(3000);
-          console.log('Submitting answer wave 2: 25 concurrent writes + Standard feedback hydration...');
-          const wave2 = await Promise.all(sessions.map((u, i) => submitOne(u, answerTargets[i][1])));
-          const wave2Summary = summarize('submit_wave_2_25', wave2);
-          report.phases.push(wave2Summary);
-          if (wave2.some((r) => r.status !== 200)) throw new Error('Submit wave 2 had non-200 responses.');
-
-          await sleep(3000);
-          console.log('Completing 25 sessions concurrently...');
           const complete = await Promise.all(sessions.map(async (u) => {
-            const r = await gateway(u, 'complete', { p_session_id: u.sessionId });
-            return { status:r.status, ms:r.ms, text:r.status===200?'':r.text.slice(0,180), serverTiming:r.serverTiming };
+            const res = await gateway(u, 'complete', { p_session_id: u.sessionId });
+            return { status: res.status, ms: res.ms, text: res.status === 200 ? '' : res.text.slice(0,160) };
           }));
-          report.phases.push(summarize('complete_25', complete));
-          if (complete.some((r) => r.status !== 200)) throw new Error('Complete phase had non-200 responses.');
+          report.phases.push(summarize('complete', complete));
+          if (complete.some((r) => r.status !== 200)) throw new Error('Complete returned non-200 responses.');
 
           await sleep(3000);
-          console.log('Review bootstrap: 25 concurrent post-completion reads...');
-          const reviews = await Promise.all(sessions.map(async (u) => {
-            const r = await gateway(u, 'reviewBootstrap', { p_session_id: u.sessionId });
-            return { status:r.status, ms:r.ms, text:r.status===200?'':r.text.slice(0,180), serverTiming:r.serverTiming };
+          const review = await Promise.all(sessions.map(async (u) => {
+            const res = await gateway(u, 'reviewBootstrap', { p_session_id: u.sessionId });
+            return { status: res.status, ms: res.ms, text: res.status === 200 ? '' : res.text.slice(0,160) };
           }));
-          report.phases.push(summarize('review_bootstrap_25', reviews));
-          if (reviews.some((r) => r.status !== 200)) throw new Error('Review bootstrap phase had non-200 responses.');
+          report.phases.push(summarize('review_bootstrap', review));
+          if (review.some((r) => r.status !== 200)) throw new Error('Review bootstrap returned non-200 responses.');
 
           await fs.writeFile('authenticated-load-results.json', JSON.stringify(report, null, 2));
-          console.log('\nAUTHENTICATED LOAD TEST COMPLETE');
           console.log(JSON.stringify(report, null, 2));
-          EOF
-
-          node authenticated-load.mjs
+          NODE
+          node /tmp/royal-auth-load.mjs
 
       - name: Upload aggregate results
         if: always()
