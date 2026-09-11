@@ -14,10 +14,11 @@
     "audit:client-boundary": "node scripts/audit-client-boundary.mjs",
     "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "audit:exam-architecture": "node scripts/audit-exam-architecture.mjs",
+    "audit:exam-release-hardening": "node scripts/audit-exam-release-hardening.mjs",
     "audit:repo-hygiene": "node scripts/audit-repo-hygiene.mjs",
     "audit:runtime-mocks": "node scripts/audit-runtime-mocks.mjs",
     "audit:prod-deps": "npm audit --omit=dev --audit-level=high",
-    "verify": "npm run lint && npm run typecheck && npm run audit:repo-hygiene && npm run audit:dependencies && npm run audit:exam-architecture && npm run audit:client-boundary && npm run audit:runtime-mocks && npm run audit:prod-deps && npm run build && npm run audit:client-boundary -- --build"
+    "verify": "npm run lint && npm run typecheck && npm run audit:repo-hygiene && npm run audit:dependencies && npm run audit:exam-architecture && npm run audit:exam-release-hardening && npm run audit:client-boundary && npm run audit:runtime-mocks && npm run audit:prod-deps && npm run build && npm run audit:client-boundary -- --build"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
@@ -27,7 +28,7 @@
     "next": "16.3.3",
     "next-themes": "^0.4.6",
     "react": "19.2.8",
-    "react-dom": "^19.2.8",
+    "react-dom": "19.2.8",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.15"

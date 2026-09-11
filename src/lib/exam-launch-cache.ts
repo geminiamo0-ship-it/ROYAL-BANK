@@ -3,6 +3,7 @@ import type { ExamBootstrap, ExamClientQuestion } from '@/types/exam';
 type CachedExamLaunch = {
   bootstrap: ExamBootstrap;
   questionsById: Record<number, ExamClientQuestion>;
+  pendingWindow: Promise<ExamClientQuestion[]> | null;
 };
 
 const launchCache = new Map<string, CachedExamLaunch>();
@@ -16,6 +17,7 @@ export function primeExamLaunchCache(bootstrap: ExamBootstrap) {
   launchCache.set(bootstrap.session.id, {
     bootstrap,
     questionsById,
+    pendingWindow: null,
   });
 }
 
@@ -28,10 +30,19 @@ export function mergeExamLaunchWindow(sessionId: string, questions: ExamClientQu
   }
 }
 
+export function trackExamLaunchWindow(
+  sessionId: string,
+  pendingWindow: Promise<ExamClientQuestion[]>,
+): void {
+  const cached = launchCache.get(sessionId);
+  if (!cached) return;
+  cached.pendingWindow = pendingWindow;
+}
+
 /**
- * The launch cache is a one-shot handoff between the question-bank screen and
- * the exam route. Consuming it prevents stale bootstrap state from being reused
- * if the same session is revisited later in the SPA lifetime.
+ * One-shot handoff between the bank screen and exam route. The in-flight window
+ * promise is part of the handoff, so consuming the cache cannot make a late
+ * prefetch result disappear.
  */
 export function getExamLaunchCache(sessionId: string): CachedExamLaunch | null {
   const cached = launchCache.get(sessionId);

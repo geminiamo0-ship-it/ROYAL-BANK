@@ -2,14 +2,16 @@ import { z } from 'zod';
 import type { ExamGatewayAction } from '@/types/exam-gateway';
 
 export const EXAM_RPC_BY_ACTION: Record<ExamGatewayAction, string> = {
-  create: 'create_exam_session_bootstrap_idempotent',
-  bootstrap: 'get_exam_session_bootstrap',
+  create: 'create_exam_session_bootstrap_idempotent_v3',
+  bootstrap: 'get_exam_session_bootstrap_v3',
   window: 'get_exam_session_window',
   reviewBootstrap: 'get_completed_exam_review_bootstrap',
   reviewWindow: 'get_completed_exam_review_window',
   reviewFeedback: 'get_completed_exam_review_feedback',
-  submit: 'submit_exam_answer_with_feedback',
-  submitRaw: 'submit_exam_answer',
+  trainingFeedback: 'get_exam_training_feedback',
+  renewWindowAccess: 'renew_exam_window_access',
+  submit: 'submit_exam_answer_with_feedback_idempotent',
+  submitRaw: 'submit_exam_answer_idempotent',
   feedback: 'get_exam_question_feedback',
   flag: 'set_question_flag',
   complete: 'complete_exam_session',
@@ -76,6 +78,7 @@ const windowArgsSchema = z
 
 const answerArgsSchema = z
   .object({
+    p_request_id: uuid,
     p_session_id: uuid,
     p_question_id: positiveId,
     p_selected_option_id: positiveId,
@@ -104,6 +107,8 @@ const ARGS_SCHEMA_BY_ACTION = {
   reviewBootstrap: sessionArgsSchema,
   reviewWindow: windowArgsSchema,
   reviewFeedback: feedbackArgsSchema,
+  trainingFeedback: feedbackArgsSchema,
+  renewWindowAccess: sessionArgsSchema,
   submit: answerArgsSchema,
   submitRaw: answerArgsSchema,
   feedback: feedbackArgsSchema,

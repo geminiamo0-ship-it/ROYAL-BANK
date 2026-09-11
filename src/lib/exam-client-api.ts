@@ -4,10 +4,12 @@ import {
   normalizeExamQuestion,
   toClientExamAnswer,
   toClientExamFeedback,
+  toClientTrainingFeedback,
   type RawExamBootstrap,
   type RawExamInlineFeedbackResult,
   type RawExamQuestionFeedback,
   type RawExamSubmitResult,
+  type RawExamTrainingFeedback,
 } from '@/lib/exam-wire';
 import { decodeTopicFilter } from '@/lib/topic-filters';
 import type {
@@ -15,10 +17,61 @@ import type {
   ExamClientAnswer,
   ExamClientQuestion,
   ExamQuestionFeedback,
+  ExamTrainingFeedback,
   StartExamInput,
 } from '@/types/exam';
 
 const inFlightExamCreates = new Map<string, Promise<ExamBootstrap>>();
+const CREATE_REQUEST_STORAGE_KEY = 'royal.exam.pending-create-request-ids';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type RawWindowAccessRenewal = {
+  window_access_token?: string;
+  window_access_expires_at?: number;
+};
+
+function loadCreateRequestIds(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.sessionStorage.getItem(CREATE_REQUEST_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === 'string' && UUID_PATTERN.test(entry[1]),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function persistCreateRequestIds(values: Record<string, string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (Object.keys(values).length === 0) window.sessionStorage.removeItem(CREATE_REQUEST_STORAGE_KEY);
+    else window.sessionStorage.setItem(CREATE_REQUEST_STORAGE_KEY, JSON.stringify(values));
+  } catch {
+    // Server-side idempotency remains authoritative if recovery storage is unavailable.
+  }
+}
+
+function getOrCreateCreateRequestId(requestKey: string): string {
+  const existing = loadCreateRequestIds();
+  if (existing[requestKey]) return existing[requestKey];
+  const requestId = crypto.randomUUID();
+  persistCreateRequestIds({ ...existing, [requestKey]: requestId });
+  return requestId;
+}
+
+function clearCreateRequestId(requestKey: string): void {
+  const existing = loadCreateRequestIds();
+  if (!existing[requestKey]) return;
+  delete existing[requestKey];
+  persistCreateRequestIds(existing);
+}
 
 export async function createExamSessionBootstrap(input: StartExamInput): Promise<ExamBootstrap> {
   const parsedTopics: Array<{ category: string; topic: string }> = [];
@@ -44,7 +97,10 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
   const existing = inFlightExamCreates.get(requestKey);
   if (existing) return existing;
 
-  const requestId = crypto.randomUUID();
+  // Keep the UUID until a complete bootstrap is returned. If DB creation commits
+  // but the response/R2 hydration is lost, an explicit user retry resolves the
+  // same session instead of consuming another session slot.
+  const requestId = getOrCreateCreateRequestId(requestKey);
   const args = {
     p_request_id: requestId,
     p_bank_id: input.bankId,
@@ -61,7 +117,9 @@ export async function createExamSessionBootstrap(input: StartExamInput): Promise
     if (!data || typeof data !== 'object') {
       throw new Error('Exam bootstrap returned no result.');
     }
-    return normalizeExamBootstrap(data);
+    const bootstrap = normalizeExamBootstrap(data);
+    clearCreateRequestId(requestKey);
+    return bootstrap;
   })();
 
   inFlightExamCreates.set(requestKey, request);
@@ -89,6 +147,25 @@ export async function getCompletedExamReviewBootstrapDirect(sessionId: string): 
   });
   if (!data || typeof data !== 'object') throw new Error('Review bootstrap returned no result.');
   return normalizeExamBootstrap(data);
+}
+
+export async function renewExamWindowAccessDirect(sessionId: string): Promise<{
+  windowAccessToken: string | null;
+  windowAccessExpiresAt: number | null;
+}> {
+  const data = await callExamGateway<RawWindowAccessRenewal, 'renewWindowAccess'>('renewWindowAccess', {
+    p_session_id: sessionId,
+  });
+
+  const rawExpiry = Number(data?.window_access_expires_at || 0);
+  return {
+    windowAccessToken:
+      typeof data?.window_access_token === 'string' && data.window_access_token
+        ? data.window_access_token
+        : null,
+    windowAccessExpiresAt:
+      Number.isSafeInteger(rawExpiry) && rawExpiry > 0 ? rawExpiry : null,
+  };
 }
 
 export async function getExamSessionWindowDirect(
@@ -131,13 +208,32 @@ export async function getCompletedExamReviewWindowDirect(
   return data.map(normalizeExamQuestion);
 }
 
+export async function getExamTrainingFeedbackDirect(
+  sessionId: string,
+  questionId: number,
+): Promise<ExamTrainingFeedback> {
+  const data = await callExamGateway<RawExamTrainingFeedback, 'trainingFeedback'>('trainingFeedback', {
+    p_session_id: sessionId,
+    p_question_id: questionId,
+  });
+
+  if (!data || typeof data !== 'object') throw new Error('Training feedback was not returned.');
+  return toClientTrainingFeedback(data);
+}
+
 export async function submitExamAnswerWithFeedbackDirect(input: {
+  requestId?: string;
   sessionId: string;
   questionId: number;
   selectedOptionId: number;
   timeSpentSeconds?: number;
-}): Promise<{ answer: ExamClientAnswer; feedback: ExamQuestionFeedback }> {
+}): Promise<{
+  answer: ExamClientAnswer;
+  feedback: ExamQuestionFeedback | null;
+  feedbackPending: boolean;
+}> {
   const raw = await callExamGateway<RawExamInlineFeedbackResult, 'submit'>('submit', {
+    p_request_id: input.requestId || crypto.randomUUID(),
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,
@@ -145,26 +241,31 @@ export async function submitExamAnswerWithFeedbackDirect(input: {
   });
 
   if (!raw || typeof raw !== 'object') throw new Error('Answer feedback was not returned.');
-  if (!raw.answer || !raw.feedback) throw new Error('Answer feedback payload is incomplete.');
+  if (!raw.answer) throw new Error('Answer payload is incomplete.');
 
-  const feedback = toClientExamFeedback(raw.feedback);
+  const feedback = raw.feedback ? toClientExamFeedback(raw.feedback) : null;
   return {
-    answer: {
-      ...toClientExamAnswer(raw.answer),
-      isCorrect: feedback.isCorrect,
-      correctOptionId: feedback.correctOptionId,
-    },
+    answer: feedback
+      ? {
+          ...toClientExamAnswer(raw.answer),
+          isCorrect: feedback.isCorrect,
+          correctOptionId: feedback.correctOptionId,
+        }
+      : toClientExamAnswer(raw.answer),
     feedback,
+    feedbackPending: Boolean(raw.feedback_pending || !feedback),
   };
 }
 
 export async function submitExamAnswerDirect(input: {
+  requestId?: string;
   sessionId: string;
   questionId: number;
   selectedOptionId: number;
   timeSpentSeconds?: number;
 }): Promise<ExamClientAnswer> {
   const data = await callExamGateway<RawExamSubmitResult, 'submitRaw'>('submitRaw', {
+    p_request_id: input.requestId || crypto.randomUUID(),
     p_session_id: input.sessionId,
     p_question_id: input.questionId,
     p_selected_option_id: input.selectedOptionId,

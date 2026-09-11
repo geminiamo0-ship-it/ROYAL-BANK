@@ -52,6 +52,13 @@ export interface ExamQuestionFeedback {
   optionPercentages: Record<number, number>;
 }
 
+export interface ExamTrainingFeedback {
+  questionId: number;
+  correctOptionId: number | null;
+  explanationHtml: string;
+  optionPercentages: Record<number, number>;
+}
+
 export interface ExamClientSession {
   id: string;
   question_bank_id: number;
@@ -62,6 +69,9 @@ export interface ExamClientSession {
 export interface ExamBootstrapSession extends ExamClientSession {
   total_questions: number;
   is_completed: boolean;
+  started_at: string | null;
+  deadline_at: string | null;
+  content_release_id: string | null;
 }
 
 export interface ExamBootstrap {
@@ -74,4 +84,5 @@ export interface ExamBootstrap {
   currentIndex: number;
   windowAccessToken: string | null;
   windowAccessExpiresAt: number | null;
+  serverNow: string | null;
 }

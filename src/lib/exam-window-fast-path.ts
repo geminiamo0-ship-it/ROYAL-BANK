@@ -50,7 +50,7 @@ function modeForWindowAction(action: ExamGatewayAction): ExamWindowAccessMode | 
   return null;
 }
 
-function modeForBootstrapAction(action: ExamGatewayAction): ExamWindowAccessMode | null {
+function fixedModeForCapabilityAction(action: ExamGatewayAction): ExamWindowAccessMode | null {
   if (action === 'create' || action === 'bootstrap') return 'active';
   if (action === 'reviewBootstrap') return 'review';
   return null;
@@ -190,6 +190,11 @@ export async function trySignedExamWindowFastPath(options: {
   });
   if (!access) return null;
 
+  // A null release is an explicit rollout marker for a session created before
+  // release pinning existed. Do not spend R2/guard work on it; the BFF will use the
+  // authenticated legacy Postgres path. Pinned sessions always carry a release id.
+  if (!access.r) return null;
+
   const end = Math.min(args.p_start + args.p_count, access.q.length);
   const questionIds =
     args.p_start >= access.q.length ? [] : access.q.slice(args.p_start, end);
@@ -202,6 +207,7 @@ export async function trySignedExamWindowFastPath(options: {
   const contentPromise = hydrateExamR2QuestionIds(
     options.action as 'window' | 'reviewWindow',
     questionIds,
+    access.r,
   ).finally(() => {
     contentMs = performance.now() - contentStart;
   });
@@ -246,9 +252,6 @@ export function attachExamWindowAccess(options: {
   userId: string;
   secret: string;
 }): string {
-  const mode = modeForBootstrapAction(options.action);
-  if (!mode) return options.rawBody;
-
   let parsed: unknown;
   try {
     parsed = JSON.parse(options.rawBody) as unknown;
@@ -262,11 +265,24 @@ export function attachExamWindowAccess(options: {
   const questionIds = questionIdsFrom(bootstrap?.question_ids);
   if (!bootstrap || !sessionId || !questionIds) return options.rawBody;
 
+  let mode = fixedModeForCapabilityAction(options.action);
+  if (options.action === 'renewWindowAccess') {
+    mode = session?.is_completed === true ? 'review' : 'active';
+  }
+  if (!mode) return options.rawBody;
+
+  const nestedReleaseId =
+    typeof session?.content_release_id === 'string' ? session.content_release_id : null;
+  const topLevelReleaseId =
+    typeof bootstrap.content_release_id === 'string' ? bootstrap.content_release_id : null;
+  const contentReleaseId = nestedReleaseId || topLevelReleaseId;
+
   const access = issueExamWindowAccessToken({
     userId: options.userId,
     sessionId,
     mode,
     questionIds,
+    contentReleaseId,
     secret: options.secret,
   });
   if (!access) return options.rawBody;

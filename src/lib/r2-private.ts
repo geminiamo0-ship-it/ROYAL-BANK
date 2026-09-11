@@ -7,6 +7,7 @@ const DEFAULT_TIMEOUT_MS = 1800;
 const DEFAULT_MAX_JSON_BYTES = 1024 * 1024;
 const MEMORY_CACHE_TTL_MS = 5 * 60 * 1000;
 const MEMORY_CACHE_MAX_ENTRIES = 512;
+const DEFAULT_MEMORY_CACHE_MAX_BYTES = 16 * 1024 * 1024;
 
 type R2Config = {
   accountId: string;
@@ -18,9 +19,12 @@ type R2Config = {
 type MemoryCacheEntry = {
   value: unknown;
   expiresAt: number;
+  bytes: number;
 };
 
 const memoryJsonCache = new Map<string, MemoryCacheEntry>();
+const inFlightJsonReads = new Map<string, Promise<unknown | null>>();
+let memoryJsonCacheBytes = 0;
 
 function readConfig(): R2Config | null {
   const accountId = process.env.R2_ACCOUNT_ID?.trim() || '';
@@ -114,45 +118,80 @@ function memoryCacheEnabled(): boolean {
   return process.env.ROYAL_R2_MEMORY_CACHE_ENABLED !== 'false';
 }
 
+function diagnosticsEnabled(): boolean {
+  return process.env.ROYAL_R2_DIAGNOSTICS === 'true';
+}
+
+function memoryCacheMaxBytes(): number {
+  const configured = Number(process.env.ROYAL_R2_MEMORY_CACHE_MAX_BYTES || 0);
+  return Number.isSafeInteger(configured) && configured > 0
+    ? configured
+    : DEFAULT_MEMORY_CACHE_MAX_BYTES;
+}
+
+function logCacheEvent(event: string, key: string, bytes = 0): void {
+  if (!diagnosticsEnabled()) return;
+  process.stdout.write(
+    `[royal-r2-cache] event=${event} key=${JSON.stringify(key)} object_bytes=${bytes} cache_bytes=${memoryJsonCacheBytes} entries=${memoryJsonCache.size}\n`,
+  );
+}
+
+function deleteMemoryCached(key: string, event?: string): void {
+  const existing = memoryJsonCache.get(key);
+  if (!existing) return;
+  memoryJsonCache.delete(key);
+  memoryJsonCacheBytes = Math.max(0, memoryJsonCacheBytes - existing.bytes);
+  if (event) logCacheEvent(event, key, existing.bytes);
+}
+
 function getMemoryCached<T>(key: string): { hit: true; value: T } | { hit: false } {
   if (!memoryCacheEnabled()) return { hit: false };
 
   const entry = memoryJsonCache.get(key);
-  if (!entry) return { hit: false };
+  if (!entry) {
+    logCacheEvent('miss', key);
+    return { hit: false };
+  }
 
   if (entry.expiresAt <= Date.now()) {
-    memoryJsonCache.delete(key);
+    deleteMemoryCached(key, 'expired');
     return { hit: false };
   }
 
   memoryJsonCache.delete(key);
   memoryJsonCache.set(key, entry);
+  logCacheEvent('hit', key, entry.bytes);
   return { hit: true, value: entry.value as T };
 }
 
-function setMemoryCached(key: string, value: unknown): void {
+function setMemoryCached(key: string, value: unknown, bytes: number): void {
   if (!memoryCacheEnabled()) return;
+  if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > memoryCacheMaxBytes()) return;
 
-  memoryJsonCache.delete(key);
+  deleteMemoryCached(key);
   memoryJsonCache.set(key, {
     value,
     expiresAt: Date.now() + MEMORY_CACHE_TTL_MS,
+    bytes,
   });
+  memoryJsonCacheBytes += bytes;
+  logCacheEvent('set', key, bytes);
 
-  while (memoryJsonCache.size > MEMORY_CACHE_MAX_ENTRIES) {
+  const maxBytes = memoryCacheMaxBytes();
+  while (
+    memoryJsonCache.size > MEMORY_CACHE_MAX_ENTRIES ||
+    memoryJsonCacheBytes > maxBytes
+  ) {
     const oldestKey = memoryJsonCache.keys().next().value as string | undefined;
     if (!oldestKey) break;
-    memoryJsonCache.delete(oldestKey);
+    deleteMemoryCached(oldestKey, 'evict');
   }
 }
 
-export async function readPrivateR2Json<T>(
+async function fetchPrivateR2Json<T>(
   key: string,
   options?: { timeoutMs?: number; maxBytes?: number },
 ): Promise<T | null> {
-  const cached = getMemoryCached<T>(key);
-  if (cached.hit) return cached.value;
-
   const config = readConfig();
   if (!config) throw new Error('Private R2 is not configured.');
 
@@ -174,11 +213,40 @@ export async function readPrivateR2Json<T>(
   }
 
   const raw = await response.text();
-  if (Buffer.byteLength(raw, 'utf8') > maxBytes) {
+  const rawBytes = Buffer.byteLength(raw, 'utf8');
+  if (rawBytes > maxBytes) {
     throw new Error('Private R2 object exceeded the maximum allowed size.');
   }
 
   const parsed = JSON.parse(raw) as T;
-  setMemoryCached(key, parsed);
+  setMemoryCached(key, parsed, rawBytes);
   return parsed;
+}
+
+export async function readPrivateR2Json<T>(
+  key: string,
+  options?: { timeoutMs?: number; maxBytes?: number },
+): Promise<T | null> {
+  const cached = getMemoryCached<T>(key);
+  if (cached.hit) return cached.value;
+
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxBytes = options?.maxBytes ?? DEFAULT_MAX_JSON_BYTES;
+  const inFlightKey = `${key}|${timeoutMs}|${maxBytes}`;
+  const existing = inFlightJsonReads.get(inFlightKey);
+  if (existing) {
+    logCacheEvent('single_flight_join', key);
+    return existing as Promise<T | null>;
+  }
+
+  logCacheEvent('origin_read', key);
+  const request = fetchPrivateR2Json<T>(key, { timeoutMs, maxBytes })
+    .finally(() => {
+      if (inFlightJsonReads.get(inFlightKey) === request) {
+        inFlightJsonReads.delete(inFlightKey);
+      }
+    });
+
+  inFlightJsonReads.set(inFlightKey, request as Promise<unknown | null>);
+  return request;
 }

@@ -3,6 +3,7 @@ import type {
   ExamClientAnswer,
   ExamClientQuestion,
   ExamQuestionFeedback,
+  ExamTrainingFeedback,
 } from '@/types/exam';
 
 export type RawExamSubmitResult = {
@@ -25,9 +26,17 @@ export type RawExamQuestionFeedback = {
   option_percentages: Record<string, number> | null;
 };
 
+export type RawExamTrainingFeedback = {
+  question_id: number;
+  correct_option_id: number | null;
+  explanation_html: string | null;
+  option_percentages: Record<string, number> | null;
+};
+
 export type RawExamInlineFeedbackResult = {
   answer: RawExamSubmitResult;
-  feedback: RawExamQuestionFeedback;
+  feedback: RawExamQuestionFeedback | null;
+  feedback_pending?: boolean;
 };
 
 export type RawExamBootstrap = {
@@ -39,6 +48,9 @@ export type RawExamBootstrap = {
     time_limit_minutes?: number | null;
     total_questions?: number;
     is_completed?: boolean;
+    started_at?: string | null;
+    deadline_at?: string | null;
+    content_release_id?: string | null;
   };
   question_ids?: number[];
   questions?: ExamClientQuestion[];
@@ -47,7 +59,27 @@ export type RawExamBootstrap = {
   current_index?: number;
   window_access_token?: string;
   window_access_expires_at?: number;
+  server_now?: string | null;
 };
+
+function normalizePercentages(raw: Record<string, number> | null | undefined): Record<number, number> {
+  const optionPercentages: Record<number, number> = {};
+  for (const [optionId, percentage] of Object.entries(raw || {})) {
+    const parsedOptionId = Number(optionId);
+    if (!Number.isFinite(parsedOptionId)) continue;
+    optionPercentages[parsedOptionId] = Number(percentage || 0);
+  }
+  return optionPercentages;
+}
+
+function normalizeIsoDate(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  return Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function normalizeReleaseId(value: unknown): string | null {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? value : null;
+}
 
 export function toClientExamAnswer(
   row: RawExamSubmitResult | RawExamSessionAnswer,
@@ -65,20 +97,22 @@ export function toClientExamAnswer(
 }
 
 export function toClientExamFeedback(raw: RawExamQuestionFeedback): ExamQuestionFeedback {
-  const optionPercentages: Record<number, number> = {};
-  for (const [optionId, percentage] of Object.entries(raw.option_percentages || {})) {
-    const parsedOptionId = Number(optionId);
-    if (!Number.isFinite(parsedOptionId)) continue;
-    optionPercentages[parsedOptionId] = Number(percentage || 0);
-  }
-
   return {
     questionId: Number(raw.question_id),
     selectedOptionId: raw.selected_option_id == null ? null : Number(raw.selected_option_id),
     isCorrect: Boolean(raw.is_correct),
     correctOptionId: raw.correct_option_id == null ? null : Number(raw.correct_option_id),
     explanationHtml: raw.explanation_html || '',
-    optionPercentages,
+    optionPercentages: normalizePercentages(raw.option_percentages),
+  };
+}
+
+export function toClientTrainingFeedback(raw: RawExamTrainingFeedback): ExamTrainingFeedback {
+  return {
+    questionId: Number(raw.question_id),
+    correctOptionId: raw.correct_option_id == null ? null : Number(raw.correct_option_id),
+    explanationHtml: raw.explanation_html || '',
+    optionPercentages: normalizePercentages(raw.option_percentages),
   };
 }
 
@@ -123,6 +157,9 @@ export function normalizeExamBootstrap(raw: RawExamBootstrap): ExamBootstrap {
         raw.session.time_limit_minutes == null ? null : Number(raw.session.time_limit_minutes),
       total_questions: Math.max(0, Number(raw.session.total_questions || 0)),
       is_completed: Boolean(raw.session.is_completed),
+      started_at: normalizeIsoDate(raw.session.started_at),
+      deadline_at: normalizeIsoDate(raw.session.deadline_at),
+      content_release_id: normalizeReleaseId(raw.session.content_release_id),
     },
     questionIds: (raw.question_ids || []).map(Number),
     questions: (raw.questions || []).map(normalizeExamQuestion),
@@ -135,5 +172,6 @@ export function normalizeExamBootstrap(raw: RawExamBootstrap): ExamBootstrap {
         : null,
     windowAccessExpiresAt:
       Number.isSafeInteger(rawExpiry) && rawExpiry > 0 ? rawExpiry : null,
+    serverNow: normalizeIsoDate(raw.server_now),
   };
 }

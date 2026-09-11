@@ -47,22 +47,19 @@ function normalizeStoredAnnotation(value: unknown): StoredQuestionAnnotation {
   };
 }
 
-async function requireAuthenticatedClient() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) throw new Error('Authentication required.');
-  return supabase;
+async function annotationClient() {
+  // Protected exam pages are authoritatively validated in middleware. The RPCs
+  // below independently bind auth.uid(), require question access, and that access
+  // path checks is_active_user(). Avoid a second auth.getUser() round trip inside
+  // every Server Action while retaining authorization at the database boundary.
+  return createClient();
 }
 
 export async function getQuestionAnnotationsAction(
   questionId: number,
 ): Promise<StoredQuestionAnnotation[]> {
   const parsedQuestionId = requireQuestionId(questionId);
-  const supabase = await requireAuthenticatedClient();
+  const supabase = await annotationClient();
   const { data, error } = await supabase.rpc('get_my_question_annotations', {
     p_question_id: parsedQuestionId,
   });
@@ -87,7 +84,7 @@ export async function saveQuestionAnnotationAction(input: {
     throw new Error('Invalid annotation version.');
   }
 
-  const supabase = await requireAuthenticatedClient();
+  const supabase = await annotationClient();
   const { data, error } = await supabase.rpc('save_my_question_annotation', {
     p_question_id: questionId,
     p_surface: input.surface,
@@ -102,7 +99,7 @@ export async function saveQuestionAnnotationAction(input: {
 
 export async function clearQuestionAnnotationsAction(questionId: number): Promise<number> {
   const parsedQuestionId = requireQuestionId(questionId);
-  const supabase = await requireAuthenticatedClient();
+  const supabase = await annotationClient();
   const { data, error } = await supabase.rpc('clear_my_question_annotations', {
     p_question_id: parsedQuestionId,
   });
