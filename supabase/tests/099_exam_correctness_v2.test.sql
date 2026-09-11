@@ -41,8 +41,6 @@ INSERT INTO public.options (id,question_id,text_html,is_correct,option_order,per
 (949931,93993,'Correct tutor',TRUE,0,60),
 (949932,93993,'Wrong tutor',FALSE,1,40);
 
--- Two immutable content generations. Release B intentionally changes the Standard
--- answer key so the tests can prove a session pinned to A never drifts to B/live data.
 INSERT INTO private.exam_content_releases(
     release_id,manifest_sha256,question_count,option_count,is_ready,finalized_at
 ) VALUES
@@ -70,7 +68,6 @@ SELECT public.create_exam_session_bootstrap_idempotent_v3(
     92991,'standard',1,
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all',repeat('a',64)
 );
-
 CREATE TEMP TABLE standard_session(id uuid);
 INSERT INTO standard_session
 SELECT ((SELECT payload FROM standard_create_v3)->'session'->>'id')::uuid;
@@ -131,18 +128,17 @@ SELECT extensions.is(
     'null',
     'Tutor create v2 encodes deadline_at as JSON null'
 );
-
 CREATE TEMP TABLE tutor_session(id uuid);
 INSERT INTO tutor_session
 SELECT ((SELECT payload FROM tutor_bootstrap_v2)->'session'->>'id')::uuid;
 
-CREATE TEMP TABLE training_feedback(payload jsonb);
-INSERT INTO training_feedback
-SELECT public.get_exam_training_feedback((SELECT id FROM standard_session),93991);
+CREATE TEMP TABLE training_feedback_ref(payload jsonb);
+INSERT INTO training_feedback_ref
+SELECT public.get_exam_training_feedback_ref_v2((SELECT id FROM standard_session),93991);
 SELECT extensions.is(
-    ((SELECT payload FROM training_feedback)->>'correct_option_id')::bigint,
-    949911::bigint,
-    'Standard session may prefetch training feedback for a disclosed question'
+    (SELECT payload FROM training_feedback_ref)->>'content_release_id',
+    repeat('a',64),
+    'Pinned Standard training feedback uses the release-aware R2 authorization ref'
 );
 
 CREATE TEMP TABLE active_renew(payload jsonb);
@@ -164,7 +160,6 @@ SELECT extensions.is(
     'Window access renewal keeps the exact content release pinned to the session'
 );
 
--- Simulate a live content edit after the session has already pinned release A.
 RESET ROLE;
 UPDATE public.options SET is_correct=FALSE WHERE id=949911;
 UPDATE public.options SET is_correct=TRUE WHERE id=949912;
@@ -221,7 +216,10 @@ BEGIN
     END;
 END;
 $$;
-SELECT extensions.ok((SELECT blocked FROM key_reuse),'Reusing an answer idempotency key for different content is rejected');
+SELECT extensions.ok(
+    (SELECT blocked FROM key_reuse),
+    'Reusing an answer idempotency key for different content is rejected'
+);
 
 CREATE TEMP TABLE timed_session(id uuid);
 INSERT INTO timed_session
@@ -231,9 +229,6 @@ SELECT public.create_exam_session(
 );
 SELECT public.get_exam_session_window((SELECT id FROM timed_session),0,1);
 
--- Deadline tests need controlled historical clock values. Session configuration is
--- correctly immutable at runtime, so test setup bypasses only that integrity trigger
--- while running as postgres, then immediately restores it before exercising RPCs.
 RESET ROLE;
 ALTER TABLE public.test_sessions DISABLE TRIGGER enforce_test_session_update_integrity_trigger;
 UPDATE public.test_sessions
@@ -308,11 +303,11 @@ BEGIN
     END;
 END;
 $$;
-SELECT extensions.ok((SELECT blocked FROM timed_feedback),'Timed session cannot access pre-answer training feedback');
+SELECT extensions.ok(
+    (SELECT blocked FROM timed_feedback),
+    'Timed session cannot access pre-answer training feedback'
+);
 
--- Non-timed modes never use the timed deadline rule even if historical timing metadata
--- exists. Again, mutate only in test setup with the immutability trigger restored
--- before the public answer RPC is called.
 RESET ROLE;
 ALTER TABLE public.test_sessions DISABLE TRIGGER enforce_test_session_update_integrity_trigger;
 UPDATE public.test_sessions
