@@ -19,6 +19,10 @@ import {
   serverTimingHeader,
   type GatewayProof,
 } from '@/lib/exam-gateway-server';
+import {
+  attachExamWindowAccess,
+  trySignedExamWindowFastPath,
+} from '@/lib/exam-window-fast-path';
 import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import type { ExamGatewayAction } from '@/types/exam-gateway';
 
@@ -76,6 +80,22 @@ async function recordRateLimitRejection(options: {
     // The request is already rejected by Vercel. Abuse accounting is deliberately
     // best-effort so a telemetry failure cannot turn a 429 into a slower 5xx path.
   }
+}
+
+function addServerTiming(
+  headers: Headers,
+  enabled: boolean,
+  metrics: {
+    bodyParseMs: number;
+    authMs: number;
+    rateLimitMs: number;
+    upstreamFetchMs: number;
+    responseReadMs: number;
+    totalServerMs: number;
+  },
+): void {
+  if (!enabled) return;
+  headers.set('server-timing', serverTimingHeader(metrics));
 }
 
 export async function POST(request: Request) {
@@ -250,8 +270,37 @@ export async function POST(request: Request) {
 
   rateLimitMs = performance.now() - rateLimitStart;
 
+  const r2ContentEnabled = isExamR2ContentEnabled();
+  if (r2ContentEnabled && (body.action === 'window' || body.action === 'reviewWindow')) {
+    const fastPathStart = performance.now();
+    const fastPathBody = await trySignedExamWindowFastPath({
+      request,
+      action: body.action,
+      args: body.args,
+      userId,
+      secret: riskHmacSecret,
+    });
+    upstreamFetchMs = performance.now() - fastPathStart;
+
+    if (fastPathBody != null) {
+      const headers = new Headers({
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      });
+      addServerTiming(headers, serverTimingEnabled, {
+        bodyParseMs,
+        authMs,
+        rateLimitMs,
+        upstreamFetchMs,
+        responseReadMs,
+        totalServerMs: performance.now() - totalServerStart,
+      });
+      return new Response(fastPathBody, { status: 200, headers });
+    }
+  }
+
   const legacyRpcName = EXAM_RPC_BY_ACTION[body.action];
-  const r2RpcName = isExamR2ContentEnabled() ? r2RpcNameForAction(body.action) : null;
+  const r2RpcName = r2ContentEnabled ? r2RpcNameForAction(body.action) : null;
   const primaryRpcName = r2RpcName || legacyRpcName;
   const rpcBody = JSON.stringify(body.args);
 
@@ -274,7 +323,7 @@ export async function POST(request: Request) {
     }
     return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
   }
-  upstreamFetchMs = performance.now() - upstreamFetchStart;
+  upstreamFetchMs += performance.now() - upstreamFetchStart;
 
   const responseReadStart = performance.now();
   let rawResponseBody = await upstream.text();
@@ -311,6 +360,15 @@ export async function POST(request: Request) {
     }
   }
 
+  if (upstream.ok && r2ContentEnabled) {
+    rawResponseBody = attachExamWindowAccess({
+      action: body.action,
+      rawBody: rawResponseBody,
+      userId,
+      secret: riskHmacSecret,
+    });
+  }
+
   const responseBody = upstream.ok ? rawResponseBody : safeUpstreamErrorBody(rawResponseBody);
 
   const headers = new Headers({
@@ -323,19 +381,14 @@ export async function POST(request: Request) {
   const retryAfter = upstream.headers.get('retry-after');
   if (retryAfter) headers.set('retry-after', retryAfter);
 
-  if (serverTimingEnabled) {
-    headers.set(
-      'server-timing',
-      serverTimingHeader({
-        bodyParseMs,
-        authMs,
-        rateLimitMs,
-        upstreamFetchMs,
-        responseReadMs,
-        totalServerMs: performance.now() - totalServerStart,
-      }),
-    );
-  }
+  addServerTiming(headers, serverTimingEnabled, {
+    bodyParseMs,
+    authMs,
+    rateLimitMs,
+    upstreamFetchMs,
+    responseReadMs,
+    totalServerMs: performance.now() - totalServerStart,
+  });
 
   return new Response(responseBody, {
     status: upstream.status,
