@@ -48,6 +48,8 @@ export type RawExamBootstrap = {
     time_limit_minutes?: number | null;
     total_questions?: number;
     is_completed?: boolean;
+    started_at?: string | null;
+    deadline_at?: string | null;
   };
   question_ids?: number[];
   questions?: ExamClientQuestion[];
@@ -56,6 +58,7 @@ export type RawExamBootstrap = {
   current_index?: number;
   window_access_token?: string;
   window_access_expires_at?: number;
+  server_now?: string | null;
 };
 
 function normalizePercentages(raw: Record<string, number> | null | undefined): Record<number, number> {
@@ -66,6 +69,11 @@ function normalizePercentages(raw: Record<string, number> | null | undefined): R
     optionPercentages[parsedOptionId] = Number(percentage || 0);
   }
   return optionPercentages;
+}
+
+function normalizeIsoDate(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  return Number.isFinite(Date.parse(value)) ? value : null;
 }
 
 export function toClientExamAnswer(
@@ -144,6 +152,8 @@ export function normalizeExamBootstrap(raw: RawExamBootstrap): ExamBootstrap {
         raw.session.time_limit_minutes == null ? null : Number(raw.session.time_limit_minutes),
       total_questions: Math.max(0, Number(raw.session.total_questions || 0)),
       is_completed: Boolean(raw.session.is_completed),
+      started_at: normalizeIsoDate(raw.session.started_at),
+      deadline_at: normalizeIsoDate(raw.session.deadline_at),
     },
     questionIds: (raw.question_ids || []).map(Number),
     questions: (raw.questions || []).map(normalizeExamQuestion),
@@ -156,5 +166,6 @@ export function normalizeExamBootstrap(raw: RawExamBootstrap): ExamBootstrap {
         : null,
     windowAccessExpiresAt:
       Number.isSafeInteger(rawExpiry) && rawExpiry > 0 ? rawExpiry : null,
+    serverNow: normalizeIsoDate(raw.server_now),
   };
 }
