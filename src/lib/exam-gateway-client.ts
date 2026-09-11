@@ -3,9 +3,15 @@ import type { ExamGatewayAction, ExamGatewayArgsByAction } from '@/types/exam-ga
 export const EXAM_RATE_LIMIT_EVENT = 'royal:exam-rate-limit';
 export const EXAM_RATE_LIMIT_STORAGE_KEY = 'royal.exam-rate-limit-until';
 
+const EXAM_WINDOW_ACCESS_HEADER = 'x-royal-window-access';
+
 type GatewayErrorInfo = {
   message: string;
   code: string | null;
+};
+
+type ExamGatewayCallOptions = {
+  windowAccessToken?: string | null;
 };
 
 export class ExamGatewayError extends Error {
@@ -100,15 +106,21 @@ function publishRateLimitCountdown(retryAfterSeconds: number): void {
 
 export async function callExamGateway<T, A extends ExamGatewayAction>(
   action: A,
-  args: ExamGatewayArgsByAction[A]
+  args: ExamGatewayArgsByAction[A],
+  options?: ExamGatewayCallOptions,
 ): Promise<T> {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+  if (options?.windowAccessToken) {
+    headers[EXAM_WINDOW_ACCESS_HEADER] = options.windowAccessToken;
+  }
+
   const response = await fetch('/api/exam', {
     method: 'POST',
     cache: 'no-store',
     credentials: 'same-origin',
-    headers: {
-      'content-type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({ action, args }),
   });
 
