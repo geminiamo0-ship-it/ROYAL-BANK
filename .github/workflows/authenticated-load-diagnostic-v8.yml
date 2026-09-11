@@ -13,11 +13,11 @@ permissions:
 env:
   TARGET_URL: https://royal-bank-21be.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
-  LOAD_USER_COUNT: 50
+  LOAD_USER_COUNT: 75
   LOAD_AUTH_PACING_MS: 1200
 
 jobs:
-  diagnose-50:
+  diagnose-75:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     environment: production
@@ -32,9 +32,9 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci --ignore-scripts
-      - name: Prepare 50 isolated authenticated users
+      - name: Prepare 75 isolated authenticated users
         run: node scripts/auth-load-prepare.mjs
-      - name: Run 50-user middleware and direct exam-core diagnostic
+      - name: Run 75-user middleware and direct exam-core diagnostic
         run: node scripts/auth-load-diagnostic.mjs
       - name: Cleanup isolated load users
         if: always()
