@@ -95,12 +95,17 @@ export async function getExamSessionWindowDirect(
   sessionId: string,
   start: number,
   count = 3,
+  windowAccessToken?: string | null,
 ): Promise<ExamClientQuestion[]> {
-  const data = await callExamGateway<ExamClientQuestion[], 'window'>('window', {
-    p_session_id: sessionId,
-    p_start: Math.max(0, Math.floor(start)),
-    p_count: Math.min(5, Math.max(1, Math.floor(count))),
-  });
+  const data = await callExamGateway<ExamClientQuestion[], 'window'>(
+    'window',
+    {
+      p_session_id: sessionId,
+      p_start: Math.max(0, Math.floor(start)),
+      p_count: Math.min(5, Math.max(1, Math.floor(count))),
+    },
+    { windowAccessToken },
+  );
 
   if (!Array.isArray(data)) return [];
   return data.map(normalizeExamQuestion);
@@ -110,12 +115,17 @@ export async function getCompletedExamReviewWindowDirect(
   sessionId: string,
   start: number,
   count = 3,
+  windowAccessToken?: string | null,
 ): Promise<ExamClientQuestion[]> {
-  const data = await callExamGateway<ExamClientQuestion[], 'reviewWindow'>('reviewWindow', {
-    p_session_id: sessionId,
-    p_start: Math.max(0, Math.floor(start)),
-    p_count: Math.min(5, Math.max(1, Math.floor(count))),
-  });
+  const data = await callExamGateway<ExamClientQuestion[], 'reviewWindow'>(
+    'reviewWindow',
+    {
+      p_session_id: sessionId,
+      p_start: Math.max(0, Math.floor(start)),
+      p_count: Math.min(5, Math.max(1, Math.floor(count))),
+    },
+    { windowAccessToken },
+  );
 
   if (!Array.isArray(data)) return [];
   return data.map(normalizeExamQuestion);
