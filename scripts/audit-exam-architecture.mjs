@@ -165,6 +165,12 @@ if (!windowAccess.includes("royal-exam-window-access-v2")) {
   failures.push('exam window capability: v2 release-bound tokens require a distinct signing context');
 }
 
+const windowFastPathPath = path.join(root, 'src/lib/exam-window-fast-path.ts');
+const windowFastPath = await fs.readFile(windowFastPathPath, 'utf8');
+if (!windowFastPath.includes('if (!access.r) return null;')) {
+  failures.push('exam rollout: explicit legacy window capabilities must bypass the pinned R2 fast path');
+}
+
 const gatewayContractPath = path.join(root, 'src/lib/exam-gateway-contract.ts');
 const gatewayContract = await fs.readFile(gatewayContractPath, 'utf8');
 if (!gatewayContract.includes("create: 'create_exam_session_bootstrap_idempotent_v3'")) {
@@ -188,13 +194,16 @@ for (const invariant of [
   'resolveActiveExamContentRelease()',
   "EXAM_CONTENT_UNAVAILABLE",
   'feedback_pending: true',
+  "const RELEASE_PIN_ACTIONS = new Set<ExamGatewayAction>(['create']);",
+  "type ContentReleaseState = 'pinned' | 'legacy' | 'invalid';",
+  "releaseState === 'legacy' && body.action !== 'create'",
 ]) {
   if (!gatewayRoute.includes(invariant)) {
     failures.push(`exam gateway: missing ${invariant} deadline/content consistency invariant`);
   }
 }
-if (gatewayRoute.includes('fallbackFetchStart')) {
-  failures.push('exam content pinning: successful ref RPCs must not fall back to live full-content reads');
+if (gatewayRoute.includes("releaseState === 'pinned' &&") && gatewayRoute.includes('callRpc(legacyRpcName')) {
+  failures.push('exam content pinning: pinned sessions must never enter the legacy live-content fallback branch');
 }
 
 const r2SyncPath = path.join(root, 'scripts/sync-exam-content-to-r2.mjs');
@@ -230,6 +239,22 @@ for (const invariant of [
   if (!migration065.includes(invariant)) {
     failures.push(`exam DB hardening: migration 065 is missing ${invariant}`);
   }
+}
+
+const migration066Path = path.join(root, 'supabase/migrations/066_preserve_legacy_exam_sessions.sql');
+const migration066 = await fs.readFile(migration066Path, 'utf8');
+for (const invariant of [
+  'private.augment_exam_bootstrap_existing_release',
+  'public.get_exam_session_bootstrap_v3',
+  'public.get_exam_session_bootstrap_ref_v3',
+  'public.get_completed_exam_review_bootstrap_ref_v2',
+]) {
+  if (!migration066.includes(invariant)) {
+    failures.push(`exam rollout compatibility: migration 066 is missing ${invariant}`);
+  }
+}
+if (migration066.includes('private.pin_exam_session_content_release(')) {
+  failures.push('exam rollout compatibility: resume/review migration must never pin a legacy session');
 }
 
 async function walk(dir) {
@@ -268,4 +293,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('Exam architecture audit passed: windowing, retry recovery, release pinning, gateway deadlines, and BFF boundaries remain enforced.');
+console.log('Exam architecture audit passed: windowing, retry recovery, release pinning, legacy rollout isolation, gateway deadlines, and BFF boundaries remain enforced.');
