@@ -55,6 +55,7 @@ export function useExamTrainingFeedback(options: {
     feedbackByQuestionId: {},
   });
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
+  const [failureRevision, setFailureRevision] = useState(0);
   const inFlightRef = useRef(new Map<string, Promise<ExamTrainingFeedback>>());
   const failuresRef = useRef(new Map<string, FailureState>());
 
@@ -77,10 +78,11 @@ export function useExamTrainingFeedback(options: {
 
     const failure = failuresRef.current.get(key);
     if (failure?.permanent) return Promise.reject(failure.error);
-    if (automatic && failure) {
-      if (failure.attempts >= MAX_AUTOMATIC_ATTEMPTS || Date.now() < failure.nextRetryAt) {
-        return Promise.reject(failure.error);
-      }
+    if (failure && Date.now() < failure.nextRetryAt) {
+      return Promise.reject(failure.error);
+    }
+    if (automatic && failure && failure.attempts >= MAX_AUTOMATIC_ATTEMPTS) {
+      return Promise.reject(failure.error);
     }
 
     setLoadingKeys((previous) => new Set(previous).add(key));
@@ -108,6 +110,7 @@ export function useExamTrainingFeedback(options: {
           permanent: isPermanentFailure(error),
           error: normalized,
         });
+        setFailureRevision((revision) => revision + 1);
         throw normalized;
       })
       .finally(() => {
@@ -128,6 +131,17 @@ export function useExamTrainingFeedback(options: {
     [ensureInternal],
   );
 
+  const retry = useCallback((questionId: number) => {
+    const key = feedbackKey(sessionId, questionId);
+    const failure = failuresRef.current.get(key);
+    if (failure?.permanent) return Promise.reject(failure.error);
+    if (failure && Date.now() < failure.nextRetryAt) {
+      setFailureRevision((revision) => revision + 1);
+      return Promise.reject(failure.error);
+    }
+    return ensureInternal(questionId, false);
+  }, [ensureInternal, sessionId]);
+
   const warmKey = useMemo(() => (
     [...new Set(warmQuestionIds.filter((id) => Number.isSafeInteger(id) && id > 0))]
       .slice(0, 3)
@@ -136,11 +150,37 @@ export function useExamTrainingFeedback(options: {
 
   useEffect(() => {
     if (!enabled || !warmKey) return;
-    for (const rawQuestionId of warmKey.split(',')) {
-      const questionId = Number(rawQuestionId);
+
+    const questionIds = warmKey.split(',').map(Number);
+    let timeoutId: number | null = null;
+    let cancelled = false;
+    const now = Date.now();
+    let earliestRetryAt = Number.POSITIVE_INFINITY;
+
+    for (const questionId of questionIds) {
+      if (feedbackByQuestionId[questionId]) continue;
+      const failure = failuresRef.current.get(feedbackKey(sessionId, questionId));
+      if (failure?.permanent || (failure && failure.attempts >= MAX_AUTOMATIC_ATTEMPTS)) continue;
+
+      if (failure && failure.nextRetryAt > now) {
+        earliestRetryAt = Math.min(earliestRetryAt, failure.nextRetryAt);
+        continue;
+      }
+
       void ensureInternal(questionId, true).catch(() => undefined);
     }
-  }, [enabled, ensureInternal, warmKey]);
+
+    if (Number.isFinite(earliestRetryAt)) {
+      timeoutId = window.setTimeout(() => {
+        if (!cancelled) setFailureRevision((revision) => revision + 1);
+      }, Math.max(0, earliestRetryAt - Date.now()));
+    }
+
+    return () => {
+      cancelled = true;
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+  }, [enabled, ensureInternal, failureRevision, feedbackByQuestionId, sessionId, warmKey]);
 
   const loadingQuestionIds = useMemo(() => {
     const current = new Set<number>();
@@ -157,5 +197,6 @@ export function useExamTrainingFeedback(options: {
     feedbackByQuestionId,
     loadingQuestionIds,
     ensure,
+    retry,
   };
 }
