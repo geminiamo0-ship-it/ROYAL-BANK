@@ -2,13 +2,21 @@ import 'server-only';
 
 import { hydrateExamR2QuestionIds } from '@/lib/exam-r2-content';
 import {
+  buildGatewayProof,
+  gatewayHeaders,
+  readBearerToken,
+} from '@/lib/exam-gateway-server';
+import {
   issueExamWindowAccessToken,
   verifyExamWindowAccessToken,
   type ExamWindowAccessMode,
 } from '@/lib/exam-window-access';
+import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import type { ExamGatewayAction } from '@/types/exam-gateway';
 
 export const EXAM_WINDOW_ACCESS_HEADER = 'x-royal-window-access';
+
+const ACTIVE_WINDOW_GUARD_TIMEOUT_MS = 1800;
 
 type JsonObject = Record<string, unknown>;
 
@@ -95,6 +103,56 @@ function selectAuthorizedHydratedQuestions(
   return JSON.stringify(allowed);
 }
 
+async function authorizeActiveWindowDirect(options: {
+  request: Request;
+  args: Record<string, unknown>;
+  riskHmacSecret: string;
+}): Promise<ActiveWindowGuardResult> {
+  const accessToken = readBearerToken(options.request);
+  const { url: supabaseUrl, publishableKey } = getSupabaseServerConfig();
+  const gatewayKeyId = process.env.ROYAL_GATEWAY_KEY_ID || '';
+  const gatewayKey = process.env.ROYAL_GATEWAY_KEY || '';
+
+  if (
+    !accessToken ||
+    !supabaseUrl ||
+    !publishableKey ||
+    !gatewayKeyId ||
+    !gatewayKey ||
+    !options.riskHmacSecret
+  ) {
+    return { ok: false, status: 0, rawBody: '' };
+  }
+
+  const proof = buildGatewayProof({
+    request: options.request,
+    gatewayKeyId,
+    gatewayKey,
+    riskHmacSecret: options.riskHmacSecret,
+  });
+
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/rpc/get_exam_session_window_refs`,
+      {
+        method: 'POST',
+        cache: 'no-store',
+        headers: gatewayHeaders(publishableKey, accessToken, proof),
+        body: JSON.stringify(options.args),
+        signal: AbortSignal.timeout(ACTIVE_WINDOW_GUARD_TIMEOUT_MS),
+      },
+    );
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      rawBody: await response.text(),
+    };
+  } catch {
+    return { ok: false, status: 0, rawBody: '' };
+  }
+}
+
 export async function trySignedExamWindowFastPath(options: {
   request: Request;
   action: ExamGatewayAction;
@@ -151,10 +209,14 @@ export async function trySignedExamWindowFastPath(options: {
   let hydrated: string | null;
 
   if (mode === 'active') {
-    if (!options.authorizeActiveWindow) return null;
+    const authorize = options.authorizeActiveWindow ?? (() => authorizeActiveWindowDirect({
+      request: options.request,
+      args: options.args,
+      riskHmacSecret: options.secret,
+    }));
 
     const guardStart = performance.now();
-    const guardPromise = options.authorizeActiveWindow().finally(() => {
+    const guardPromise = authorize().finally(() => {
       guardMs = performance.now() - guardStart;
     });
 
