@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { redirect } from 'next/navigation';
 
+const PASSWORD_MIN_LENGTH = 10;
+
 function safeInternalRedirect(value: FormDataEntryValue | null): string {
   if (typeof value !== 'string') return '/dashboard';
   if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
@@ -73,8 +75,8 @@ export async function register(formData: FormData) {
     return { error: 'Email and password are required.' };
   }
 
-  if (password.length < 6) {
-    return { error: 'Password must be at least 6 characters long.' };
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    return { error: `Password must be at least ${PASSWORD_MIN_LENGTH} characters long.` };
   }
 
   if (!isSupabaseConfigured()) {
@@ -117,8 +119,8 @@ export async function changePassword(formData: FormData) {
   const password = typeof passwordValue === 'string' ? passwordValue : '';
   const confirmPassword = typeof confirmValue === 'string' ? confirmValue : '';
 
-  if (password.length < 10) {
-    return { error: 'Use at least 10 characters for your new password.' };
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    return { error: `Use at least ${PASSWORD_MIN_LENGTH} characters for your new password.` };
   }
   if (password !== confirmPassword) {
     return { error: 'The password confirmation does not match.' };
