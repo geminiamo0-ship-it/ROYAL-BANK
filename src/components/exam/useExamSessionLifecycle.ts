@@ -30,8 +30,20 @@ export function useExamSessionLifecycle(options: {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const autoSubmitStartedRef = useRef(false);
+  const closingRef = useRef(false);
 
   const exitTarget = bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard';
+
+  const beginClosing = useCallback(() => {
+    closingRef.current = true;
+    setIsSubmitting(true);
+    setError(null);
+  }, []);
+
+  const reopenAfterFailure = useCallback(() => {
+    closingRef.current = false;
+    setIsSubmitting(false);
+  }, []);
 
   const handleSuspend = useCallback(async () => {
     if (isReviewMode) {
@@ -46,8 +58,7 @@ export function useExamSessionLifecycle(options: {
 
     if (!window.confirm('Suspend this block and return later?')) return;
 
-    setIsSubmitting(true);
-    setError(null);
+    beginClosing();
     try {
       await flushAnnotations();
       await drainAnswers();
@@ -55,9 +66,9 @@ export function useExamSessionLifecycle(options: {
       router.push(exitTarget);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Unable to suspend the block safely.');
-      setIsSubmitting(false);
+      reopenAfterFailure();
     }
-  }, [drainAnswers, drainFlags, exitTarget, flushAnnotations, isReviewMode, router]);
+  }, [beginClosing, drainAnswers, drainFlags, exitTarget, flushAnnotations, isReviewMode, reopenAfterFailure, router]);
 
   const handleEndBlock = useCallback(async (forceSubmit = false) => {
     if (isReviewMode) {
@@ -74,8 +85,7 @@ export function useExamSessionLifecycle(options: {
       return;
     }
 
-    setIsSubmitting(true);
-    setError(null);
+    beginClosing();
     try {
       await flushAnnotations();
       await drainAnswers();
@@ -85,9 +95,9 @@ export function useExamSessionLifecycle(options: {
     } catch (saveError) {
       if (forceSubmit) autoSubmitStartedRef.current = false;
       setError(saveError instanceof Error ? saveError.message : 'Unable to complete the block.');
-      setIsSubmitting(false);
+      reopenAfterFailure();
     }
-  }, [drainAnswers, drainFlags, exitTarget, flushAnnotations, isReviewMode, router, sessionId]);
+  }, [beginClosing, drainAnswers, drainFlags, exitTarget, flushAnnotations, isReviewMode, reopenAfterFailure, router, sessionId]);
 
   useEffect(() => {
     if (isReviewMode || !isCountdownSession || deadlineAtMs == null) return;
@@ -96,7 +106,7 @@ export function useExamSessionLifecycle(options: {
     const checkDeadline = () => {
       const remainingMs = deadlineAtMs - (Date.now() + serverClockOffsetMs);
       if (remainingMs <= 0) {
-        if (!isSubmitting && !autoSubmitStartedRef.current) {
+        if (!closingRef.current && !autoSubmitStartedRef.current) {
           autoSubmitStartedRef.current = true;
           void handleEndBlock(true);
         }
@@ -116,10 +126,11 @@ export function useExamSessionLifecycle(options: {
       if (timeoutId != null) window.clearTimeout(timeoutId);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [deadlineAtMs, handleEndBlock, isCountdownSession, isReviewMode, isSubmitting, serverClockOffsetMs]);
+  }, [deadlineAtMs, handleEndBlock, isCountdownSession, isReviewMode, serverClockOffsetMs]);
 
   return {
     isSubmitting,
+    closingRef,
     error,
     clearError: () => setError(null),
     handleSuspend,
