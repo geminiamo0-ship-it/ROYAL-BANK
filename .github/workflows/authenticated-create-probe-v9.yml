@@ -39,3 +39,5 @@ jobs:
       - name: Cleanup isolated load users
         if: always()
         run: node scripts/auth-load-cleanup.mjs
+
+# Rerun marker: isolated per GitHub run ID.
