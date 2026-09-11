@@ -33,6 +33,17 @@ const RATE_LIMIT_FAIL_OPEN_ACTIONS = new Set<ExamGatewayAction>([
   'complete',
 ]);
 
+function requiresPasswordChange(claims: unknown): boolean {
+  if (!claims || typeof claims !== 'object') return false;
+  const appMetadata = (claims as { app_metadata?: unknown }).app_metadata;
+  return Boolean(
+    appMetadata &&
+      typeof appMetadata === 'object' &&
+      !Array.isArray(appMetadata) &&
+      (appMetadata as Record<string, unknown>).must_change_password === true,
+  );
+}
+
 async function recordRateLimitRejection(options: {
   supabaseUrl: string;
   publishableKey: string;
@@ -169,6 +180,14 @@ export async function POST(request: Request) {
     claims?.role !== 'authenticated'
   ) {
     return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+  }
+
+  if (requiresPasswordChange(claims)) {
+    return jsonError(
+      403,
+      'PASSWORD_CHANGE_REQUIRED',
+      'Change your password before continuing.',
+    );
   }
 
   authMs = performance.now() - authStart;
