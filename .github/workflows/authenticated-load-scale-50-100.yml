@@ -1,0 +1,72 @@
+name: Authenticated Production Scale 50-100
+
+on:
+  push:
+    branches:
+      - ops/authenticated-load-test
+    paths:
+      - .github/workflows/authenticated-load-scale-50-100.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: royal-authenticated-production-scale
+  cancel-in-progress: false
+
+env:
+  TARGET_URL: https://royal-bank-21be.vercel.app
+  SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+  LOAD_USER_COUNT: 100
+  LOAD_AUTH_PACING_MS: 1200
+
+jobs:
+  scale:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Prepare 100 isolated authenticated users
+        run: node scripts/auth-load-prepare.mjs
+
+      - name: Preserve full 100-user bundle
+        run: cp load-cookies.json load-cookies-100.json
+
+      - name: Select first 50 users
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const rows = JSON.parse(fs.readFileSync('load-cookies-100.json', 'utf8'));
+          if (rows.length < 100) throw new Error(`Expected 100 prepared users, got ${rows.length}`);
+          fs.writeFileSync('load-cookies.json', JSON.stringify(rows.slice(0, 50)));
+          console.log('Selected 50 isolated users for Phase A.');
+          NODE
+
+      - name: Phase A - 50 concurrent authenticated students
+        run: node scripts/auth-load-diagnostic.mjs
+
+      - name: Cooldown before 100
+        run: sleep 30
+
+      - name: Restore 100-user bundle
+        run: cp load-cookies-100.json load-cookies.json
+
+      - name: Phase B - 100 concurrent authenticated students
+        run: node scripts/auth-load-diagnostic.mjs
+
+      - name: Cleanup isolated load users and test exam data
+        if: always()
+        run: node scripts/auth-load-cleanup.mjs
