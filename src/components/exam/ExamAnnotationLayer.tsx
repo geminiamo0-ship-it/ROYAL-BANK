@@ -2,10 +2,12 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  DEFAULT_ANNOTATION_COLOR,
   createAnnotationStrokeId,
   distanceToStroke,
   sha256Hex,
   simplifyAnnotationPoints,
+  type AnnotationColor,
   type AnnotationPoint,
   type AnnotationStroke,
   type AnnotationSurface,
@@ -17,6 +19,7 @@ interface ExamAnnotationLayerProps {
   surface: AnnotationSurface;
   contentFingerprint: string;
   tool: AnnotationTool | null;
+  color: AnnotationColor;
   record?: StoredQuestionAnnotation;
   onAppendStroke: (
     surface: AnnotationSurface,
@@ -35,6 +38,23 @@ interface TouchScrollState {
   lastY: number;
   scrollElement: HTMLElement | null;
 }
+
+const PENCIL_COLORS: Record<AnnotationColor, string> = {
+  yellow: '#ffd84d',
+  red: '#ff4d5a',
+  blue: '#4da3ff',
+  green: '#55d66b',
+  purple: '#b27cff',
+};
+
+const HIGHLIGHTER_COLORS: Record<AnnotationColor, string> = {
+  // Keep the original yellow highlighter appearance exactly as before.
+  yellow: 'rgba(255, 226, 94, 0.42)',
+  red: 'rgba(255, 77, 90, 0.36)',
+  blue: 'rgba(77, 163, 255, 0.36)',
+  green: 'rgba(85, 214, 107, 0.36)',
+  purple: 'rgba(178, 124, 255, 0.36)',
+};
 
 function clampUnit(value: number): number {
   return Math.max(0, Math.min(1, value));
@@ -61,10 +81,43 @@ function findVerticalScrollContainer(element: Element): HTMLElement | null {
   return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null;
 }
 
+function pointFromClient(target: SVGSVGElement, clientX: number, clientY: number): AnnotationPoint {
+  const rect = target.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return [0, 0];
+  return [
+    clampUnit((clientX - rect.left) / rect.width),
+    clampUnit((clientY - rect.top) / rect.height),
+  ];
+}
+
+function pencilPath(points: AnnotationPoint[]): string {
+  if (points.length === 0) return '';
+  const scaled = points.map(([x, y]) => [x * 1000, y * 1000] as const);
+  if (scaled.length === 1) return `M ${scaled[0][0]} ${scaled[0][1]}`;
+  if (scaled.length === 2) {
+    return `M ${scaled[0][0]} ${scaled[0][1]} L ${scaled[1][0]} ${scaled[1][1]}`;
+  }
+
+  let path = `M ${scaled[0][0]} ${scaled[0][1]}`;
+  for (let index = 1; index < scaled.length - 2; index += 1) {
+    const current = scaled[index];
+    const next = scaled[index + 1];
+    const midX = (current[0] + next[0]) / 2;
+    const midY = (current[1] + next[1]) / 2;
+    path += ` Q ${current[0]} ${current[1]} ${midX} ${midY}`;
+  }
+
+  const control = scaled[scaled.length - 2];
+  const end = scaled[scaled.length - 1];
+  path += ` Q ${control[0]} ${control[1]} ${end[0]} ${end[1]}`;
+  return path;
+}
+
 export function ExamAnnotationLayer({
   surface,
   contentFingerprint,
   tool,
+  color,
   record,
   onAppendStroke,
   onEraseStroke,
@@ -104,14 +157,9 @@ export function ExamAnnotationLayer({
   const hasStaleRecord = Boolean(contentHash && record && record.contentHash !== contentHash && record.strokes.length > 0);
   const strictInkMode = tool === 'pencil' || tool === 'eraser';
 
-  const toPoint = useCallback((event: React.PointerEvent<SVGSVGElement>): AnnotationPoint => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return [0, 0];
-    return [
-      clampUnit((event.clientX - rect.left) / rect.width),
-      clampUnit((event.clientY - rect.top) / rect.height),
-    ];
-  }, []);
+  const toPoint = useCallback((event: React.PointerEvent<SVGSVGElement>): AnnotationPoint => (
+    pointFromClient(event.currentTarget, event.clientX, event.clientY)
+  ), []);
 
   const eraseAt = useCallback((point: AnnotationPoint, target: SVGSVGElement) => {
     if (!contentHash) return;
@@ -170,10 +218,11 @@ export function ExamAnnotationLayer({
       tool,
       width: tool === 'highlighter' ? 16 : 2.5,
       points: [point],
+      color,
     };
     inProgressRef.current = stroke;
     setInProgress(stroke);
-  }, [contentHash, eraseAt, strictInkMode, toPoint, tool]);
+  }, [color, contentHash, eraseAt, strictInkMode, toPoint, tool]);
 
   const handlePointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (event.pointerType === 'touch') {
@@ -191,19 +240,36 @@ export function ExamAnnotationLayer({
 
     if (!tool || pointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
-    const point = toPoint(event);
 
     if (tool === 'eraser') {
-      eraseAt(point, event.currentTarget);
+      eraseAt(toPoint(event), event.currentTarget);
       return;
     }
 
     const current = inProgressRef.current;
     if (!current || current.points.length >= 2000) return;
-    const previous = current.points[current.points.length - 1];
-    if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 0.0008) return;
 
-    const next: AnnotationStroke = { ...current, points: [...current.points, point] };
+    // Pencil gets the browser's coalesced stylus samples when available. This captures
+    // the real curve between rendered pointer events without changing Highlighter feel.
+    const nativeEvent = event.nativeEvent;
+    const samples = tool === 'pencil' && typeof nativeEvent.getCoalescedEvents === 'function'
+      ? nativeEvent.getCoalescedEvents()
+      : [nativeEvent];
+    const sourceSamples = samples.length > 0 ? samples : [nativeEvent];
+    const nextPoints = [...current.points];
+    let previous = nextPoints[nextPoints.length - 1];
+    const minimumDistance = tool === 'pencil' ? 0.0003 : 0.0008;
+
+    for (const sample of sourceSamples) {
+      if (nextPoints.length >= 2000) break;
+      const point = pointFromClient(event.currentTarget, sample.clientX, sample.clientY);
+      if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) < minimumDistance) continue;
+      nextPoints.push(point);
+      previous = point;
+    }
+
+    if (nextPoints.length === current.points.length) return;
+    const next: AnnotationStroke = { ...current, points: nextPoints };
     inProgressRef.current = next;
     setInProgress(next);
   }, [eraseAt, toPoint, tool]);
@@ -244,7 +310,10 @@ export function ExamAnnotationLayer({
       points = [[x, y], [clampUnit(x + 0.0001), clampUnit(y + 0.0001)]];
     }
 
-    const simplified = simplifyAnnotationPoints(points).slice(0, 2000);
+    // Pencil keeps more of the captured handwriting geometry; Highlighter keeps the
+    // previous simplification behavior.
+    const tolerance = current.tool === 'pencil' ? 0.0005 : 0.0015;
+    const simplified = simplifyAnnotationPoints(points, tolerance).slice(0, 2000);
     onAppendStroke(surface, contentHash, { ...current, points: simplified });
   }, [contentHash, onAppendStroke, surface, tool]);
 
@@ -281,18 +350,36 @@ export function ExamAnnotationLayer({
         onPointerUp={finishStroke}
         onPointerCancel={cancelStroke}
       >
-        {renderStrokes.map((stroke) => (
-          <polyline
-            key={stroke.id}
-            points={stroke.points.map(([x, y]) => `${x * 1000},${y * 1000}`).join(' ')}
-            fill="none"
-            stroke={stroke.tool === 'highlighter' ? 'rgba(255, 226, 94, 0.42)' : '#ffd84d'}
-            strokeWidth={stroke.width}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
+        {renderStrokes.map((stroke) => {
+          const strokeColor = stroke.color || DEFAULT_ANNOTATION_COLOR;
+          if (stroke.tool === 'pencil') {
+            return (
+              <path
+                key={stroke.id}
+                d={pencilPath(stroke.points)}
+                fill="none"
+                stroke={PENCIL_COLORS[strokeColor]}
+                strokeWidth={stroke.width}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            );
+          }
+
+          return (
+            <polyline
+              key={stroke.id}
+              points={stroke.points.map(([x, y]) => `${x * 1000},${y * 1000}`).join(' ')}
+              fill="none"
+              stroke={HIGHLIGHTER_COLORS[strokeColor]}
+              strokeWidth={stroke.width}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        })}
       </svg>
 
       {hasStaleRecord ? (
