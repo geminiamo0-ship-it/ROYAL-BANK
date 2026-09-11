@@ -42,6 +42,20 @@ function contentPrefix(): string {
   return (process.env.ROYAL_R2_CONTENT_PREFIX?.trim() || DEFAULT_PREFIX).replace(/^\/+|\/+$/g, '');
 }
 
+function logContentSource(
+  source: 'r2' | 'supabase_fallback',
+  action: ExamGatewayAction,
+): void {
+  if (source === 'r2' && process.env.ROYAL_R2_DIAGNOSTICS !== 'true') return;
+
+  const line = `[royal-exam-content] source=${source} action=${action}\n`;
+  if (source === 'r2') {
+    process.stdout.write(line);
+  } else {
+    process.stderr.write(line);
+  }
+}
+
 export function isExamR2ContentEnabled(): boolean {
   return process.env.ROYAL_R2_CONTENT_ENABLED === 'true' && isPrivateR2Configured();
 }
@@ -138,38 +152,41 @@ export async function hydrateExamR2Response(
   action: ExamGatewayAction,
   rawBody: string,
 ): Promise<string | null> {
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(rawBody) as unknown;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawBody) as unknown;
+    } catch {
+      logContentSource('supabase_fallback', action);
+      return null;
+    }
+
+    let hydrated: string | null = null;
+
+    if (action === 'window' || action === 'reviewWindow') {
+      const questions = await hydrateQuestionRefs(parsed);
+      hydrated = questions ? JSON.stringify(questions) : null;
+    } else if (action === 'create' || action === 'bootstrap' || action === 'reviewBootstrap') {
+      const bootstrap = asObject(parsed);
+      if (bootstrap) {
+        const questions = await hydrateQuestionRefs(bootstrap.questions);
+        if (questions) hydrated = JSON.stringify({ ...bootstrap, questions });
+      }
+    } else if (action === 'feedback') {
+      const feedback = await hydrateFeedbackRecord(parsed);
+      hydrated = feedback ? JSON.stringify(feedback) : null;
+    } else if (action === 'submit') {
+      const result = asObject(parsed);
+      if (result && asObject(result.answer)) {
+        const feedback = await hydrateFeedbackRecord(result.feedback);
+        if (feedback) hydrated = JSON.stringify({ ...result, feedback });
+      }
+    }
+
+    logContentSource(hydrated ? 'r2' : 'supabase_fallback', action);
+    return hydrated;
   } catch {
+    logContentSource('supabase_fallback', action);
     return null;
   }
-
-  if (action === 'window' || action === 'reviewWindow') {
-    const questions = await hydrateQuestionRefs(parsed);
-    return questions ? JSON.stringify(questions) : null;
-  }
-
-  if (action === 'create' || action === 'bootstrap' || action === 'reviewBootstrap') {
-    const bootstrap = asObject(parsed);
-    if (!bootstrap) return null;
-    const questions = await hydrateQuestionRefs(bootstrap.questions);
-    if (!questions) return null;
-    return JSON.stringify({ ...bootstrap, questions });
-  }
-
-  if (action === 'feedback') {
-    const feedback = await hydrateFeedbackRecord(parsed);
-    return feedback ? JSON.stringify(feedback) : null;
-  }
-
-  if (action === 'submit') {
-    const result = asObject(parsed);
-    if (!result || !asObject(result.answer)) return null;
-    const feedback = await hydrateFeedbackRecord(result.feedback);
-    if (!feedback) return null;
-    return JSON.stringify({ ...result, feedback });
-  }
-
-  return null;
 }
