@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { ArrowRight, CheckCircle2, Crown, Infinity } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Infinity } from 'lucide-react';
 import { logout, getCurrentUser } from '@/actions/auth';
 import { getCatalogPathways, getGlobalCatalogState } from '@/actions/pathways';
 import UpgradeModalTrigger from '@/components/business/UpgradeModalTrigger';
