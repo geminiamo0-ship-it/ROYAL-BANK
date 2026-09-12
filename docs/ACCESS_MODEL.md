@@ -4,7 +4,7 @@
 
 - `profiles.role`: staff authorization (`student`, `support`, `admin`).
 - `profiles.is_active`: account-level kill switch. Inactive accounts cannot use protected resources even if a grant still exists.
-- `profiles.subscription_tier`: account/UI summary only; it is not authoritative content authorization.
+- `profiles.subscription_tier`: legacy display/account summary only. It is not authoritative content authorization and admin entitlement flows do not mutate it.
 - `user_access_grants`: the **only** premium-access grant source.
 - `question_banks.is_free_trial`: per-bank trial switch.
 - `question_banks.free_trial_block_limit`: lifetime trial-block quota per user for that bank.
@@ -21,13 +21,27 @@
 - `pathway`: access to all current and future banks in that pathway, including each bank's mapped library.
 - `bank`: access only to the selected bank and that bank's mapped library.
 
-A user may hold multiple `bank` grants at the same time. For example, a pathway with three banks can grant Bank 1 + Bank 2 while Bank 3 remains locked.
+A customer may have historical expired or revoked grants, but may have only **one live or scheduled commercial subscription** at a time. A second bank, pathway, or global subscription is blocked while another non-expired grant exists. A finite exact subscription may be extended; extension updates the same authoritative grant rather than creating a second live entitlement.
+
+A bank grant never becomes pathway ownership merely because it currently covers every bank that happens to exist in the pathway. Only a real `pathway` or `global` grant carries future-bank coverage.
 
 A grant becomes active at `starts_at`. `expires_at = NULL` means lifetime access.
 
 `user_pathway_access` is removed. There is no second entitlement system or compatibility fallback for premium access.
 
 Staff roles are administrative authorization only. `support` and `admin` do not receive premium bank content merely because of their role; a real active `user_access_grants` row is still required for premium content access. Staff-only operational RPCs continue to authorize through role checks independently of premium content grants.
+
+The raw `grant_user_access(...)` primitive is internal to audited SECURITY DEFINER business wrappers. Browser/authenticated callers, including Support JWTs, do not have direct EXECUTE permission on it. Support activation must pass through request, order, confirmed payment, and `support_activate_upgrade`. Admin manual overrides use dedicated audited admin RPCs.
+
+## Commercial subscription rules
+
+- One user may have at most one open commercial request (`pending`, `contacted`, or `paid`) at a time across the whole catalog.
+- One user may have at most one live or scheduled non-revoked premium grant at a time.
+- A finite exact grant may be extended. A lifetime exact grant cannot be repurchased.
+- An active bank subscription blocks buying a sibling bank, a pathway, or global access as a second parallel subscription.
+- An active pathway or global grant naturally opens the banks that its scope covers, but does not authorize a redundant narrower purchase.
+- Payment transaction references are required for new manually confirmed payments, normalized case-insensitively, unique, and safe to retry idempotently only when the order/payment details match.
+- `profiles.subscription_tier` never creates, extends, revokes, or proves entitlement.
 
 ## Bank-owned library model
 
