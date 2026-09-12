@@ -46,19 +46,24 @@
 - `profiles.subscription_tier` is legacy display metadata only and never authorizes content.
 - Banks are configured individually as free-trial or premium-only.
 - A pathway may contain any mix of free-trial and premium banks.
-- Premium access may be scoped globally, to one pathway (including future banks in that pathway), or to one bank.
+- Premium access may be scoped globally, to a pathway (including future banks in that pathway), or to an individual bank.
 - A bank entitlement covers both its Question Bank and its mapped Library.
-- A customer may have historical expired/revoked grants, but may have only one live or scheduled non-revoked commercial subscription at a time.
-- A second bank, pathway, or global purchase is blocked while another subscription is live or scheduled.
-- A finite exact subscription may be extended; extension updates the same grant rather than creating a second live grant.
-- A bank grant never counts as pathway ownership merely because it covers every bank currently present in that pathway.
-- Only a real pathway/global grant inherits future-bank coverage.
-- Only one commercial request may be open per user across all products at a time.
+- A customer may own multiple independent premium products at the same time: several banks in one pathway, banks in different pathways, full pathways, or All Royal.
+- Exact or broader active coverage prevents redundant repurchase of a product that is already covered.
+- A finite exact subscription may be extended; extension updates the same exact grant rather than creating a duplicate exact grant.
+- A pathway grant covers every bank in that pathway. A global grant covers every pathway and bank.
+- If every bank currently in a pathway is covered by active direct bank grants, the pathway is considered activated through aggregate bank coverage.
+- Aggregate all-bank pathway activation reflects the current catalog only. Only a real pathway/global grant guarantees access to future banks added later.
+- A different uncovered bank remains purchasable while other bank subscriptions are active, including banks in other pathways.
+- A full pathway remains purchasable while only part of that pathway is covered.
+- All Royal remains purchasable while narrower bank/pathway access exists.
+- Multiple open commercial requests are allowed for different products; the same product still has at most one open request and request creation is serialized per product.
 - Support cannot invoke the raw grant primitive directly. Support activation requires request -> order -> confirmed payment -> activation.
-- Admin manual grants remain explicit audited overrides and are still subject to the single-subscription invariant.
+- Admin manual grants remain explicit audited overrides and may add another independent uncovered product, but may not create redundant exact/broader coverage.
 - New manually confirmed payments require a transaction reference. The reference is unique case-insensitively; exact safe retries are idempotent and conflicting reuse is rejected.
 - Access starts at `starts_at`; `expires_at = NULL` means lifetime access.
-- Expiry blocks new protected access but does not erase stored session/history data.
+- Expiry removes only the coverage supplied by the expired grant. Other active grants continue to authorize their scopes.
+- Expiry does not erase stored session/history data.
 - A free-trial bank has a configurable lifetime block quota per user and configurable per-block question limit.
 - A free-trial bank also has a configurable lifetime quota of unique Library Articles per user.
 - Reopening an already disclosed trial article does not consume another article slot.
