@@ -137,21 +137,15 @@ SELECT extensions.is(
     'catalog overview exposes the user-global commerce lock'
 );
 
-RESET ROLE;
+SELECT set_config('request.jwt.claim.sub','49000000-0000-0000-0000-000000000004',true);
 SELECT extensions.throws_ok(
-    $$INSERT INTO public.user_access_grants(
-        user_id,scope_type,question_bank_id,starts_at,expires_at,granted_by
-      ) VALUES (
-        '49000000-0000-0000-0000-000000000001','bank',9492,
-        now(),now()+interval '30 days','49000000-0000-0000-0000-000000000004'
+    $$SELECT public.admin_grant_user_access(
+        '49000000-0000-0000-0000-000000000001','bank',NULL,9492,now(),now()+interval '30 days'
       )$$,
     'ACTIVE_SUBSCRIPTION_EXISTS',
-    'database trigger rejects a second live grant even outside the catalog flow'
+    'audited application grant path rejects a second live subscription'
 );
 
-SET LOCAL ROLE authenticated;
-SELECT set_config('request.jwt.claim.role','authenticated',true);
-SELECT set_config('request.jwt.claim.sub','49000000-0000-0000-0000-000000000004',true);
 SELECT extensions.throws_ok(
     $$SELECT public.admin_update_user_access(
         '49000000-0000-0000-0000-000000000002',NULL,'premium_full',NULL
@@ -197,11 +191,17 @@ SELECT extensions.is(
     'true',
     'retrying the exact payment reference is idempotent and case-insensitive'
 );
+
+RESET ROLE;
 SELECT extensions.is(
     (SELECT count(*)::TEXT FROM public.payments WHERE order_id='49910000-0000-0000-0000-000000000001'),
     '1',
     'payment retry does not create a duplicate row'
 );
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.role','authenticated',true);
+SELECT set_config('request.jwt.claim.sub','49000000-0000-0000-0000-000000000003',true);
 SELECT extensions.throws_ok(
     $$SELECT public.support_record_upgrade_payment(
         '49900000-0000-0000-0000-000000000001',
