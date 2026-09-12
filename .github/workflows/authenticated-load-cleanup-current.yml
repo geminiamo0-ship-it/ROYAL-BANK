@@ -19,7 +19,6 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      LOAD_RUN_TAG_TO_CLEAN: '34671146229'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,5 +26,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Cleanup all users and exam data from completed 1000-user run
-        run: node scripts/auth-load-cleanup-run-tag.mjs
+      - name: Cleanup stale isolated load runs
+        shell: bash
+        run: |
+          for tag in 34655983644 34655992460; do
+            echo "Cleaning isolated load run ${tag}"
+            LOAD_RUN_TAG_TO_CLEAN="${tag}" node scripts/auth-load-cleanup-run-tag.mjs
+          done
