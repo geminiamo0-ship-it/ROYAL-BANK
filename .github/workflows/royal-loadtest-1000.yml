@@ -1,0 +1,193 @@
+name: Royal 1000-user production load test
+
+on:
+  push:
+    branches:
+      - loadtest-1000-users-20260912
+
+permissions:
+  contents: read
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Run authenticated 1000-user burst
+        shell: bash
+        env:
+          TARGET: https://royal-bank-nhr8.vercel.app
+          SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
+          SUPABASE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+          TARGET_USERS: '1000'
+          PREP_WORKERS: '12'
+        run: |
+          cat > /tmp/royal-loadtest.mjs <<'NODE'
+          import fs from 'node:fs/promises';
+          import crypto from 'node:crypto';
+
+          const TARGET = process.env.TARGET.replace(/\/$/, '');
+          const SUPABASE_URL = process.env.SUPABASE_URL.replace(/\/$/, '');
+          const SUPABASE_KEY = process.env.SUPABASE_KEY;
+          const TARGET_USERS = Number(process.env.TARGET_USERS || 1000);
+          const PREP_WORKERS = Number(process.env.PREP_WORKERS || 12);
+          const batch = `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+          const commonPassword = `RoyalLoad!${crypto.randomBytes(12).toString('hex')}`;
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+          function pct(sorted, p) {
+            if (!sorted.length) return null;
+            const i = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p/100)*sorted.length)-1));
+            return Number(sorted[i].toFixed(1));
+          }
+
+          async function fetchRetry(url, options, max=8) {
+            let last;
+            for (let attempt=1; attempt<=max; attempt++) {
+              const started = performance.now();
+              try {
+                const res = await fetch(url, options);
+                const text = await res.text();
+                const out = {res, text, ms: performance.now()-started};
+                if (![429,500,502,503,504].includes(res.status) || attempt===max) return out;
+                last = out;
+                const ra = Number(res.headers.get('retry-after') || 0);
+                await sleep(ra > 0 ? ra*1000 : Math.min(10000, 400*attempt*attempt));
+              } catch (e) {
+                last = {res:null,text:String(e?.message||e),ms:performance.now()-started};
+                if (attempt===max) return last;
+                await sleep(Math.min(10000, 400*attempt*attempt));
+              }
+            }
+            return last;
+          }
+
+          async function signup(index) {
+            const email = `royal-load-${batch}-${String(index+1).padStart(4,'0')}@load.invalid`;
+            const {res,text,ms} = await fetchRetry(`${SUPABASE_URL}/auth/v1/signup`, {
+              method:'POST',
+              headers:{'content-type':'application/json', apikey:SUPABASE_KEY},
+              body:JSON.stringify({email,password:commonPassword, data:{full_name:`Royal Load ${index+1}`}})
+            }, 10);
+            let data={}; try { data=JSON.parse(text) } catch {}
+            const token = data.access_token || data.session?.access_token || null;
+            const userId = data.user?.id || data.id || null;
+            if (!res?.ok || !token || !userId) {
+              return {ok:false, phase:'signup', index, email, status:res?.status||0, ms, sample:text.slice(0,200)};
+            }
+            return {ok:true,index,email,user_id:userId,token,signup_ms:ms};
+          }
+
+          function extractSessionId(data) {
+            const v = Array.isArray(data) ? data[0] : data;
+            return v?.session?.id || v?.session_id || v?.id || null;
+          }
+
+          async function createSession(user) {
+            const requestId = crypto.randomUUID();
+            const {res,text,ms} = await fetchRetry(`${TARGET}/api/exam`, {
+              method:'POST', cache:'no-store',
+              headers:{authorization:`Bearer ${user.token}`,'content-type':'application/json'},
+              body:JSON.stringify({action:'create',args:{p_request_id:requestId,p_bank_id:1,p_session_type:'timed',p_limit:10,p_difficulties:[],p_categories:[],p_topics:[],p_question_selection:'all'}})
+            }, 8);
+            let data={}; try { data=JSON.parse(text) } catch {}
+            const sessionId = extractSessionId(data);
+            if (!res?.ok || !sessionId) return {...user,ok:false,phase:'create',status:res?.status||0,create_ms:ms,sample:text.slice(0,220)};
+            return {...user,ok:true,session_id:sessionId,create_ms:ms};
+          }
+
+          async function prepareOne(i) {
+            const s = await signup(i);
+            if (!s.ok) return s;
+            return await createSession(s);
+          }
+
+          const probe = await prepareOne(0);
+          console.log('PROBE', JSON.stringify({ok:probe.ok,phase:probe.phase||'ready',status:probe.status||200,signup_ms:probe.signup_ms,create_ms:probe.create_ms,sample:probe.sample||null}));
+          if (!probe.ok) {
+            await fs.writeFile('royal-load-report.json', JSON.stringify({target:TARGET,batch,requested_users:TARGET_USERS,probe}, null, 2));
+            process.exit(2);
+          }
+
+          const prepared = [probe];
+          const failures = [];
+          let next = 1;
+          const startedPrep = performance.now();
+
+          async function worker(id) {
+            while (true) {
+              const i = next++;
+              if (i >= TARGET_USERS) return;
+              const row = await prepareOne(i);
+              if (row.ok) prepared.push(row); else failures.push(row);
+              const done = prepared.length + failures.length;
+              if (done % 50 === 0 || done === TARGET_USERS) {
+                console.log(`PREP ${done}/${TARGET_USERS} ready=${prepared.length} failed=${failures.length}`);
+              }
+            }
+          }
+
+          await Promise.all(Array.from({length:PREP_WORKERS},(_,i)=>worker(i+1)));
+          const prepWallMs = performance.now()-startedPrep;
+
+          if (prepared.length !== TARGET_USERS) {
+            const report={target:TARGET,batch,requested_users:TARGET_USERS,prepared_users:prepared.length,prep_failures:failures.length,prep_wall_ms:Number(prepWallMs.toFixed(1)),sample_failures:failures.slice(0,20).map(x=>({phase:x.phase,status:x.status,sample:x.sample}))};
+            await fs.writeFile('royal-load-report.json', JSON.stringify(report,null,2));
+            console.log('PREP_FAILED', JSON.stringify(report));
+            process.exit(3);
+          }
+
+          async function bootstrap(user) {
+            const t0=performance.now();
+            try {
+              const res=await fetch(`${TARGET}/api/exam`,{
+                method:'POST',cache:'no-store',
+                headers:{authorization:`Bearer ${user.token}`,'content-type':'application/json'},
+                body:JSON.stringify({action:'bootstrap',args:{p_session_id:user.session_id}})
+              });
+              const text=await res.text();
+              return {status:res.status,ms:performance.now()-t0,bytes:Buffer.byteLength(text),sample:res.ok?null:text.slice(0,220)};
+            } catch(e) {
+              return {status:0,ms:performance.now()-t0,bytes:0,sample:String(e?.message||e)};
+            }
+          }
+
+          console.log(`BURST launching ${prepared.length} authenticated users simultaneously`);
+          const burstStart=performance.now();
+          const results=await Promise.all(prepared.map(u=>bootstrap(u)));
+          const burstWallMs=performance.now()-burstStart;
+          const lat=results.map(r=>r.ms).sort((a,b)=>a-b);
+          const counts={}; for(const r of results){const k=String(r.status||'network');counts[k]=(counts[k]||0)+1;}
+          const ok=results.filter(r=>r.status>=200&&r.status<300).length;
+          const err5=results.filter(r=>r.status===0||r.status>=500).length;
+          const limited=results.filter(r=>r.status===429).length;
+          const report={
+            target:TARGET,
+            generated_at:new Date().toISOString(),
+            batch,
+            virtual_users:prepared.length,
+            measured_requests:results.length,
+            success:ok,
+            success_rate:Number((ok/results.length*100).toFixed(2)),
+            network_or_5xx:err5,
+            rate_limited_429:limited,
+            burst_wall_ms:Number(burstWallMs.toFixed(1)),
+            achieved_rps:Number((results.length/(burstWallMs/1000)).toFixed(2)),
+            latency:{p50_ms:pct(lat,50),p90_ms:pct(lat,90),p95_ms:pct(lat,95),p99_ms:pct(lat,99),min_ms:Number(lat[0].toFixed(1)),max_ms:Number(lat.at(-1).toFixed(1))},
+            status_counts:counts,
+            prep:{wall_ms:Number(prepWallMs.toFixed(1)),workers:PREP_WORKERS},
+            sample_errors:[...new Set(results.map(r=>r.sample).filter(Boolean))].slice(0,10)
+          };
+          await fs.writeFile('royal-load-report.json', JSON.stringify(report,null,2));
+          console.log('FINAL_REPORT', JSON.stringify(report));
+          NODE
+          node /tmp/royal-loadtest.mjs
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: royal-load-report-1000
+          path: royal-load-report.json
+          if-no-files-found: warn
+          retention-days: 1
