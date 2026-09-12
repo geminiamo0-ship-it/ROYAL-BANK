@@ -12,11 +12,11 @@ permissions:
   contents: read
 
 env:
-  TARGET_URL: https://royal-bank-nhr8-apeetbfnj-5-97ab.vercel.app
+  TARGET_URL: https://royal-bank-lh7mzje7k-drmostafa5868-7427.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   LOAD_USER_COUNT: 1
   LOAD_AUTH_PACING_MS: 0
-  PROBE_LABEL: latest-nhr8-deployment-probe-auth-retry
+  PROBE_LABEL: drmostafa-preview-probe
 
 jobs:
   probe:
@@ -48,7 +48,7 @@ jobs:
           try {
             const res=await fetch(`${target}/api/exam`,{
               method:'POST',
-              headers:{'content-type':'application/json',cookie:account.cookie,'user-agent':'RoyalBank-Authorized-LoadTest/LatestNhr8Probe'},
+              headers:{'content-type':'application/json',cookie:account.cookie,'user-agent':'RoyalBank-Authorized-LoadTest/DrMostafaPreviewProbe'},
               body:JSON.stringify({action:'create',args:{p_request_id:crypto.randomUUID(),p_bank_id:1,p_session_type:'timed',p_limit:40,p_difficulties:[],p_categories:[],p_topics:[],p_question_selection:'all'}}),
               redirect:'manual',signal:AbortSignal.timeout(30000)
             });
