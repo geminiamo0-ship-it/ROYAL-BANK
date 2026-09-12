@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_URL: https://royal-bank-nhr8.vercel.app
+  TARGET_URL: https://royal-bank-21be.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   LOAD_USER_COUNT: 1
   LOAD_AUTH_PACING_MS: 0
@@ -53,9 +53,9 @@ jobs:
             });
             const text=await res.text();
             const ms=performance.now()-t0;
-            console.log('SINGLE_CREATE_PROBE '+JSON.stringify({status:res.status,ms:Number(ms.toFixed(2)),request_id:res.headers.get('x-royal-request-id')||'',server_timing:res.headers.get('server-timing')||'',detail:res.ok?'':text.slice(0,500)}));
+            console.log('SINGLE_CREATE_PROBE '+JSON.stringify({target,status:res.status,ms:Number(ms.toFixed(2)),request_id:res.headers.get('x-royal-request-id')||'',server_timing:res.headers.get('server-timing')||'',detail:res.ok?'':text.slice(0,500)}));
           } catch(e) {
-            console.log('SINGLE_CREATE_PROBE '+JSON.stringify({status:0,ms:Number((performance.now()-t0).toFixed(2)),detail:String(e?.message||e).slice(0,500)}));
+            console.log('SINGLE_CREATE_PROBE '+JSON.stringify({target,status:0,ms:Number((performance.now()-t0).toFixed(2)),detail:String(e?.message||e).slice(0,500)}));
           }
           EOF
       - name: Cleanup isolated user
