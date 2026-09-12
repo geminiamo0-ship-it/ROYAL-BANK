@@ -1,4 +1,4 @@
-# trigger: 2026-09-12 bank-only validation on run4 deployment
+# trigger: 2026-09-12 direct Supabase dependency isolation
 name: Authenticated Production Diagnostic V8
 
 on:
@@ -35,8 +35,8 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Prepare 75 isolated authenticated users
         run: node scripts/auth-load-prepare.mjs
-      - name: Run 75-user bank-only diagnostic
-        run: node scripts/auth-bank-load-diagnostic.mjs
+      - name: Run direct Supabase dependency diagnostic
+        run: node scripts/auth-bank-dependency-diagnostic.mjs
       - name: Cleanup isolated load users
         if: always()
         run: node scripts/auth-load-cleanup.mjs
