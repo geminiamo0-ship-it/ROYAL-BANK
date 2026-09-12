@@ -22,7 +22,7 @@ env:
   LOAD_USER_COUNT: 150
   LOAD_AUTH_PACING_MS: 1200
   LOAD_SHARD: stage
-  STAGE_LABEL: post-auth-077-main-4f16f1a1
+  STAGE_LABEL: post-078-premium-trigger-fastpath
 
 jobs:
   create_stage:
