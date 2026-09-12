@@ -1,0 +1,63 @@
+name: Authenticated Production Baseline Check
+
+on:
+  push:
+    branches:
+      - ops/authenticated-load-test
+    paths:
+      - .github/workflows/authenticated-baseline-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    env:
+      TARGET_URL: https://royal-bank-nhr8.vercel.app
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      LOAD_USER_COUNT: 1
+      LOAD_AUTH_PACING_MS: 0
+      LOAD_SHARD: baseline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Prepare one isolated authenticated user
+        run: node scripts/auth-load-prepare-1000.mjs
+      - name: Send one authenticated create 40Q
+        shell: bash
+        run: |
+          cat > /tmp/baseline.mjs <<'EOF'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import { performance } from 'node:perf_hooks';
+          const [u] = JSON.parse(fs.readFileSync('load-cookies.json', 'utf8'));
+          const t0 = performance.now();
+          let status = 0, body = '';
+          try {
+            const r = await fetch(`${process.env.TARGET_URL}/api/exam`, {
+              method: 'POST',
+              headers: { 'content-type':'application/json', cookie:u.cookie, 'user-agent':'RoyalBank-Authorized-LoadTest/Baseline' },
+              body: JSON.stringify({ action:'create', args:{ p_request_id:crypto.randomUUID(), p_bank_id:1, p_session_type:'timed', p_limit:40, p_difficulties:[], p_categories:[], p_topics:[], p_question_selection:'all' } }),
+              redirect:'manual',
+              signal: AbortSignal.timeout(60000),
+            });
+            status = r.status;
+            body = await r.text();
+          } catch (e) { body = String(e?.message || e); }
+          const ms = Number((performance.now()-t0).toFixed(2));
+          let detail = body.slice(0,500).replace(/[\r\n]+/g,' ');
+          console.log(`ROYAL_BASELINE status=${status} duration_ms=${ms} body=${JSON.stringify(detail)}`);
+          EOF
+          node /tmp/baseline.mjs
+      - name: Cleanup baseline user
+        if: always()
+        run: node scripts/auth-load-cleanup-1000.mjs
