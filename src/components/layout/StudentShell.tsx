@@ -22,7 +22,7 @@ export function StudentShell({
 
   if (isExamRoute) {
     return (
-      <div className="min-h-screen bg-[#282828] text-white">
+      <div className="royal-app-shell min-h-screen bg-[#282828] text-white">
         <ExamRateLimitNotice />
         <main className="min-h-screen">{children}</main>
       </div>
@@ -30,7 +30,7 @@ export function StudentShell({
   }
 
   return (
-    <div className="flex min-h-screen bg-[#282828] text-white">
+    <div className="royal-app-shell flex min-h-screen bg-[#282828] text-white">
       <ExamRateLimitNotice />
       <PassMedicineSidebar currentPathwayName="MRCP Part 1" />
 
