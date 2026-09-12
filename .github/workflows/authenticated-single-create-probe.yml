@@ -12,11 +12,11 @@ permissions:
   contents: read
 
 env:
-  TARGET_URL: https://royal-bank-nhr8.vercel.app
+  TARGET_URL: https://royal-bank-nhr8-apeetbfnj-5-97ab.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   LOAD_USER_COUNT: 1
   LOAD_AUTH_PACING_MS: 0
-  PROBE_LABEL: post-078-premium-trigger-fastpath
+  PROBE_LABEL: latest-nhr8-deployment-probe
 
 jobs:
   probe:
@@ -48,13 +48,13 @@ jobs:
           try {
             const res=await fetch(`${target}/api/exam`,{
               method:'POST',
-              headers:{'content-type':'application/json',cookie:account.cookie,'user-agent':'RoyalBank-Authorized-LoadTest/Post078Probe'},
+              headers:{'content-type':'application/json',cookie:account.cookie,'user-agent':'RoyalBank-Authorized-LoadTest/LatestNhr8Probe'},
               body:JSON.stringify({action:'create',args:{p_request_id:crypto.randomUUID(),p_bank_id:1,p_session_type:'timed',p_limit:40,p_difficulties:[],p_categories:[],p_topics:[],p_question_selection:'all'}}),
               redirect:'manual',signal:AbortSignal.timeout(30000)
             });
             const text=await res.text();
             const ms=performance.now()-t0;
-            console.log('SINGLE_CREATE_PROBE '+JSON.stringify({target,status:res.status,ms:Number(ms.toFixed(2)),request_id:res.headers.get('x-royal-request-id')||'',server_timing:res.headers.get('server-timing')||'',detail:res.ok?'':text.slice(0,500)}));
+            console.log('SINGLE_CREATE_PROBE '+JSON.stringify({target,status:res.status,ms:Number(ms.toFixed(2)),request_id:res.headers.get('x-royal-request-id')||'',server_timing:res.headers.get('server-timing')||'',timeout_stage:res.headers.get('x-royal-timeout-stage')||'',detail:res.ok?'':text.slice(0,500)}));
           } catch(e) {
             console.log('SINGLE_CREATE_PROBE '+JSON.stringify({target,status:0,ms:Number((performance.now()-t0).toFixed(2)),detail:String(e?.message||e).slice(0,500)}));
           }
