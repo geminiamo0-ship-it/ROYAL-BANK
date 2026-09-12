@@ -67,7 +67,7 @@ export default async function AdminUserDetailPage({
         <InfoCard icon={Mail} label="Email" value={profile.email} />
         <InfoCard icon={ShieldCheck} label="Role / status" value={`${profile.role} · ${profile.is_active ? 'Active' : 'Suspended'}`} />
         <InfoCard icon={Clock3} label="Last login" value={formatDate(profile.last_login_at)} note={profile.last_login_ip ? `IP ${profile.last_login_ip}` : undefined} />
-        <InfoCard icon={UserRound} label="Joined" value={formatDate(profile.created_at)} note={`UI tier: ${profile.subscription_tier}`} />
+        <InfoCard icon={UserRound} label="Joined" value={formatDate(profile.created_at)} />
       </section>
 
       {catalogError ? (
