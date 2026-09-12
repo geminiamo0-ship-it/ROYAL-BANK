@@ -112,6 +112,7 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
   const isInactiveRoute = pathname.startsWith('/inactive');
   const isPasswordChangeRoute = pathname.startsWith('/change-password');
+  const bankHomeMatch = pathname.match(/^\/bank\/(\d+)\/?$/);
   const isProtectedRoute =
     pathname.startsWith('/dashboard') ||
     pathname.startsWith('/bank') ||
@@ -141,6 +142,35 @@ export async function updateSession(request: NextRequest) {
     return redirectWithSession(redirectUrl);
   }
 
+  // Exact bank-home requests already execute get_question_bank_performance() in the
+  // page. That RPC is the authoritative bank-access boundary and internally checks
+  // active-account state via can_access_question_bank(). Avoid a second sequential
+  // is_active_user() PostgREST round-trip for the normal path. Keep the fresh Auth
+  // user lookup above so admin-issued must_change_password remains immediate. If a
+  // forced-password user hits the bank home, preserve the previous inactive-before-
+  // password-change precedence with the active lookup only for that exceptional path.
+  if (user && bankHomeMatch) {
+    const mustChangePassword = user.app_metadata?.must_change_password === true;
+    if (mustChangePassword) {
+      const { data: isActive, error: activeError } = await supabase.rpc('is_active_user');
+      const accountIsActive = !activeError && isActive === true;
+
+      if (!accountIsActive) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = '/inactive';
+        redirectUrl.search = '';
+        return redirectWithSession(redirectUrl);
+      }
+
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = '/change-password';
+      redirectUrl.search = '';
+      return redirectWithSession(redirectUrl);
+    }
+
+    return response;
+  }
+
   if (user && (isProtectedRoute || isAuthRoute || isInactiveRoute)) {
     const { data: isActive, error: activeError } = await supabase.rpc('is_active_user');
     const accountIsActive = !activeError && isActive === true;
@@ -166,11 +196,6 @@ export async function updateSession(request: NextRequest) {
       redirectUrl.search = '';
       return redirectWithSession(redirectUrl);
     }
-
-    // Bank-home authorization is enforced again by get_question_bank_performance()
-    // in the page data RPC. Avoid a duplicate PostgREST round-trip here; inactive
-    // accounts and password-change requirements are still blocked above, while the
-    // page preserves the existing access-denied redirect when the RPC denies access.
   }
 
   return response;
