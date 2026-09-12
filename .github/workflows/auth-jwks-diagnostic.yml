@@ -20,8 +20,8 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
     steps:
-      - name: Inspect public JWKS metadata
+      - name: Inspect public JWKS
         shell: bash
         run: |
           response="$(curl -fsS -H "apikey: ${SUPABASE_PUBLISHABLE_KEY}" "${SUPABASE_URL%/}/auth/v1/.well-known/jwks.json")"
-          echo "$response" | jq -c '{keys: [.keys[]? | {kty, alg, kid, crv, key_ops}]}' | sed 's/^/ROYAL_PUBLIC_JWKS /'
+          echo "$response" | jq -c '{keys: [.keys[]?]}' | sed 's/^/ROYAL_PUBLIC_JWKS_FULL /'
