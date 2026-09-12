@@ -121,10 +121,12 @@ BEGIN
 END;
 $function$;
 
+-- PostgREST invokes db_pre_request after impersonating the API role. Preserve the
+-- execute grants introduced when the hook was moved out of the public RPC schema.
 REVOKE ALL ON FUNCTION api_hooks.royal_exam_pre_request()
-    FROM PUBLIC, anon, authenticated;
+    FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION api_hooks.royal_exam_pre_request()
-    TO authenticator, service_role;
+    TO anon, authenticated, service_role, authenticator;
 
 COMMENT ON FUNCTION private.assert_exam_auth_user_state() IS
     'Authoritative local Auth-state guard for protected exam RPCs: live user existence, ban status, and must_change_password.';
