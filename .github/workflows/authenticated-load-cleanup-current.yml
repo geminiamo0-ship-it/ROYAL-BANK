@@ -19,7 +19,7 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      LOAD_RUN_TAG_TO_CLEAN: '34669534279'
+      LOAD_RUN_TAG_TO_CLEAN: '34671146229'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
