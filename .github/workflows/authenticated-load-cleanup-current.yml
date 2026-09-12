@@ -26,10 +26,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Cleanup stale isolated load runs
-        shell: bash
-        run: |
-          for tag in 34655983644 34655992460; do
-            echo "Cleaning isolated load run ${tag}"
-            LOAD_RUN_TAG_TO_CLEAN="${tag}" node scripts/auth-load-cleanup-run-tag.mjs
-          done
+      - name: Cleanup isolated load run 34676918646
+        env:
+          LOAD_RUN_TAG_TO_CLEAN: '34676918646'
+        run: node scripts/auth-load-cleanup-run-tag.mjs
