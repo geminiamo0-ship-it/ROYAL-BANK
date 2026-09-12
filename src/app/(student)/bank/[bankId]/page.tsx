@@ -6,6 +6,8 @@ import {
   getLiveBankPerformance,
 } from '@/lib/bank-performance';
 
+export const preferredRegion = 'dub1';
+
 export default async function QuestionBankHomePage({
   params,
 }: {
