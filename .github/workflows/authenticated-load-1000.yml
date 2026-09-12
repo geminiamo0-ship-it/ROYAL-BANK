@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TARGET_URL: https://royal-bank-nhr8.vercel.app
+  TARGET_URL: https://royal-bank-21be.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      LOAD_RUN_TAG_TO_CLEAN: '34668426147'
+      LOAD_RUN_TAG_TO_CLEAN: '34668858314'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,7 +35,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Cleanup users from canceled single-run prep
+      - name: Cleanup users from previous 1000-user run
         run: node scripts/auth-load-cleanup-run-tag.mjs
 
   burst_shard:
@@ -202,7 +202,7 @@ jobs:
           for (const row of rows) statuses[row.status] = (statuses[row.status] || 0) + 1;
           const success = rows.filter((r) => r.status >= 200 && r.status < 300).length;
           const summary = {
-            target: 'https://royal-bank-nhr8.vercel.app',
+            target: 'https://royal-bank-21be.vercel.app',
             shards_completed: docs.length,
             users: rows.length,
             requests: rows.length,
