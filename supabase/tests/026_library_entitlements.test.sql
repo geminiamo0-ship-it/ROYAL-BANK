@@ -9,7 +9,7 @@ INSERT INTO auth.users (
 (
     '00000000-0000-0000-0000-000000000000',
     '26000000-0000-0000-0000-000000000001',
-    'authenticated','authenticated','two-banks@test.local','',now(),
+    'authenticated','authenticated','single-bank@test.local','',now(),
     '{"provider":"email","providers":["email"]}'::jsonb,'{}'::jsonb,now(),now()
 ),
 (
@@ -46,23 +46,20 @@ VALUES
     (9622,'test_library_bank2',1),
     (9623,'test_library_bank3',1);
 
--- One user can hold multiple bank grants in the same pathway without opening
--- the sibling bank that was not granted.
+-- A single bank subscription unlocks only that bank and its mapped library.
 INSERT INTO public.user_access_grants(user_id,scope_type,question_bank_id)
-VALUES
-    ('26000000-0000-0000-0000-000000000001','bank',9621),
-    ('26000000-0000-0000-0000-000000000001','bank',9622);
+VALUES ('26000000-0000-0000-0000-000000000001','bank',9621);
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
 SELECT set_config('request.jwt.claim.sub','26000000-0000-0000-0000-000000000001',true);
 
-SELECT extensions.ok(public.can_access_question_bank(9621),'first explicit bank grant is active');
-SELECT extensions.ok(public.can_access_question_bank(9622),'second explicit bank grant is active');
-SELECT extensions.ok(NOT public.can_access_question_bank(9623),'ungranted sibling bank stays locked');
+SELECT extensions.ok(public.can_access_question_bank(9621),'explicit bank grant is active');
+SELECT extensions.ok(NOT public.can_access_question_bank(9622),'ungranted sibling bank stays locked');
+SELECT extensions.ok(NOT public.can_access_question_bank(9623),'another ungranted sibling bank stays locked');
 SELECT extensions.ok(public.can_access_library_article(9621,'test_library_1'),'bank entitlement covers its library');
-SELECT extensions.ok(public.can_access_library_article(9622,'test_library_bank2'),'second bank entitlement covers its library');
-SELECT extensions.ok(NOT public.can_access_library_article(9623,'test_library_bank3'),'locked bank library stays locked');
+SELECT extensions.ok(NOT public.can_access_library_article(9622,'test_library_bank2'),'sibling bank library stays locked');
+SELECT extensions.ok(NOT public.can_access_library_article(9623,'test_library_bank3'),'another locked bank library stays locked');
 
 -- Trial library quota counts unique articles, not repeat opens.
 SELECT set_config('request.jwt.claim.sub','26000000-0000-0000-0000-000000000002',true);
