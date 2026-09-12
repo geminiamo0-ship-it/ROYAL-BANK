@@ -23,7 +23,7 @@ export default async function QuestionBankHomePage({
       redirect(`/login?redirect=/bank/${parsedBankId}`);
     }
     if (error instanceof BankPerformanceAccessError) {
-      redirect(`/upgrade?bank=${parsedBankId}`);
+      redirect('/dashboard?access=denied');
     }
     throw error;
   }

@@ -167,22 +167,10 @@ export async function updateSession(request: NextRequest) {
       return redirectWithSession(redirectUrl);
     }
 
-    const bankHomeMatch = pathname.match(/^\/bank\/(\d+)\/?$/);
-    if (accountIsActive && bankHomeMatch) {
-      const bankId = Number(bankHomeMatch[1]);
-      const { data: canAccessBank, error: accessError } = await supabase.rpc(
-        'can_access_question_bank',
-        { p_bank_id: bankId }
-      );
-
-      if (accessError || canAccessBank !== true) {
-        const redirectUrl = request.nextUrl.clone();
-        redirectUrl.pathname = '/dashboard';
-        redirectUrl.search = '';
-        redirectUrl.searchParams.set('access', 'denied');
-        return redirectWithSession(redirectUrl);
-      }
-    }
+    // Bank-home authorization is enforced again by get_question_bank_performance()
+    // in the page data RPC. Avoid a duplicate PostgREST round-trip here; inactive
+    // accounts and password-change requirements are still blocked above, while the
+    // page preserves the existing access-denied redirect when the RPC denies access.
   }
 
   return response;
