@@ -7,6 +7,7 @@ import { getCatalogUpgradeOffer } from '@/actions/catalog';
 import { useUIStore } from '@/stores/uiStore';
 import { logout } from '@/actions/auth';
 import type { CatalogUpgradeOffer } from '@/types/catalog';
+import { RoyalThemeToggle } from '@/components/theme/RoyalThemeToggle';
 import {
   CheckCircle2,
   Crown,
@@ -88,7 +89,7 @@ export function StudentHeader({
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-[58px] items-center justify-between bg-[#282828] px-6 text-white">
+      <header className="sticky top-0 z-30 flex h-[58px] items-center justify-between border-b border-transparent bg-[#282828] px-6 text-white">
         <div className="flex items-center">
           <button
             onClick={toggleSidebar}
@@ -127,6 +128,8 @@ export function StudentHeader({
               {isPending ? 'Pending' : 'Upgrade'}
             </Link>
           )}
+
+          <RoyalThemeToggle />
 
           <Link
             href="/partner"
