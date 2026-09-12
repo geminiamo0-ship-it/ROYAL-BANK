@@ -1,0 +1,31 @@
+name: Cleanup Authenticated Load Test Leftovers
+
+on:
+  push:
+    branches:
+      - ops/authenticated-load-test
+    paths:
+      - .github/workflows/authenticated-load-cleanup-current.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      LOAD_RUN_TAG_TO_CLEAN: '34669534279'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Cleanup all users and exam data from completed 1000-user run
+        run: node scripts/auth-load-cleanup-run-tag.mjs
