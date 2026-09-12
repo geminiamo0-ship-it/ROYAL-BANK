@@ -16,6 +16,7 @@ env:
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   LOAD_USER_COUNT: 1
   LOAD_AUTH_PACING_MS: 0
+  PROBE_LABEL: post-load-34669534279
 
 jobs:
   probe:
