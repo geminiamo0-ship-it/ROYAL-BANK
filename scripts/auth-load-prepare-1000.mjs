@@ -15,15 +15,17 @@ const authPacingMs = Math.max(0, Math.min(Number.isFinite(requestedPacingMs) ? M
 const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 const password = `RoyalLoad!${crypto.randomBytes(24).toString('base64url')}`;
 const expiresAt = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
-const runTag = String(process.env.GITHUB_RUN_ID || Date.now()).replace(/\D/g, '').slice(-12) || String(Date.now());
+const baseRunTag = String(process.env.GITHUB_RUN_ID || Date.now()).replace(/\D/g, '').slice(-12) || String(Date.now());
+const shard = String(process.env.LOAD_SHARD || '').replace(/[^0-9A-Za-z_-]/g, '').slice(0, 20);
+const runTag = shard ? `${baseRunTag}-s${shard}` : baseRunTag;
 const rows = [];
 const ids = [];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function signInWithRateLimitRetry(client, email) {
+async function signInWithRateLimitRetry(client) {
   let lastError = null;
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const signedIn = await client.auth.signInWithPassword({ email, password });
+    const signedIn = await client.auth.signInWithPassword({ email: client.__loadEmail, password });
     if (!signedIn.error) return;
     lastError = signedIn.error;
     const rateLimited = signedIn.error.status === 429 || signedIn.error.code === 'over_request_rate_limit';
@@ -32,7 +34,7 @@ async function signInWithRateLimitRetry(client, email) {
     console.log(`Auth preparation rate-limited; retrying in ${waitMs}ms.`);
     await sleep(waitMs);
   }
-  throw lastError || new Error(`Could not authenticate load user.`);
+  throw lastError || new Error('Could not authenticate load user.');
 }
 
 for (let i = 1; i <= userCount; i += 1) {
@@ -41,7 +43,7 @@ for (let i = 1; i <= userCount; i += 1) {
     email,
     password,
     email_confirm: true,
-    user_metadata: { full_name: `Royal Load ${i}`, load_test: true, run_tag: runTag },
+    user_metadata: { full_name: `Royal Load ${i}`, load_test: true, run_tag: runTag, base_run_tag: baseRunTag, shard },
   });
   if (created.error || !created.data.user) throw created.error || new Error(`Could not create load user ${i}`);
   const user = created.data.user;
@@ -69,14 +71,15 @@ for (let i = 1; i <= userCount; i += 1) {
     },
     auth: { autoRefreshToken: false, persistSession: true, detectSessionInUrl: false },
   });
+  client.__loadEmail = email;
 
-  await signInWithRateLimitRetry(client, email);
+  await signInWithRateLimitRetry(client);
   const cookie = [...jar.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
   if (!cookie.includes('royal-auth')) throw new Error(`Auth cookie missing for load user ${i}`);
   rows.push({ email, cookie });
   fs.writeFileSync('load-cookies.json', JSON.stringify(rows));
 
-  if (i % 50 === 0 || i === userCount) console.log(`Prepared ${i}/${userCount} isolated authenticated users.`);
+  if (i % 25 === 0 || i === userCount) console.log(`Prepared ${i}/${userCount} isolated authenticated users for shard ${shard || 'single'}.`);
   if (authPacingMs > 0 && i < userCount) await sleep(authPacingMs);
 }
 
