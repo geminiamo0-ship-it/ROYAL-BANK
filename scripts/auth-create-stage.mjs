@@ -1,0 +1,137 @@
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+
+const target = (process.env.TARGET_URL || '').replace(/\/$/, '');
+const expected = Number(process.env.STAGE_USERS || process.env.LOAD_USER_COUNT || 0);
+const users = JSON.parse(fs.readFileSync('load-cookies.json', 'utf8'));
+if (!Number.isSafeInteger(expected) || expected < 1) throw new Error('Invalid STAGE_USERS');
+if (!Array.isArray(users) || users.length !== expected) {
+  throw new Error(`Expected ${expected} users, got ${Array.isArray(users) ? users.length : 'invalid'}`);
+}
+
+const pct = (values, q) => {
+  if (!values.length) return null;
+  const xs = [...values].sort((a, b) => a - b);
+  const i = Math.min(xs.length - 1, Math.max(0, Math.ceil(xs.length * q) - 1));
+  return Number(xs[i].toFixed(2));
+};
+
+const parseServerTiming = (header) => {
+  const out = {};
+  if (!header) return out;
+  for (const part of header.split(',')) {
+    const name = part.trim().split(';')[0];
+    const match = part.match(/;dur=([0-9.]+)/);
+    if (name && match) out[name] = Number(match[1]);
+  }
+  return out;
+};
+
+async function one(account, index, zero) {
+  const launchedAt = performance.now();
+  try {
+    const res = await fetch(`${target}/api/exam`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: account.cookie,
+        'user-agent': `RoyalBank-Authorized-CreateStage/${expected}`,
+      },
+      body: JSON.stringify({
+        action: 'create',
+        args: {
+          p_request_id: crypto.randomUUID(),
+          p_bank_id: 1,
+          p_session_type: 'timed',
+          p_limit: 40,
+          p_difficulties: [],
+          p_categories: [],
+          p_topics: [],
+          p_question_selection: 'all',
+        },
+      }),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(60000),
+    });
+    const text = await res.text();
+    const endedAt = performance.now();
+    let code = null;
+    if (res.status >= 400) {
+      try {
+        const parsed = JSON.parse(text);
+        code = parsed?.error?.code || parsed?.code || null;
+      } catch {}
+    }
+    return {
+      index,
+      status: res.status,
+      code,
+      duration_ms: endedAt - launchedAt,
+      launch_offset_ms: launchedAt - zero,
+      server_timing: parseServerTiming(res.headers.get('server-timing')),
+    };
+  } catch (error) {
+    const endedAt = performance.now();
+    return {
+      index,
+      status: 0,
+      code: null,
+      duration_ms: endedAt - launchedAt,
+      launch_offset_ms: launchedAt - zero,
+      error: String(error?.message || error).slice(0, 160),
+      server_timing: {},
+    };
+  }
+}
+
+const burstStartedAtMs = Date.now();
+const zero = performance.now();
+const rows = await Promise.all(users.map((account, index) => one(account, index + 1, zero)));
+const wallMs = performance.now() - zero;
+const durations = rows.map((r) => r.duration_ms).filter(Number.isFinite);
+const statuses = {};
+const codes = {};
+for (const row of rows) {
+  statuses[row.status] = (statuses[row.status] || 0) + 1;
+  if (row.code) codes[row.code] = (codes[row.code] || 0) + 1;
+}
+const success = rows.filter((r) => r.status >= 200 && r.status < 300).length;
+const timingNames = [...new Set(rows.flatMap((r) => Object.keys(r.server_timing || {})))];
+const timing_summary = {};
+for (const name of timingNames) {
+  const xs = rows.map((r) => r.server_timing?.[name]).filter(Number.isFinite);
+  timing_summary[name] = {
+    p50_ms: pct(xs, .50),
+    p95_ms: pct(xs, .95),
+    max_ms: xs.length ? Number(Math.max(...xs).toFixed(2)) : null,
+    samples: xs.length,
+  };
+}
+
+const summary = {
+  target,
+  users: expected,
+  requests: rows.length,
+  action: 'create',
+  questions_per_session: 40,
+  burst_started_at_ms: burstStartedAtMs,
+  success,
+  success_rate: Number((success / rows.length).toFixed(4)),
+  statuses,
+  error_codes: codes,
+  errors_429: rows.filter((r) => r.status === 429).length,
+  errors_5xx: rows.filter((r) => r.status >= 500 && r.status <= 599).length,
+  network_errors: rows.filter((r) => r.status === 0).length,
+  p50_ms: pct(durations, .50),
+  p95_ms: pct(durations, .95),
+  p99_ms: pct(durations, .99),
+  max_ms: durations.length ? Number(Math.max(...durations).toFixed(2)) : null,
+  wall_ms: Number(wallMs.toFixed(2)),
+  achieved_rps: Number((rows.length / (wallMs / 1000)).toFixed(2)),
+  launch_skew_ms: Number((Math.max(...rows.map((r) => r.launch_offset_ms)) - Math.min(...rows.map((r) => r.launch_offset_ms))).toFixed(2)),
+  server_timing: timing_summary,
+};
+
+fs.writeFileSync(`royal-create-stage-${expected}.json`, JSON.stringify({ summary, rows }, null, 2));
+console.log(`ROYAL_CREATE_STAGE_SUMMARY ${JSON.stringify(summary)}`);
