@@ -22,7 +22,7 @@ env:
   LOAD_USER_COUNT: 150
   LOAD_AUTH_PACING_MS: 1200
   LOAD_SHARD: stage
-  STAGE_LABEL: post-078-control-rerun-2
+  STAGE_LABEL: post-079-create-budget-150
 
 jobs:
   create_stage:
