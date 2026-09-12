@@ -29,6 +29,10 @@ function stateText(expiresAt: string | null, expiresSoon: boolean) {
   return `${expiresSoon ? 'Expires soon · ' : 'Active until '}${formatAccessDate(expiresAt)}`;
 }
 
+function commerceLockText(reason: 'subscription' | 'request' | null) {
+  return reason === 'request' ? 'Subscription request pending' : 'Subscription active';
+}
+
 export default async function PathwayBanksPage({ params, searchParams }: PathwayBanksPageProps) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   const [pathway, user] = await Promise.all([getPathwayDetails(slug), getCurrentUser()]);
@@ -67,7 +71,9 @@ export default async function PathwayBanksPage({ params, searchParams }: Pathway
                 ? <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Extend Access" autoOpen={autoPathway} supportUrl={supportUrl} className="bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white" />
                 : <a href="#access-details" className="bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white">Activated</a>
             ) : pathway.catalogAvailable ? (
-              <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Upgrade full pathway" autoOpen={autoPathway} supportUrl={supportUrl} className="bg-[#18a84a] px-4 py-2 text-[12px] font-semibold text-white" />
+              pathway.commerceLocked
+                ? <span className="border border-[#d7b96b] bg-[#fff8e8] px-4 py-2 text-[12px] font-semibold text-[#7a5b15]">{commerceLockText(pathway.commerceLockReason)}</span>
+                : <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Upgrade full pathway" autoOpen={autoPathway} supportUrl={supportUrl} className="bg-[#18a84a] px-4 py-2 text-[12px] font-semibold text-white" />
             ) : null}
           </div>
         </div>
@@ -107,7 +113,11 @@ export default async function PathwayBanksPage({ params, searchParams }: Pathway
                     ) : (
                       <>
                         {bank.isUnlocked && <Link href={`/bank/${bank.id}`} className="border border-[#00a2d3] px-2 py-1 text-[12px] text-[#007fa8]">Take a demo</Link>}
-                        {bank.catalogAvailable && <UpgradeModalTrigger scopeType="bank" targetId={bank.id} label="Upgrade bank" autoOpen={autoBankId === bank.id} supportUrl={supportUrl} />}
+                        {bank.catalogAvailable && (
+                          pathway.commerceLocked
+                            ? <span className="border border-[#d7b96b] bg-[#fff8e8] px-2 py-1 text-[12px] font-medium text-[#7a5b15]">{commerceLockText(pathway.commerceLockReason)}</span>
+                            : <UpgradeModalTrigger scopeType="bank" targetId={bank.id} label="Upgrade bank" autoOpen={autoBankId === bank.id} supportUrl={supportUrl} />
+                        )}
                       </>
                     )}
                   </div>
