@@ -21,11 +21,13 @@
 - `pathway`: access to all current and future banks in that pathway, including each bank's mapped library.
 - `bank`: access only to the selected bank and that bank's mapped library.
 
-A customer may have historical expired or revoked grants, but may have only **one live or scheduled commercial subscription** at a time. A second bank, pathway, or global subscription is blocked while another non-expired grant exists. A finite exact subscription may be extended; extension updates the same authoritative grant rather than creating a second live entitlement.
+A customer may hold multiple independent active grants at the same time. For example, they may own several banks in one pathway, banks from different pathways, full pathway grants, and narrower historical or still-active grants alongside a broader grant.
 
-A bank grant never becomes pathway ownership merely because it currently covers every bank that happens to exist in the pathway. Only a real `pathway` or `global` grant carries future-bank coverage.
+Coverage is hierarchical. `global` covers every pathway and bank. A `pathway` grant covers every bank in that pathway. A bank grant covers only that bank. Exact or broader active coverage prevents a redundant purchase of the same already-covered product.
 
-A grant becomes active at `starts_at`. `expires_at = NULL` means lifetime access.
+If a customer has active bank coverage for **every bank that currently belongs to a pathway**, the pathway is treated as activated through aggregate bank coverage. This aggregate activation reflects the current catalog only; unlike a real `pathway` grant it does not promise automatic access to a future bank added later. If a new uncovered bank is added, aggregate pathway activation becomes incomplete until that bank is covered or a real pathway/global grant exists.
+
+A grant becomes active at `starts_at`. `expires_at = NULL` means lifetime access. A finite exact grant may be extended; extension updates that exact authoritative grant instead of inserting a duplicate exact grant.
 
 `user_pathway_access` is removed. There is no second entitlement system or compatibility fallback for premium access.
 
@@ -35,11 +37,15 @@ The raw `grant_user_access(...)` primitive is internal to audited SECURITY DEFIN
 
 ## Commercial subscription rules
 
-- One user may have at most one open commercial request (`pending`, `contacted`, or `paid`) at a time across the whole catalog.
-- One user may have at most one live or scheduled non-revoked premium grant at a time.
-- A finite exact grant may be extended. A lifetime exact grant cannot be repurchased.
-- An active bank subscription blocks buying a sibling bank, a pathway, or global access as a second parallel subscription.
-- An active pathway or global grant naturally opens the banks that its scope covers, but does not authorize a redundant narrower purchase.
+- Multiple independent products may be held at the same time: Bank A + Bank B, banks from different pathways, multiple pathways, or broader All Royal access.
+- Multiple open requests may exist for different catalog products; the same product still has at most one open request and request creation is serialized per user + product.
+- A different uncovered bank remains purchasable even when other bank subscriptions are active.
+- A full pathway remains purchasable while only some of its banks are covered.
+- All Royal remains purchasable above narrower bank/pathway access.
+- An exact finite grant exposes extension mode. A lifetime exact grant cannot be repurchased.
+- A bank already covered by its pathway or by All Royal cannot be purchased again.
+- A pathway already covered by All Royal cannot be purchased again.
+- When every current bank in a pathway is independently covered by active bank grants, that pathway is shown as activated and a redundant full-pathway purchase is blocked.
 - Payment transaction references are required for new manually confirmed payments, normalized case-insensitively, unique, and safe to retry idempotently only when the order/payment details match.
 - `profiles.subscription_tier` never creates, extends, revokes, or proves entitlement.
 
@@ -68,13 +74,14 @@ Student article bodies are not directly readable from `library_articles`. They m
 - `can_access_library_article(bank_id, article_id)`: checks whether the current user may open a mapped article without consuming a new disclosure.
 - `list_library_articles(bank_id)`: returns bank library metadata and current trial state without article bodies.
 - `get_library_article(bank_id, article_id)`: returns article content and atomically records a first-time trial disclosure when required.
+- `resolve_my_access(...)`: resolves exact, real broader, or aggregate all-bank pathway coverage for catalog/UI decisions.
 - `is_active_user()`: canonical account-status decision.
 
 The catalog/dashboard must derive unlock state from these server-side decisions. `subscription_tier`, static catalog flags, route visibility, and client-side UI state are not authorization boundaries.
 
 ## Expiry and owned history
 
-Grant expiry removes current bank authorization. It prevents starting a new block and prevents resuming/updating an unfinished block that requires current bank access. It also removes full premium access to that bank's library.
+Grant expiry removes the access provided by that grant. Other still-active grants continue to authorize the scopes they cover. Expiry prevents starting a new block or resuming/updating an unfinished block unless another active entitlement still covers that bank.
 
 Expiry does **not** erase or hide the active user's owned historical records. The user may still read their own session metadata, stored answers, notes, saved concepts, and flags. Those history reads are ownership-based and do not restore access to the bank's current question content.
 
