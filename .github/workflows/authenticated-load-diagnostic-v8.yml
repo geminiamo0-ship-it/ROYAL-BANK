@@ -1,4 +1,4 @@
-# trigger: 2026-09-12 post-071 authenticated production diagnostic
+# trigger: 2026-09-12 validate new Vercel deployment
 name: Authenticated Production Diagnostic V8
 
 on:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_URL: https://royal-bank-21be.vercel.app
+  TARGET_URL: https://royal-bank-21be-bbjpc9cs9-zz-369b.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   LOAD_USER_COUNT: 75
   LOAD_AUTH_PACING_MS: 1200
