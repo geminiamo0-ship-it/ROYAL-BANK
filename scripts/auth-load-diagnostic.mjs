@@ -5,6 +5,15 @@ import { performance } from 'node:perf_hooks';
 const target = (process.env.TARGET_URL || '').replace(/\/$/, '');
 if (!target) throw new Error('TARGET_URL is required.');
 const users = JSON.parse(fs.readFileSync('load-cookies.json', 'utf8'));
+const vercelTrustedOidcToken = (process.env.VERCEL_TRUSTED_OIDC_TOKEN || '').trim();
+
+function targetHeaders(headers = {}) {
+  if (!vercelTrustedOidcToken) return headers;
+  return {
+    ...headers,
+    'x-vercel-trusted-oidc-idp-token': vercelTrustedOidcToken,
+  };
+}
 
 function percentile(values, q) {
   if (!values.length) return null;
@@ -25,7 +34,11 @@ async function timedFetch(url, init) {
 }
 
 async function gateway(cookie, action, args, token) {
-  const headers = { 'content-type': 'application/json', cookie, 'user-agent': 'RoyalBank-Authorized-LoadTest/3.0' };
+  const headers = targetHeaders({
+    'content-type': 'application/json',
+    cookie,
+    'user-agent': 'RoyalBank-Authorized-LoadTest/3.0',
+  });
   if (token) headers['x-royal-window-access'] = token;
   const out = await timedFetch(target + '/api/exam', {
     method: 'POST', headers, body: JSON.stringify({ action, args }), redirect: 'manual',
@@ -38,7 +51,10 @@ async function gateway(cookie, action, args, token) {
 console.log(`Starting middleware diagnostic with ${users.length} concurrent authenticated users.`);
 const bankResults = await Promise.all(users.map(async (account) => {
   const out = await timedFetch(target + '/bank/1', {
-    headers: { cookie: account.cookie, 'user-agent': 'RoyalBank-Authorized-LoadTest/3.0' },
+    headers: targetHeaders({
+      cookie: account.cookie,
+      'user-agent': 'RoyalBank-Authorized-LoadTest/3.0',
+    }),
     redirect: 'manual',
   });
   return {
