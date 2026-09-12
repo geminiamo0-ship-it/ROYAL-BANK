@@ -1,6 +1,7 @@
 import React from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { RoyalThemeToggle } from '@/components/theme/RoyalThemeToggle';
 
 export default async function SupportLayout({
   children,
@@ -26,5 +27,12 @@ export default async function SupportLayout({
     redirect('/dashboard');
   }
 
-  return children;
+  return (
+    <div className="relative min-h-screen">
+      <div className="fixed right-4 top-4 z-50 sm:right-6 sm:top-6">
+        <RoyalThemeToggle className="shadow-lg" />
+      </div>
+      {children}
+    </div>
+  );
 }
