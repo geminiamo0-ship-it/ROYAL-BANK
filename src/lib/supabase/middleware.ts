@@ -4,8 +4,6 @@ import { isSupabaseConfigured } from './config';
 import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
 
-const EXAM_WINDOW_ACCESS_HEADER = 'x-royal-window-access';
-
 export async function updateSession(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   let response = NextResponse.next({ request: { headers: requestHeaders } });
@@ -52,21 +50,23 @@ export async function updateSession(request: NextRequest) {
     return response;
   }
 
-  // A signed exam-window capability is verified again inside /api/exam and is
-  // bound to the cryptographically verified user/session there. For this narrow
-  // read-only path, only extract the cookie-backed access token here instead of
-  // doing a remote user lookup on every prefetch. getSession() is not trusted for
-  // authorization; the route verifies the JWT and the signed capability. If that
-  // capability is invalid or expired, the route performs authoritative validation
-  // before falling back to the regular backend path.
-  if (pathname === '/api/exam' && request.headers.get(EXAM_WINDOW_ACCESS_HEADER)) {
+  // /api/exam has its own fail-closed authentication boundary. The route verifies the
+  // ES256 bearer JWT locally against pinned public keys, validates issuer/audience/role,
+  // and every protected PostgREST RPC is then gated by api_hooks.royal_exam_pre_request,
+  // which checks the live auth.users row (existence, ban status, must_change_password)
+  // before execution. Therefore middleware only needs to extract/refresh the server-side
+  // cookie session and forward its access token; repeating getClaims()+getUser() here
+  // adds remote Auth round-trips without adding an independent authorization boundary.
+  // Caller-supplied Authorization remains overwritten/removed exactly as before.
+  if (pathname === '/api/exam') {
     const {
       data: { session },
     } = await supabase.auth.getSession();
     return forwardExamSession(session?.access_token || null);
   }
 
-  // Validate/refresh the cookie-backed session before using it for authorization.
+  // Validate/refresh the cookie-backed session before using it for authorization on
+  // regular application routes. These routes keep their existing authoritative checks.
   await supabase.auth.getClaims();
   const {
     data: { user },
@@ -79,34 +79,6 @@ export async function updateSession(request: NextRequest) {
       if (value) target.headers.set(headerName, value);
     }
     return target;
-  }
-
-  // The browser never receives or supplies the access token. For the existing exam
-  // gateway contract, middleware injects the validated cookie session server-side.
-  // Any caller-supplied Authorization header is overwritten or removed.
-  if (pathname === '/api/exam') {
-    // Admin-issued temporary passwords must not retain exam/API access. getUser()
-    // reads the current Auth user, so this remains authoritative even when an older
-    // access-token claim has not yet refreshed after the administrative reset.
-    if (user?.app_metadata?.must_change_password === true) {
-      const blocked = NextResponse.json(
-        {
-          error: {
-            code: 'PASSWORD_CHANGE_REQUIRED',
-            message: 'Change your password before continuing.',
-          },
-        },
-        { status: 403 },
-      );
-      blocked.headers.set('cache-control', 'no-store');
-      return withSessionState(blocked);
-    }
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    return forwardExamSession(user && session?.access_token ? session.access_token : null);
   }
 
   const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
