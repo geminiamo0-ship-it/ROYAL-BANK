@@ -24,6 +24,27 @@ export type SupabaseJwks = {
   keys: SupabaseJwk[];
 };
 
+// Public verification material for the current Production Supabase ES256 signing key.
+// It is not a secret. Keeping the current key in-process avoids a JWKS network fetch
+// on every cold serverless isolate when SUPABASE_JWKS has not been configured in
+// Vercel. An explicit SUPABASE_JWKS environment value still overrides this fallback,
+// so planned key rotation can be staged without a code change.
+const ROYAL_PRODUCTION_SUPABASE_JWKS: SupabaseJwks = {
+  keys: [
+    {
+      alg: 'ES256',
+      crv: 'P-256',
+      ext: true,
+      key_ops: ['verify'],
+      kid: 'ba252319-971c-449d-a46b-ed557d7c5f0c',
+      kty: 'EC',
+      use: 'sig',
+      x: '9O64vMXjL3ZEB8KyHiJEv4mF3eIc7nQg4J7_kG5azGo',
+      y: 'W4R8CjMynfGPJhCV1Rj7cJDmF0My5dj7RmpsqlYi47Q',
+    },
+  ],
+};
+
 type PinnedJwksState =
   | { kind: 'disabled' }
   | { kind: 'invalid' }
@@ -81,7 +102,11 @@ function parsePinnedSupabaseJwks(rawValue: string | undefined): PinnedJwksState 
   }
 }
 
-export const PINNED_SUPABASE_JWKS = parsePinnedSupabaseJwks(process.env.SUPABASE_JWKS);
+const configuredSupabaseJwks = parsePinnedSupabaseJwks(process.env.SUPABASE_JWKS);
+export const PINNED_SUPABASE_JWKS: PinnedJwksState =
+  configuredSupabaseJwks.kind === 'disabled'
+    ? { kind: 'ready', jwks: ROYAL_PRODUCTION_SUPABASE_JWKS }
+    : configuredSupabaseJwks;
 
 export function jsonError(status: number, code: string, message: string, retryAfter?: number) {
   const headers = new Headers({
