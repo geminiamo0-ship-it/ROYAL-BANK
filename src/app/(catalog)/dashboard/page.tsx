@@ -14,6 +14,10 @@ function accessText(expiresAt: string | null, expiresSoon: boolean) {
   return `${expiresSoon ? 'Expires soon · ' : 'Active until '}${formatted}`;
 }
 
+function commerceLockText(reason: 'subscription' | 'request' | null) {
+  return reason === 'request' ? 'Subscription request pending' : 'Subscription active';
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -55,6 +59,8 @@ export default async function DashboardPage({
               globalAccess.coverage_kind === 'exact' && globalAccess.can_extend
                 ? <UpgradeModalTrigger scopeType="global" label="Extend All Royal" autoOpen={autoOpenGlobal} supportUrl={supportUrl} className="rounded bg-[#14833d] px-4 py-2 text-[12px] font-semibold text-white" />
                 : <span className="rounded border border-[#159947] bg-[#effbf3] px-4 py-2 text-[12px] font-semibold text-[#087c31]">All Royal activated</span>
+            ) : globalCatalog.commerceLocked ? (
+              <span className="rounded border border-[#d7b96b] bg-[#fff8e8] px-4 py-2 text-[12px] font-semibold text-[#7a5b15]">{commerceLockText(globalCatalog.commerceLockReason)}</span>
             ) : (
               <UpgradeModalTrigger scopeType="global" label="Upgrade All Royal" autoOpen={autoOpenGlobal} supportUrl={supportUrl} className="rounded bg-[#18a84a] px-4 py-2 text-[12px] font-semibold text-white" />
             )
@@ -96,7 +102,9 @@ export default async function DashboardPage({
                           ? <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} label="Extend Access" supportUrl={supportUrl} />
                           : <span className="border border-[#159947] bg-[#effbf3] px-[8px] py-[4px] text-[12px] font-medium leading-none text-[#087c31]">Activated</span>
                       ) : pathway.catalogAvailable ? (
-                        <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} supportUrl={supportUrl} />
+                        pathway.commerceLocked
+                          ? <span className="border border-[#d7b96b] bg-[#fff8e8] px-[8px] py-[4px] text-[12px] font-medium leading-none text-[#7a5b15]">{commerceLockText(pathway.commerceLockReason)}</span>
+                          : <UpgradeModalTrigger scopeType="pathway" targetId={pathway.id} supportUrl={supportUrl} />
                       ) : null}
                     </div>
                   </div>
