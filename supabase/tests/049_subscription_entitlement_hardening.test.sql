@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(31);
+SELECT extensions.plan(32);
 
 INSERT INTO auth.users (
     instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -68,18 +68,9 @@ SELECT extensions.is(
     FALSE,
     'authenticated callers still cannot invoke the raw grant primitive'
 );
-SELECT extensions.ok(
-    to_regclass('public.upgrade_requests_one_open_user_uidx') IS NULL,
-    'user-global open-request lock is removed for multi-product subscriptions'
-);
-SELECT extensions.ok(
-    to_regclass('public.upgrade_requests_open_catalog_product_uidx') IS NOT NULL,
-    'same-product open requests remain uniquely protected'
-);
-SELECT extensions.ok(
-    to_regclass('public.payments_transaction_reference_uidx') IS NOT NULL,
-    'payment transaction references remain uniquely protected'
-);
+SELECT extensions.ok(to_regclass('public.upgrade_requests_one_open_user_uidx') IS NULL,'user-global open-request lock is removed for multi-product subscriptions');
+SELECT extensions.ok(to_regclass('public.upgrade_requests_open_catalog_product_uidx') IS NOT NULL,'same-product open requests remain uniquely protected');
+SELECT extensions.ok(to_regclass('public.payments_transaction_reference_uidx') IS NOT NULL,'payment transaction references remain uniquely protected');
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role','authenticated',true);
@@ -93,48 +84,33 @@ SELECT extensions.is(public.get_catalog_upgrade_offer('bank',9492)->>'mode','upg
 SELECT extensions.is(public.get_catalog_upgrade_offer('bank',9492)->>'can_request','true','a different bank can be requested while bank A1 is active');
 
 SELECT set_config('royal_test.req_a2',public.create_catalog_upgrade_request(current_setting('royal_test.plan_a2')::BIGINT,NULL,NULL)->>'request_id',true);
-SELECT extensions.is(
-    public.create_catalog_upgrade_request(current_setting('royal_test.plan_a2')::BIGINT,NULL,NULL)->>'status',
-    'pending',
-    'second bank request is accepted while another bank subscription is active'
-);
-SELECT extensions.is(
-    public.create_catalog_upgrade_request(current_setting('royal_test.plan_a2')::BIGINT,NULL,NULL)->>'existing',
-    'true',
-    'repeating the same bank request is idempotent'
-);
+SELECT extensions.is(public.create_catalog_upgrade_request(current_setting('royal_test.plan_a2')::BIGINT,NULL,NULL)->>'status','pending','second bank request is accepted while another bank subscription is active');
+SELECT extensions.is(public.create_catalog_upgrade_request(current_setting('royal_test.plan_a2')::BIGINT,NULL,NULL)->>'existing','true','repeating the same bank request is idempotent');
 
 SELECT set_config('royal_test.req_path',public.create_catalog_upgrade_request(current_setting('royal_test.plan_path_a')::BIGINT,NULL,NULL)->>'request_id',true);
-SELECT extensions.is(
-    public.create_catalog_upgrade_request(current_setting('royal_test.plan_path_a')::BIGINT,NULL,NULL)->>'status',
-    'pending',
-    'full pathway remains purchasable while only part of its banks are owned'
-);
-SELECT extensions.ok(
-    current_setting('royal_test.req_a2')::UUID <> current_setting('royal_test.req_path')::UUID,
-    'independent catalog products maintain distinct open requests'
-);
+SELECT extensions.is(public.create_catalog_upgrade_request(current_setting('royal_test.plan_path_a')::BIGINT,NULL,NULL)->>'status','pending','full pathway remains purchasable while only part of its banks are owned');
+SELECT extensions.ok(current_setting('royal_test.req_a2')::UUID <> current_setting('royal_test.req_path')::UUID,'independent catalog products maintain distinct open requests');
+SELECT extensions.is(public.cancel_my_catalog_upgrade_request(current_setting('royal_test.req_path')::UUID)->>'status','cancelled','pathway request can be cancelled without touching the bank request');
 
-SELECT extensions.is(public.cancel_my_catalog_upgrade_request(current_setting('royal_test.req_a2')::UUID)->>'status','cancelled','bank request can be cancelled independently');
-SELECT extensions.is(public.cancel_my_catalog_upgrade_request(current_setting('royal_test.req_path')::UUID)->>'status','cancelled','pathway request can be cancelled independently');
-
-SELECT set_config('royal_test.req_global',public.create_catalog_upgrade_request(current_setting('royal_test.plan_global')::BIGINT,NULL,NULL)->>'request_id',true);
+SELECT set_config('request.jwt.claim.sub','49000000-0000-0000-0000-000000000003',true);
 SELECT extensions.is(
-    public.create_catalog_upgrade_request(current_setting('royal_test.plan_global')::BIGINT,NULL,NULL)->>'status',
-    'pending',
-    'All Royal remains purchasable above existing narrower bank access'
+    public.support_save_upgrade_order(current_setting('royal_test.req_a2')::UUID,1,100,0,100,'EGP','second bank sale')->>'status',
+    'awaiting_payment',
+    'Support can create the paid-flow order for a second bank'
 );
-SELECT extensions.is(public.cancel_my_catalog_upgrade_request(current_setting('royal_test.req_global')::UUID)->>'status','cancelled','All Royal request can be cancelled normally');
-
-SELECT set_config('request.jwt.claim.sub','49000000-0000-0000-0000-000000000004',true);
 SELECT extensions.is(
-    (public.admin_grant_user_access('49000000-0000-0000-0000-000000000001','bank',NULL,9492,now(),now()+interval '60 days')->>'question_bank_id')::BIGINT,
-    9492::BIGINT,
-    'admin audited grant path allows a second independent bank'
+    public.support_record_upgrade_payment(current_setting('royal_test.req_a2')::UUID,100,'EGP','InstaPay','COVERAGE-A2-001','second bank payment')->>'paid_enough',
+    'true',
+    'Support can confirm payment for a second bank while the first bank is active'
+);
+SELECT extensions.is(
+    public.support_activate_upgrade(current_setting('royal_test.req_a2')::UUID)->>'status',
+    'activated',
+    'Support activation creates the second independent bank entitlement'
 );
 
 SELECT set_config('request.jwt.claim.sub','49000000-0000-0000-0000-000000000001',true);
-SELECT extensions.ok(public.can_access_question_bank(9492),'second bank becomes accessible after activation');
+SELECT extensions.ok(public.can_access_question_bank(9492),'second bank becomes accessible after the real activation flow');
 SELECT extensions.ok(
     (public.resolve_my_access('pathway',9490,NULL)->>'has_access')::BOOLEAN
     AND public.resolve_my_access('pathway',9490,NULL)->>'coverage_kind'='broader'
@@ -142,6 +118,10 @@ SELECT extensions.ok(
     'owning every current bank activates the pathway automatically'
 );
 SELECT extensions.is(public.get_catalog_upgrade_offer('pathway',9490)->>'mode','active','fully covered pathway cannot be redundantly repurchased');
+
+SELECT set_config('royal_test.req_global',public.create_catalog_upgrade_request(current_setting('royal_test.plan_global')::BIGINT,NULL,NULL)->>'request_id',true);
+SELECT extensions.is(public.create_catalog_upgrade_request(current_setting('royal_test.plan_global')::BIGINT,NULL,NULL)->>'status','pending','All Royal remains purchasable above existing narrower bank access');
+SELECT extensions.is(public.cancel_my_catalog_upgrade_request(current_setting('royal_test.req_global')::UUID)->>'status','cancelled','All Royal request can be cancelled normally');
 
 SELECT set_config('request.jwt.claim.sub','49000000-0000-0000-0000-000000000004',true);
 SELECT extensions.throws_ok(
@@ -185,16 +165,12 @@ SELECT set_config('request.jwt.claim.role','authenticated',true);
 SELECT set_config('request.jwt.claim.sub','49000000-0000-0000-0000-000000000003',true);
 
 SELECT extensions.is(
-    public.support_record_upgrade_payment(
-        '49900000-0000-0000-0000-000000000001',100,'EGP','InstaPay','COVERAGE-REF-001','first confirmation'
-    )->>'idempotent',
+    public.support_record_upgrade_payment('49900000-0000-0000-0000-000000000001',100,'EGP','InstaPay','COVERAGE-REF-001','first confirmation')->>'idempotent',
     'false',
     'first payment reference creates a confirmed payment'
 );
 SELECT extensions.is(
-    public.support_record_upgrade_payment(
-        '49900000-0000-0000-0000-000000000001',100,'EGP','InstaPay','coverage-ref-001','safe retry'
-    )->>'idempotent',
+    public.support_record_upgrade_payment('49900000-0000-0000-0000-000000000001',100,'EGP','InstaPay','coverage-ref-001','safe retry')->>'idempotent',
     'true',
     'retrying the exact payment reference remains idempotent and case-insensitive'
 );
