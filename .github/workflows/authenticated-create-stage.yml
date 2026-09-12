@@ -106,7 +106,10 @@ jobs:
               const endedAt = performance.now();
               let code = null;
               if (res.status >= 400) {
-                try { code = JSON.parse(text)?.code || null; } catch {}
+                try {
+                  const parsed = JSON.parse(text);
+                  code = parsed?.error?.code || parsed?.code || null;
+                } catch {}
               }
               return {
                 index,
