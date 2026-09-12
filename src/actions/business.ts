@@ -49,7 +49,7 @@ const recordPaymentSchema = z
     amount: z.number().positive(),
     currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/),
     paymentMethod: z.string().trim().min(2).max(80),
-    transactionReference: z.string().trim().max(200).optional(),
+    transactionReference: z.string().trim().min(1).max(200),
     notes: z.string().trim().max(1000).optional(),
   })
   .strict();
@@ -65,6 +65,8 @@ const knownErrors: Array<[string, string]> = [
   ['ACTIVE_AUTHENTICATION_REQUIRED', 'Please sign in again before creating an upgrade request.'],
   ['INVALID_UPGRADE_SCOPE', 'Choose a valid Royal access option.'],
   ['ACCESS_ALREADY_ACTIVE', 'This access is already active on the account.'],
+  ['ACTIVE_SUBSCRIPTION_EXISTS', 'This customer already has a live Royal subscription. Resolve that subscription before activating another product.'],
+  ['OPEN_UPGRADE_REQUEST_EXISTS', 'This customer already has an open subscription request. Resolve it first.'],
   ['PROMO_CODE_INVALID', 'That promo code is invalid or expired.'],
   ['PROMO_CODE_LIMIT_REACHED', 'That promo code has reached its activation limit.'],
   ['SUPPORT_ACCESS_REQUIRED', 'Support or admin access is required.'],
@@ -75,7 +77,8 @@ const knownErrors: Array<[string, string]> = [
   ['INVALID_ORDER_VALUES', 'Check the order price, discount, duration, and currency.'],
   ['ORDER_LOCKED', 'This order can no longer be edited.'],
   ['ORDER_REQUIRED', 'Create the order before recording payment or activating access.'],
-  ['INVALID_PAYMENT_VALUES', 'Check the payment amount, method, and currency.'],
+  ['INVALID_PAYMENT_VALUES', 'Check the payment amount, method, currency, and transaction reference.'],
+  ['PAYMENT_REFERENCE_ALREADY_USED', 'This transaction reference has already been recorded for another payment or with different details.'],
   ['PAYMENT_CURRENCY_MISMATCH', 'Payment currency must match the order currency.'],
   ['PAYMENT_LOCKED', 'This request no longer accepts payments.'],
   ['PAYMENT_REQUIRED', 'Confirmed payment must cover the agreed price before activation.'],
@@ -248,10 +251,11 @@ export async function recordSupportUpgradePayment(
   agreed_price: number | string;
   amount_due: number | string;
   paid_enough: boolean;
+  idempotent?: boolean;
 }>> {
   const parsed = recordPaymentSchema.safeParse(input);
   if (!parsed.success) {
-    return invalidInput('Check the payment amount, method, currency, and reference.');
+    return invalidInput('Enter the payment amount, method, currency, and transaction reference.');
   }
 
   const supabase = await createClient();
@@ -261,7 +265,7 @@ export async function recordSupportUpgradePayment(
     p_amount: value.amount,
     p_currency: value.currency,
     p_payment_method: value.paymentMethod,
-    p_transaction_reference: value.transactionReference || null,
+    p_transaction_reference: value.transactionReference,
     p_notes: value.notes || null,
   });
 
@@ -278,6 +282,7 @@ export async function recordSupportUpgradePayment(
       agreed_price: number | string;
       amount_due: number | string;
       paid_enough: boolean;
+      idempotent?: boolean;
     },
   };
 }
