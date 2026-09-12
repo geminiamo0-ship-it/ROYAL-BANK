@@ -30,13 +30,15 @@ import type { ExamGatewayAction } from '@/types/exam-gateway';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'dub1';
-export const maxDuration = 10;
+export const maxDuration = 20;
 
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 const RATE_LIMIT_RECORD_TIMEOUT_MS = 1500;
 const EXAM_UPSTREAM_TIMEOUT_MS = 6500;
+const CREATE_UPSTREAM_TIMEOUT_MS = 15000;
 const EXAM_REQUEST_BUDGET_MS = 9000;
+const CREATE_REQUEST_BUDGET_MS = 18000;
 const ACTIVE_RELEASE_LOOKUP_CAP_MS = 1800;
 const RELEASE_ID_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -148,10 +150,6 @@ async function withinRequestBudget<T>(
   }
 }
 
-function requestTimeoutResponse(): Response {
-  return jsonError(504, 'EXAM_REQUEST_TIMEOUT', 'Exam request took too long to complete.');
-}
-
 async function recordRateLimitRejection(options: {
   supabaseUrl: string;
   publishableKey: string;
@@ -195,7 +193,7 @@ function addServerTiming(
 
 export async function POST(request: Request) {
   const totalServerStart = performance.now();
-  const requestDeadline = totalServerStart + EXAM_REQUEST_BUDGET_MS;
+  const initialRequestDeadline = totalServerStart + EXAM_REQUEST_BUDGET_MS;
   const responseRequestId = crypto.randomUUID();
   let bodyParseMs = 0;
   let authMs = 0;
@@ -221,6 +219,25 @@ export async function POST(request: Request) {
   const rateLimitId = process.env.ROYAL_GATEWAY_RATE_LIMIT_ID || '';
   const serverTimingEnabled = process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true';
 
+  const requestTimeoutResponse = (stage: string): Response => {
+    const response = jsonError(
+      504,
+      'EXAM_REQUEST_TIMEOUT',
+      'Exam request took too long to complete.',
+    );
+    response.headers.set('x-royal-request-id', responseRequestId);
+    response.headers.set('x-royal-timeout-stage', stage);
+    addServerTiming(response.headers, serverTimingEnabled, {
+      bodyParseMs,
+      authMs,
+      rateLimitMs,
+      upstreamFetchMs,
+      responseReadMs,
+      totalServerMs: performance.now() - totalServerStart,
+    });
+    return response;
+  };
+
   if (!supabaseUrl || !publishableKey || !gatewayKeyId || !gatewayKey || !riskHmacSecret) {
     return jsonError(503, 'EXAM_GATEWAY_NOT_CONFIGURED', 'Exam gateway is not configured.');
   }
@@ -234,13 +251,14 @@ export async function POST(request: Request) {
   const bodyParseStart = performance.now();
   let rawRequestBody: unknown;
   try {
-    const rawBody = await withinRequestBudget(requestDeadline, () => request.text());
+    const rawBody = await withinRequestBudget(initialRequestDeadline, () => request.text());
     if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
       return jsonError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
     }
     rawRequestBody = JSON.parse(rawBody) as unknown;
   } catch (error) {
-    if (isTimeoutError(error)) return requestTimeoutResponse();
+    bodyParseMs = performance.now() - bodyParseStart;
+    if (isTimeoutError(error)) return requestTimeoutResponse('body_parse');
     return jsonError(400, 'INVALID_REQUEST', 'Invalid request body.');
   }
 
@@ -254,6 +272,9 @@ export async function POST(request: Request) {
   }
 
   const body = parsedRequest.value;
+  const requestDeadline =
+    totalServerStart +
+    (body.action === 'create' ? CREATE_REQUEST_BUDGET_MS : EXAM_REQUEST_BUDGET_MS);
   const windowAction = body.action === 'window' || body.action === 'reviewWindow';
   const windowAccessPresented = Boolean(request.headers.get(EXAM_WINDOW_ACCESS_HEADER));
   const authStart = performance.now();
@@ -292,7 +313,8 @@ export async function POST(request: Request) {
     claimsData = result.data;
     claimsError = result.error;
   } catch (error) {
-    if (isTimeoutError(error)) return requestTimeoutResponse();
+    authMs = performance.now() - authStart;
+    if (isTimeoutError(error)) return requestTimeoutResponse('auth_claims');
     return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
   }
 
@@ -333,7 +355,7 @@ export async function POST(request: Request) {
       return null;
     } catch (error) {
       authMs += performance.now() - currentUserStart;
-      if (isTimeoutError(error)) return requestTimeoutResponse();
+      if (isTimeoutError(error)) return requestTimeoutResponse('authoritative_user');
       return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
     }
   };
@@ -374,7 +396,8 @@ export async function POST(request: Request) {
         );
       }
     } catch (error) {
-      if (isTimeoutError(error)) return requestTimeoutResponse();
+      rateLimitMs = performance.now() - rateLimitStart;
+      if (isTimeoutError(error)) return requestTimeoutResponse('rate_limit');
       if (!RATE_LIMIT_FAIL_OPEN_ACTIONS.has(body.action)) {
         return jsonError(503, 'EXAM_RATE_LIMIT_UNAVAILABLE', 'Exam service is temporarily unavailable.');
       }
@@ -397,7 +420,8 @@ export async function POST(request: Request) {
         }),
       );
     } catch (error) {
-      if (isTimeoutError(error)) return requestTimeoutResponse();
+      upstreamFetchMs = performance.now() - fastPathStart;
+      if (isTimeoutError(error)) return requestTimeoutResponse('window_fast_path');
     }
     upstreamFetchMs = performance.now() - fastPathStart;
 
@@ -438,7 +462,7 @@ export async function POST(request: Request) {
         ACTIVE_RELEASE_LOOKUP_CAP_MS,
       );
     } catch (error) {
-      if (isTimeoutError(error)) return requestTimeoutResponse();
+      if (isTimeoutError(error)) return requestTimeoutResponse('release_lookup');
     }
 
     if (!activeRelease) {
@@ -451,7 +475,9 @@ export async function POST(request: Request) {
   }
 
   const callRpc = (rpcName: string, args: Record<string, unknown> = rpcArgs) => {
-    const timeoutMs = remainingBudgetMs(requestDeadline, EXAM_UPSTREAM_TIMEOUT_MS);
+    const upstreamTimeoutMs =
+      body.action === 'create' ? CREATE_UPSTREAM_TIMEOUT_MS : EXAM_UPSTREAM_TIMEOUT_MS;
+    const timeoutMs = remainingBudgetMs(requestDeadline, upstreamTimeoutMs);
     return fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
       method: 'POST',
       cache: 'no-store',
@@ -466,7 +492,8 @@ export async function POST(request: Request) {
   try {
     upstream = await callRpc(primaryRpcName);
   } catch (error) {
-    if (isTimeoutError(error)) return requestTimeoutResponse();
+    upstreamFetchMs += performance.now() - upstreamFetchStart;
+    if (isTimeoutError(error)) return requestTimeoutResponse('rpc_fetch');
     return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
   }
   upstreamFetchMs += performance.now() - upstreamFetchStart;
@@ -476,7 +503,8 @@ export async function POST(request: Request) {
   try {
     rawResponseBody = await withinRequestBudget(requestDeadline, () => upstream.text());
   } catch (error) {
-    if (isTimeoutError(error)) return requestTimeoutResponse();
+    responseReadMs = performance.now() - responseReadStart;
+    if (isTimeoutError(error)) return requestTimeoutResponse('rpc_response_read');
     return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
   }
   responseReadMs = performance.now() - responseReadStart;
@@ -492,7 +520,9 @@ export async function POST(request: Request) {
     } catch (error) {
       // submit may already be committed. Never turn an R2 timeout after mutation
       // into a replay requirement; acknowledge persistence with feedback pending.
-      if (isTimeoutError(error) && body.action !== 'submit') return requestTimeoutResponse();
+      if (isTimeoutError(error) && body.action !== 'submit') {
+        return requestTimeoutResponse('r2_hydrate');
+      }
     }
 
     if (hydratedBody != null) {
@@ -555,7 +585,8 @@ export async function POST(request: Request) {
         try {
           upstream = await callRpc(legacyRpcName, body.args);
         } catch (error) {
-          if (isTimeoutError(error)) return requestTimeoutResponse();
+          upstreamFetchMs += performance.now() - fallbackFetchStart;
+          if (isTimeoutError(error)) return requestTimeoutResponse('legacy_fallback_fetch');
           return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
         }
         upstreamFetchMs += performance.now() - fallbackFetchStart;
@@ -564,7 +595,8 @@ export async function POST(request: Request) {
         try {
           rawResponseBody = await withinRequestBudget(requestDeadline, () => upstream.text());
         } catch (error) {
-          if (isTimeoutError(error)) return requestTimeoutResponse();
+          responseReadMs += performance.now() - fallbackReadStart;
+          if (isTimeoutError(error)) return requestTimeoutResponse('legacy_fallback_read');
           return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
         }
         responseReadMs += performance.now() - fallbackReadStart;
