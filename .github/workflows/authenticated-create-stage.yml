@@ -22,7 +22,7 @@ env:
   LOAD_USER_COUNT: 150
   LOAD_AUTH_PACING_MS: 1200
   LOAD_SHARD: stage
-  STAGE_LABEL: post-078-premium-trigger-fastpath
+  STAGE_LABEL: post-078-control-rerun
 
 jobs:
   create_stage:
