@@ -28,7 +28,7 @@ INSERT INTO auth.users (
 (
     '00000000-0000-0000-0000-000000000000',
     '41000000-0000-0000-0000-000000000004',
-    'authenticated','authenticated','all-banks@test.local','',now(),
+    'authenticated','authenticated','single-bank-pathway@test.local','',now(),
     '{"provider":"email","providers":["email"]}'::jsonb,'{}'::jsonb,now(),now()
 );
 
@@ -54,14 +54,9 @@ INSERT INTO public.user_access_grants (
 
 INSERT INTO public.user_access_grants (
     user_id,scope_type,question_bank_id,starts_at,expires_at
-) VALUES
-(
+) VALUES (
     '41000000-0000-0000-0000-000000000004',
     'bank',94201,now(),NULL
-),
-(
-    '41000000-0000-0000-0000-000000000004',
-    'bank',94202,now(),now()+interval '90 days'
 );
 
 SET LOCAL ROLE authenticated;
@@ -129,24 +124,23 @@ SELECT extensions.ok(
 
 SELECT set_config('request.jwt.claim.sub','41000000-0000-0000-0000-000000000004',true);
 SELECT extensions.ok(
-    (public.resolve_my_access('pathway',94101,NULL)->>'has_access')::boolean
-    AND public.resolve_my_access('pathway',94101,NULL)->>'coverage_kind'='broader',
-    'active bank grants for every bank still cover the full pathway'
+    NOT (public.resolve_my_access('pathway',94101,NULL)->>'has_access')::boolean,
+    'a bank-only subscription never masquerades as pathway ownership'
 );
 
 RESET ROLE;
 UPDATE public.user_access_grants
 SET revoked_at=now(),
     revoked_by='41000000-0000-0000-0000-000000000003',
-    revoke_reason='remove one bank'
+    revoke_reason='remove bank subscription'
 WHERE user_id='41000000-0000-0000-0000-000000000004'
   AND scope_type='bank'
-  AND question_bank_id=94202;
+  AND question_bank_id=94201;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','41000000-0000-0000-0000-000000000004',true);
 SELECT extensions.ok(
     NOT (public.resolve_my_access('pathway',94101,NULL)->>'has_access')::boolean,
-    'revoking one of several bank grants removes all-bank pathway coverage'
+    'revoking the bank subscription leaves pathway ownership false'
 );
 
 RESET ROLE;

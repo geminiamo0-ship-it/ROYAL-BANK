@@ -83,6 +83,7 @@ export function StudentHeader({
   const access = offer?.access;
   const isActivated = Boolean(access?.has_access);
   const isPending = !isActivated && offer?.mode === 'pending';
+  const isCommerceBlocked = !isActivated && !isPending && offer?.mode === 'active' && offer.can_request === false;
   const showAccessDetails = bankId !== null && accessDetailsBankId === bankId;
 
   return (
@@ -109,6 +110,14 @@ export function StudentHeader({
               <CheckCircle2 className="h-3.5 w-3.5" />
               Activated
             </button>
+          ) : isCommerceBlocked ? (
+            <span
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 text-[11px] font-bold text-amber-300"
+              title="Another Royal subscription or subscription request is already active"
+            >
+              <Crown className="h-3.5 w-3.5" />
+              Subscription active
+            </span>
           ) : (
             <Link
               href={upgradeHref}

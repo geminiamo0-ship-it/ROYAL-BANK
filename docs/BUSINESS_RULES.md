@@ -40,14 +40,23 @@
 - Selection is random across the entire eligible filtered pool.
 - Every eligible question has equal selection probability, so category/topic representation is naturally proportional to the available pool rather than forced into equal quotas.
 
-## Access
+## Access and subscriptions
 
 - `user_access_grants` is the only premium entitlement source.
+- `profiles.subscription_tier` is legacy display metadata only and never authorizes content.
 - Banks are configured individually as free-trial or premium-only.
 - A pathway may contain any mix of free-trial and premium banks.
-- Premium access may be granted globally, to a pathway (including future banks in that pathway), or to one or more selected banks.
+- Premium access may be scoped globally, to one pathway (including future banks in that pathway), or to one bank.
 - A bank entitlement covers both its Question Bank and its mapped Library.
-- A user may hold multiple bank grants inside the same pathway while sibling banks remain locked.
+- A customer may have historical expired/revoked grants, but may have only one live or scheduled non-revoked commercial subscription at a time.
+- A second bank, pathway, or global purchase is blocked while another subscription is live or scheduled.
+- A finite exact subscription may be extended; extension updates the same grant rather than creating a second live grant.
+- A bank grant never counts as pathway ownership merely because it covers every bank currently present in that pathway.
+- Only a real pathway/global grant inherits future-bank coverage.
+- Only one commercial request may be open per user across all products at a time.
+- Support cannot invoke the raw grant primitive directly. Support activation requires request -> order -> confirmed payment -> activation.
+- Admin manual grants remain explicit audited overrides and are still subject to the single-subscription invariant.
+- New manually confirmed payments require a transaction reference. The reference is unique case-insensitively; exact safe retries are idempotent and conflicting reuse is rejected.
 - Access starts at `starts_at`; `expires_at = NULL` means lifetime access.
 - Expiry blocks new protected access but does not erase stored session/history data.
 - A free-trial bank has a configurable lifetime block quota per user and configurable per-block question limit.
