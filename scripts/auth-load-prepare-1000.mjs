@@ -22,16 +22,58 @@ const rows = [];
 const ids = [];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const isRetryableAuthError = (error) => {
+  const status = Number(error?.status || 0);
+  return status === 429 || status >= 500 || error?.code === 'over_request_rate_limit';
+};
+
+async function findUserByEmail(email) {
+  for (let page = 1; page <= 20; page += 1) {
+    const listed = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (listed.error) {
+      if (isRetryableAuthError(listed.error)) return null;
+      throw listed.error;
+    }
+    const users = listed.data?.users || [];
+    const found = users.find((user) => String(user.email || '').toLowerCase() === email.toLowerCase());
+    if (found) return found;
+    if (users.length < 1000) break;
+  }
+  return null;
+}
+
+async function createUserWithRetry(email, index) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const created = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: `Royal Load ${index}`, load_test: true, run_tag: runTag, base_run_tag: baseRunTag, shard },
+    });
+    if (!created.error && created.data.user) return created.data.user;
+
+    lastError = created.error || new Error(`Could not create load user ${index}`);
+    const existing = await findUserByEmail(email);
+    if (existing) return existing;
+    if (!isRetryableAuthError(lastError)) throw lastError;
+
+    const waitMs = Math.min(30000, 1500 * (2 ** attempt));
+    console.log(`Auth admin createUser retryable failure for user ${index}; retrying in ${waitMs}ms.`);
+    await sleep(waitMs);
+  }
+  throw lastError || new Error(`Could not create load user ${index}`);
+}
+
 async function signInWithRateLimitRetry(client, email) {
   let lastError = null;
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const signedIn = await client.auth.signInWithPassword({ email, password });
     if (!signedIn.error) return;
     lastError = signedIn.error;
-    const rateLimited = signedIn.error.status === 429 || signedIn.error.code === 'over_request_rate_limit';
-    if (!rateLimited) throw signedIn.error;
+    if (!isRetryableAuthError(signedIn.error)) throw signedIn.error;
     const waitMs = Math.min(60000, 5000 * (2 ** attempt));
-    console.log(`Auth preparation rate-limited; retrying in ${waitMs}ms.`);
+    console.log(`Auth preparation retryable failure; retrying in ${waitMs}ms.`);
     await sleep(waitMs);
   }
   throw lastError || new Error('Could not authenticate load user.');
@@ -39,14 +81,7 @@ async function signInWithRateLimitRetry(client, email) {
 
 for (let i = 1; i <= userCount; i += 1) {
   const email = `royal-load-${runTag}-${String(i).padStart(4, '0')}@load.invalid`;
-  const created = await admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: `Royal Load ${i}`, load_test: true, run_tag: runTag, base_run_tag: baseRunTag, shard },
-  });
-  if (created.error || !created.data.user) throw created.error || new Error(`Could not create load user ${i}`);
-  const user = created.data.user;
+  const user = await createUserWithRetry(email, i);
   ids.push(user.id);
   fs.writeFileSync('load-user-ids.json', JSON.stringify(ids));
 
