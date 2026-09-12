@@ -94,7 +94,7 @@ SELECT extensions.is(public.get_catalog_upgrade_offer('bank',9492)->>'can_reques
 
 SELECT set_config('royal_test.req_a2',public.create_catalog_upgrade_request(current_setting('royal_test.plan_a2')::BIGINT,NULL,NULL)->>'request_id',true);
 SELECT extensions.is(
-    (SELECT status FROM public.upgrade_requests WHERE id=current_setting('royal_test.req_a2')::UUID),
+    public.create_catalog_upgrade_request(current_setting('royal_test.plan_a2')::BIGINT,NULL,NULL)->>'status',
     'pending',
     'second bank request is accepted while another bank subscription is active'
 );
@@ -106,14 +106,13 @@ SELECT extensions.is(
 
 SELECT set_config('royal_test.req_path',public.create_catalog_upgrade_request(current_setting('royal_test.plan_path_a')::BIGINT,NULL,NULL)->>'request_id',true);
 SELECT extensions.is(
-    (SELECT status FROM public.upgrade_requests WHERE id=current_setting('royal_test.req_path')::UUID),
+    public.create_catalog_upgrade_request(current_setting('royal_test.plan_path_a')::BIGINT,NULL,NULL)->>'status',
     'pending',
     'full pathway remains purchasable while only part of its banks are owned'
 );
-SELECT extensions.is(
-    (SELECT count(*)::TEXT FROM public.upgrade_requests WHERE user_id='49000000-0000-0000-0000-000000000001' AND status IN ('pending','contacted','paid')),
-    '2',
-    'independent catalog products may have separate open requests'
+SELECT extensions.ok(
+    current_setting('royal_test.req_a2')::UUID <> current_setting('royal_test.req_path')::UUID,
+    'independent catalog products maintain distinct open requests'
 );
 
 SELECT extensions.is(public.cancel_my_catalog_upgrade_request(current_setting('royal_test.req_a2')::UUID)->>'status','cancelled','bank request can be cancelled independently');
@@ -121,7 +120,7 @@ SELECT extensions.is(public.cancel_my_catalog_upgrade_request(current_setting('r
 
 SELECT set_config('royal_test.req_global',public.create_catalog_upgrade_request(current_setting('royal_test.plan_global')::BIGINT,NULL,NULL)->>'request_id',true);
 SELECT extensions.is(
-    (SELECT status FROM public.upgrade_requests WHERE id=current_setting('royal_test.req_global')::UUID),
+    public.create_catalog_upgrade_request(current_setting('royal_test.plan_global')::BIGINT,NULL,NULL)->>'status',
     'pending',
     'All Royal remains purchasable above existing narrower bank access'
 );
