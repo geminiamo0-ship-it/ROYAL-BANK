@@ -41,7 +41,6 @@ SELECT public.admin_save_catalog_plan(NULL,current_setting('royal_test.product_a
 SELECT public.admin_save_catalog_plan(NULL,current_setting('royal_test.product_a2')::BIGINT,'1 Month',1,100,'EGP','active',TRUE,TRUE,TRUE,10);
 SELECT public.admin_save_catalog_plan(NULL,current_setting('royal_test.product_b1')::BIGINT,'1 Month',1,100,'EGP','active',TRUE,TRUE,TRUE,10);
 SELECT public.admin_save_catalog_plan(NULL,current_setting('royal_test.product_path_a')::BIGINT,'Full Pathway',6,500,'EGP','active',TRUE,TRUE,TRUE,10);
-SELECT public.admin_save_catalog_plan(NULL,current_setting('royal_test.product_global')::BIGINT,'All Royal',12,1000,'EGP','active',TRUE,TRUE,TRUE,10);
 
 SELECT public.admin_save_catalog_product(current_setting('royal_test.product_a1')::BIGINT,'active',10,TRUE,'Coverage bank A1');
 SELECT public.admin_save_catalog_product(current_setting('royal_test.product_a2')::BIGINT,'active',20,TRUE,'Coverage bank A2');
@@ -54,7 +53,7 @@ SELECT set_config('royal_test.plan_a1',(SELECT id::text FROM public.catalog_plan
 SELECT set_config('royal_test.plan_a2',(SELECT id::text FROM public.catalog_plans WHERE product_id=current_setting('royal_test.product_a2')::BIGINT AND name='1 Month'),true);
 SELECT set_config('royal_test.plan_b1',(SELECT id::text FROM public.catalog_plans WHERE product_id=current_setting('royal_test.product_b1')::BIGINT AND name='1 Month'),true);
 SELECT set_config('royal_test.plan_path_a',(SELECT id::text FROM public.catalog_plans WHERE product_id=current_setting('royal_test.product_path_a')::BIGINT AND name='Full Pathway'),true);
-SELECT set_config('royal_test.plan_global',(SELECT id::text FROM public.catalog_plans WHERE product_id=current_setting('royal_test.product_global')::BIGINT AND name='All Royal'),true);
+SELECT set_config('royal_test.plan_global',(SELECT id::text FROM public.catalog_plans WHERE product_id=current_setting('royal_test.product_global')::BIGINT AND status='active' ORDER BY is_default DESC,display_order,id LIMIT 1),true);
 
 INSERT INTO public.user_access_grants(
     user_id,scope_type,question_bank_id,starts_at,expires_at,granted_by
