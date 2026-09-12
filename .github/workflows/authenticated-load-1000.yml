@@ -1,0 +1,119 @@
+name: Authenticated Production Load 1000
+
+on:
+  push:
+    branches:
+      - ops/load-1000-20260912
+    paths:
+      - ops/load-1000-trigger.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: royal-authenticated-production-load-1000
+  cancel-in-progress: false
+
+env:
+  TARGET_URL: https://royal-bank-nhr8.vercel.app
+  SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+  LOAD_USER_COUNT: 100
+  LOAD_AUTH_PACING_MS: 1600
+
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      barrier_ms: ${{ steps.barrier.outputs.barrier_ms }}
+    steps:
+      - id: barrier
+        shell: bash
+        run: |
+          node -e "console.log('barrier_ms=' + (Date.now() + 240000))" >> "$GITHUB_OUTPUT"
+
+  shard:
+    needs: setup
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      LOAD_SHARD: ${{ matrix.shard }}
+      BARRIER_MS: ${{ needs.setup.outputs.barrier_ms }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Prepare 100 isolated authenticated users for shard
+        run: node scripts/auth-load-prepare-shard.mjs
+      - name: Synchronized 100-user create burst
+        run: node scripts/auth-load-1000-burst.mjs
+      - name: Upload shard result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-1000-shard-${{ matrix.shard }}
+          path: load-1000-shard-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Cleanup isolated users and exam data
+        if: always()
+        run: node scripts/auth-load-cleanup.mjs
+
+  aggregate:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: load-1000-shard-*
+          path: results
+          merge-multiple: true
+      - name: Aggregate
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const files = fs.existsSync('results') ? fs.readdirSync('results').filter((f) => f.endsWith('.json')) : [];
+          const rows = files.map((f) => JSON.parse(fs.readFileSync('results/' + f, 'utf8'))).sort((a,b) => a.shard-b.shard);
+          const sum = (k) => rows.reduce((s,r) => s + Number(r[k] || 0), 0);
+          const statuses = {};
+          for (const r of rows) for (const [k,v] of Object.entries(r.status_counts || {})) statuses[k] = (statuses[k] || 0) + Number(v || 0);
+          const aggregate = {
+            target: 'https://royal-bank-nhr8.vercel.app',
+            shards_received: rows.length,
+            requests: sum('requests'),
+            success_200: sum('success_200'),
+            valid_sessions: sum('valid_sessions'),
+            network_or_5xx: sum('network_or_5xx'),
+            rate_limited_429: sum('rate_limited_429'),
+            status_counts: statuses,
+            earliest_fire_ms: rows.length ? Math.min(...rows.map(r => r.fired_at_ms)) : null,
+            latest_fire_ms: rows.length ? Math.max(...rows.map(r => r.fired_at_ms)) : null,
+            cross_shard_start_skew_ms: rows.length ? Math.max(...rows.map(r => r.fired_at_ms)) - Math.min(...rows.map(r => r.fired_at_ms)) : null,
+            shard_results: rows,
+          };
+          fs.writeFileSync('load-1000-aggregate.json', JSON.stringify(aggregate, null, 2));
+          console.log('AGGREGATE_RESULT ' + JSON.stringify(aggregate));
+          NODE
+      - name: Upload aggregate result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-1000-aggregate
+          path: load-1000-aggregate.json
+          if-no-files-found: ignore
+          retention-days: 3
