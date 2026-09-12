@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { RoyalThemeToggle } from '@/components/theme/RoyalThemeToggle';
 import {
   Activity,
   AlertTriangle,
@@ -42,11 +43,12 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   ];
 
   return (
-    <div className="min-h-screen flex bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-xs sm:text-sm">
+    <div className="royal-admin-shell min-h-screen flex bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-xs sm:text-sm">
       <aside className="w-60 bg-slate-900 text-slate-300 min-h-screen flex flex-col border-r border-slate-800 shrink-0">
         <div className="h-14 flex items-center gap-2.5 px-4 bg-slate-950 border-b border-slate-800">
           <div className="h-7 w-7 rounded-lg bg-purple-600 flex items-center justify-center text-white font-bold text-xs"><Stethoscope className="h-4 w-4" /></div>
           <span className="font-bold text-white text-sm">Admin Control</span>
+          <RoyalThemeToggle className="ml-auto" />
         </div>
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems.map((item) => {
