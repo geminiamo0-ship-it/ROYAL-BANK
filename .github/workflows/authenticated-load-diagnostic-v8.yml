@@ -1,4 +1,4 @@
-# trigger: 2026-09-12 direct Supabase dependency isolation
+# trigger: 2026-09-12 validate latest bank deployment
 name: Authenticated Production Diagnostic V8
 
 on:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  TARGET_URL: https://royal-bank-run4.vercel.app
+  TARGET_URL: https://royal-bank-21be-6kisf3ybc-zz-369b.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   LOAD_USER_COUNT: 75
   LOAD_AUTH_PACING_MS: 1200
@@ -35,8 +35,8 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Prepare 75 isolated authenticated users
         run: node scripts/auth-load-prepare.mjs
-      - name: Run direct Supabase dependency diagnostic
-        run: node scripts/auth-bank-dependency-diagnostic.mjs
+      - name: Run 75-user bank-only diagnostic
+        run: node scripts/auth-bank-load-diagnostic.mjs
       - name: Cleanup isolated load users
         if: always()
         run: node scripts/auth-load-cleanup.mjs
