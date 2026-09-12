@@ -9,8 +9,9 @@
 -- - admin-issued must_change_password is enforced from live auth.users metadata,
 --   even when an older access-token claim has not refreshed yet
 --
--- The lookup is local to Postgres and uses auth.users_pkey. The gateway secret check
--- remains mandatory and is still performed before marking the request verified.
+-- The lookup is local to Postgres and uses auth.users_pkey. The live user-state guard
+-- is intentionally independent from the gateway-enforcement toggle: temporarily
+-- disabling the gateway transport control must never disable account-state checks.
 
 CREATE OR REPLACE FUNCTION private.assert_exam_auth_user_state()
 RETURNS void
@@ -52,37 +53,78 @@ $function$;
 REVOKE ALL ON FUNCTION private.assert_exam_auth_user_state()
     FROM PUBLIC, anon, authenticated;
 
--- Patch the currently installed api_hooks pre-request function instead of copying its
--- protected RPC allowlist. Fail closed if the expected terminal block has changed.
-DO $migration$
+CREATE OR REPLACE FUNCTION api_hooks.royal_exam_pre_request()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'private', 'pg_catalog', 'pg_temp'
+SET row_security TO 'off'
+AS $function$
 DECLARE
-    v_def text;
-    v_old text := $old$
-    PERFORM set_config('request.royal_gateway_verified', '1', true);
-END;
-$old$;
-    v_new text := $new$
-    -- PostgREST has already cryptographically authenticated the JWT at this point.
-    -- Check live Auth state locally before any protected exam RPC is allowed through.
-    PERFORM private.assert_exam_auth_user_state();
-    PERFORM set_config('request.royal_gateway_verified', '1', true);
-END;
-$new$;
+    v_cfg private.exam_gateway_config%ROWTYPE;
+    v_gateway_enforcement_enabled boolean := false;
+    v_path text := NULLIF(current_setting('request.path', true), '');
+    v_method text := UPPER(COALESCE(NULLIF(current_setting('request.method', true), ''), ''));
+    v_headers jsonb := COALESCE(NULLIF(current_setting('request.headers', true), ''), '{}')::jsonb;
+    v_rpc_name text;
+    v_key_id text;
+    v_key text;
 BEGIN
-    SELECT pg_get_functiondef('api_hooks.royal_exam_pre_request()'::regprocedure)
-    INTO v_def;
+    PERFORM set_config('request.royal_gateway_verified', '0', true);
 
-    IF position(v_old IN v_def) = 0 THEN
-        RAISE EXCEPTION 'EXAM_PRE_REQUEST_TERMINAL_BLOCK_CHANGED';
-    END IF;
-    IF position(v_old IN substr(v_def, position(v_old IN v_def) + length(v_old))) > 0 THEN
-        RAISE EXCEPTION 'EXAM_PRE_REQUEST_TERMINAL_BLOCK_AMBIGUOUS';
+    SELECT * INTO v_cfg
+    FROM private.exam_gateway_config
+    WHERE singleton = true;
+    v_gateway_enforcement_enabled := COALESCE(v_cfg.enforcement_enabled, false);
+
+    v_rpc_name := substring(COALESCE(v_path, '') FROM '/rpc/([^/?]+)$');
+    IF v_rpc_name IS NULL OR v_rpc_name <> ALL (ARRAY[
+        'create_exam_session','get_exam_session_answers',
+        'create_exam_session_bootstrap','create_exam_session_bootstrap_idempotent',
+        'create_exam_session_bootstrap_idempotent_v2','create_exam_session_bootstrap_idempotent_v3',
+        'get_exam_session_bootstrap','get_exam_session_bootstrap_v2','get_exam_session_bootstrap_v3',
+        'get_exam_session_bootstrap_ref','get_exam_session_bootstrap_ref_v2','get_exam_session_bootstrap_ref_v3',
+        'get_exam_session_window','get_exam_session_window_refs','get_exam_session_window_refs_v2',
+        'get_completed_exam_review_bootstrap','get_completed_exam_review_bootstrap_ref','get_completed_exam_review_bootstrap_ref_v2',
+        'get_completed_exam_review_window','get_completed_exam_review_window_refs','get_completed_exam_review_window_refs_v2',
+        'get_completed_exam_review_feedback','get_completed_exam_review_feedback_ref_v2',
+        'submit_exam_answer','submit_exam_answer_idempotent',
+        'submit_exam_answer_with_feedback','submit_exam_answer_with_feedback_idempotent',
+        'submit_exam_answer_with_feedback_ref_idempotent','submit_exam_answer_with_feedback_ref_idempotent_v2',
+        'get_exam_question_feedback','get_exam_question_feedback_ref','get_exam_question_feedback_ref_v2',
+        'get_exam_training_feedback','get_exam_training_feedback_ref','get_exam_training_feedback_ref_v2',
+        'renew_exam_window_access','set_question_flag','complete_exam_session',
+        'record_exam_gateway_rate_limit_rejection'
+    ]::text[]) THEN
+        RETURN;
     END IF;
 
-    v_def := replace(v_def, v_old, v_new);
-    EXECUTE v_def;
+    IF v_method <> 'POST' THEN
+        RAISE SQLSTATE 'PT405' USING MESSAGE = 'Protected exam RPCs require POST';
+    END IF;
+
+    -- Preserve the gateway proof as an independent transport/origin control whenever
+    -- enforcement is enabled. Keep its failure precedence before user-state details.
+    IF v_gateway_enforcement_enabled THEN
+        v_key_id := NULLIF(v_headers->>'x-royal-gateway-key-id', '');
+        v_key := NULLIF(v_headers->>'x-royal-gateway-key', '');
+        IF v_key_id IS NULL OR v_key IS NULL
+           OR NOT private.is_valid_exam_gateway_key(v_key_id, v_key, clock_timestamp()) THEN
+            RAISE SQLSTATE 'PT403' USING MESSAGE = 'Exam gateway required';
+        END IF;
+        PERFORM set_config('request.royal_gateway_verified', '1', true);
+    END IF;
+
+    -- PostgREST has already cryptographically authenticated the JWT at this point.
+    -- Check the live Auth row locally before allowing any protected exam RPC through.
+    PERFORM private.assert_exam_auth_user_state();
 END;
-$migration$;
+$function$;
+
+REVOKE ALL ON FUNCTION api_hooks.royal_exam_pre_request()
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION api_hooks.royal_exam_pre_request()
+    TO authenticator, service_role;
 
 COMMENT ON FUNCTION private.assert_exam_auth_user_state() IS
     'Authoritative local Auth-state guard for protected exam RPCs: live user existence, ban status, and must_change_password.';
