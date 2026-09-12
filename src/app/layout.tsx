@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import './royal-theme.css';
 import './royal-light-refinements.css';
+import './royal-exam-light.css';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 
 export const metadata: Metadata = {
