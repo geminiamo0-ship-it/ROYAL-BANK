@@ -13,6 +13,8 @@ export interface ActiveAccessGrant {
   created_at: string;
 }
 
+export type CommerceLockReason = 'subscription' | 'request' | null;
+
 export interface QuestionBankItem {
   id: number;
   pathwayId: number;
@@ -42,6 +44,8 @@ export interface PathwayDetail {
   hasFullAccess: boolean;
   accessState: AccessResolution;
   catalogAvailable: boolean;
+  commerceLocked: boolean;
+  commerceLockReason: CommerceLockReason;
   activeAccess: ActiveAccessGrant[];
   banks: QuestionBankItem[];
 }
@@ -49,6 +53,8 @@ export interface PathwayDetail {
 export interface GlobalCatalogState {
   accessState: AccessResolution;
   catalogAvailable: boolean;
+  commerceLocked: boolean;
+  commerceLockReason: CommerceLockReason;
 }
 
 interface PathwayRow {
@@ -96,6 +102,8 @@ interface CatalogOverview {
   pathways: OverviewPathway[];
   banks: OverviewBank[];
   active_access: ActiveAccessGrant[];
+  commerce_locked: boolean;
+  commerce_lock_reason: CommerceLockReason;
 }
 
 const emptyAccess: AccessResolution = {
@@ -117,6 +125,8 @@ const emptyOverview: CatalogOverview = {
   pathways: [],
   banks: [],
   active_access: [],
+  commerce_locked: false,
+  commerce_lock_reason: null,
 };
 
 async function loadCatalogRows() {
@@ -199,6 +209,8 @@ function buildPathway(pathway: PathwayRow, bankRows: BankRow[], overview: Catalo
     hasFullAccess: accessState.has_access,
     accessState,
     catalogAvailable: pathwayState?.catalog_available === true,
+    commerceLocked: overview.commerce_locked === true,
+    commerceLockReason: overview.commerce_lock_reason || null,
     activeAccess,
     banks,
   };
@@ -230,5 +242,7 @@ export async function getGlobalCatalogState(): Promise<GlobalCatalogState> {
   return {
     accessState: overview.global?.access || emptyAccess,
     catalogAvailable: overview.global?.catalog_available === true,
+    commerceLocked: overview.commerce_locked === true,
+    commerceLockReason: overview.commerce_lock_reason || null,
   };
 }
