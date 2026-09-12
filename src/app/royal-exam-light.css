@@ -1,0 +1,226 @@
+/* Exam + legacy student surfaces. Light-mode overrides only. */
+
+html.light [class~="bg-[#1f2326]"],
+html.light [class~="bg-[#444a50]"],
+html.light [class~="bg-[#353b40]"],
+html.light [class~="bg-[#363636]"],
+html.light [class~="bg-[#414141]"],
+html.light [class~="bg-[#30363b]"],
+html.light [class~="bg-[#3b4248]"],
+html.light [class~="bg-[#464e55]"],
+html.light [class~="bg-[#343a43]"],
+html.light [class~="bg-[#7f8790]"],
+html.light [class~="bg-[#343b41]"],
+html.light [class~="bg-[#31383e]"],
+html.light [class~="bg-[#394148]"] {
+  background-color: var(--rb-surface-soft) !important;
+}
+
+html.light [class~="bg-[#57502b]"],
+html.light [class~="bg-[#5a4d1e]"] {
+  background-color: var(--rb-gold-soft) !important;
+}
+
+html.light [class~="bg-[#3a3045]"] {
+  background-color: #f3edf8 !important;
+}
+
+/* Main exam navigation / submit CTAs use Royal gold in light mode. */
+html.light [class~="bg-[#2f80ff]"],
+html.light [class~="bg-[#7f1fff]"] {
+  background-color: var(--rb-gold) !important;
+  color: #fff !important;
+}
+
+html.light [class~="hover:bg-[#458eff]"]:hover,
+html.light [class~="hover:bg-[#8d33ff]"]:hover {
+  background-color: var(--rb-gold-hover) !important;
+}
+
+/* Preserve correct/incorrect feedback. */
+html.light [class~="bg-[#248f57]"] {
+  background-color: #248f57 !important;
+  color: #fff !important;
+}
+
+html.light [class~="bg-[#df3e53]"] {
+  background-color: #df3e53 !important;
+  color: #fff !important;
+}
+
+html.light [class~="bg-[#5a3131]"],
+html.light [class~="bg-[#543334]"] {
+  background-color: #f8e6e3 !important;
+  color: #8a342d !important;
+}
+
+html.light [class~="hover:bg-[#6a3a3a]"]:hover,
+html.light [class~="hover:bg-[#603b3c]"]:hover {
+  background-color: #f1d7d3 !important;
+}
+
+html.light [class~="border-[#3f4348]"],
+html.light [class~="border-[#555d64]"],
+html.light [class~="border-[#5a5f64]"],
+html.light [class~="border-[#5a6066]"],
+html.light [class~="border-[#4c5359]"],
+html.light [class~="border-[#5b6268]"],
+html.light [class~="border-[#6c7379]"],
+html.light [class~="border-[#8a8e93]"],
+html.light [class~="border-[#5d6267]"],
+html.light [class~="border-[#6f7680]"],
+html.light [class~="border-[#9aa1aa]"],
+html.light [class~="border-[#4a5157]"],
+html.light [class~="border-[#4a535b]"],
+html.light [class~="border-[#586169]"],
+html.light [class~="border-[#4b545c]"],
+html.light [class~="border-[#68727a]"] {
+  border-color: var(--rb-border-strong) !important;
+}
+
+html.light [class~="border-[#e5c64b]"] {
+  border-color: var(--rb-gold) !important;
+}
+
+html.light [class~="border-[#745b91]"] {
+  border-color: #c9b3d9 !important;
+}
+
+html.light [class~="text-[#f5f5f5]"],
+html.light [class~="text-[#e6e6e6]"],
+html.light [class~="text-[#e7e7e7]"],
+html.light [class~="text-[#d9dce0]"],
+html.light [class~="text-[#d8dfe4]"],
+html.light [class~="text-[#edf1f4]"],
+html.light [class~="text-[#d4dce1]"],
+html.light [class~="text-[#d4d4d4]"] {
+  color: var(--rb-navy) !important;
+}
+
+html.light [class~="text-[#a8aeb4]"],
+html.light [class~="text-[#9fa6ac]"],
+html.light [class~="text-[#92999f]"],
+html.light [class~="text-[#80868b]"],
+html.light [class~="text-[#b9c0c6]"],
+html.light [class~="text-[#9da8b0]"],
+html.light [class~="text-[#aab4bb]"],
+html.light [class~="text-[#a8adb2]"],
+html.light [class~="text-[#8a8f95]"],
+html.light [class~="text-[#5f6f7c]"] {
+  color: var(--rb-muted) !important;
+}
+
+html.light [class~="text-[#cf95ff]"],
+html.light [class~="text-[#b993ff]"],
+html.light [class~="text-[#d9b7ff]"],
+html.light [class~="text-[#23a7ff]"] {
+  color: var(--rb-gold) !important;
+}
+
+html.light [class~="text-[#fff0a3]"] {
+  color: #8f6522 !important;
+}
+
+/* Option rows remain readable; semantic feedback rows keep white copy. */
+html.light [class~="bg-[#248f57]"] [class~="text-white"],
+html.light [class~="bg-[#df3e53]"] [class~="text-white"] {
+  color: #fff !important;
+}
+
+html.light [class~="border-[#d8d8d8]"] {
+  border-color: #b6aa99 !important;
+}
+
+html.light [class~="bg-white"][class~="text-[#1f2933]"] {
+  color: var(--rb-navy) !important;
+}
+
+html.light [class~="bg-[#a7abad]"] {
+  background-color: var(--rb-gold-soft) !important;
+}
+
+/* Previous-sessions table. */
+html.light [class~="bg-[#f4ecec]"] {
+  background-color: #f7f0e4 !important;
+}
+
+html.light [class~="text-[#8e4545]"] {
+  color: #8e6527 !important;
+}
+
+html.light [class~="bg-[#d9cef4]"],
+html.light [class~="bg-[#d5e4ff]"] {
+  background-color: var(--rb-gold) !important;
+  color: #fff !important;
+}
+
+html.light [class~="hover:bg-[#e5dcfb]"]:hover,
+html.light [class~="hover:bg-[#e2ecff]"]:hover {
+  background-color: var(--rb-gold-hover) !important;
+}
+
+html.light [class~="text-[#352455]"],
+html.light [class~="text-[#102148]"] {
+  color: #fff !important;
+}
+
+/* Analytics refinement: data colors stay data colors; brand chrome becomes gold. */
+html.light [class~="bg-[#316ce7]"] {
+  background-color: #316ce7 !important;
+}
+
+html.light [class~="text-[#c8a9ff]"] {
+  color: #7655bd !important;
+}
+
+html.light [class~="justify-center"][class~="text-[#19bbff]"] {
+  color: var(--rb-navy) !important;
+}
+
+/* Question-bank section labels become subtle gold rather than generic grey. */
+html.light [class~="text-[#4f565b]"] {
+  color: #956b29 !important;
+  font-weight: 600;
+  letter-spacing: .08em;
+}
+
+/* Exam extracted panels are dark-only by default in globals.css; restore premium light chrome. */
+html.light .pm-sidebar-extracted-panels {
+  color: var(--rb-navy) !important;
+}
+
+html.light .pm-sidebar-extracted-panels > div,
+html.light .pm-sidebar-extracted-panels > div > div:first-child,
+html.light .pm-sidebar-extracted-panels > div > div:not(:first-child) {
+  background: var(--rb-surface) !important;
+  border-color: var(--rb-border) !important;
+  color: var(--rb-navy) !important;
+}
+
+html.light .pm-sidebar-extracted-panels a {
+  color: var(--rb-gold) !important;
+}
+
+html.light .pm-sidebar-extracted-panels div[style*="font-size:0.75rem"],
+html.light .pm-sidebar-extracted-panels div[style*="font-size: 0.75rem"] {
+  color: var(--rb-navy-soft) !important;
+}
+
+/* Explanation content and inline concepts. */
+html.light .pm-exam-concept-copy strong,
+html.light .pm-exam-concept-copy b {
+  color: #77541f;
+}
+
+html.light .pm-inline-concept-details-body {
+  background: #fffdfa;
+  border-color: var(--rb-border);
+  color: var(--rb-navy-soft);
+}
+
+html.light .pm-inline-concept-details summary,
+html.light .pm-inline-concept-actions [data-concept-bookmark] {
+  background: #f8f2e8;
+  border-color: #d7c5a7;
+  color: #765421;
+}
