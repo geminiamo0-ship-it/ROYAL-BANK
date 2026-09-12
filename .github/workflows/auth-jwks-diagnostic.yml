@@ -1,0 +1,27 @@
+name: Auth JWKS Diagnostic
+
+on:
+  push:
+    branches:
+      - ops/authenticated-load-test
+    paths:
+      - .github/workflows/auth-jwks-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+    steps:
+      - name: Inspect public JWKS metadata
+        shell: bash
+        run: |
+          response="$(curl -fsS -H "apikey: ${SUPABASE_PUBLISHABLE_KEY}" "${SUPABASE_URL%/}/auth/v1/.well-known/jwks.json")"
+          echo "$response" | jq -c '{keys: [.keys[]? | {kty, alg, kid, crv, key_ops}]}' | sed 's/^/ROYAL_PUBLIC_JWKS /'
