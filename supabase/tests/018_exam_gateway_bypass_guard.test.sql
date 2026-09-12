@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(14);
+SELECT extensions.plan(17);
 
 SELECT extensions.ok(
     NOT (SELECT enforcement_enabled FROM private.exam_gateway_config WHERE singleton),
@@ -44,14 +44,64 @@ SELECT extensions.ok(
     'authenticator is configured to call the hidden royal exam pre-request hook'
 );
 
--- Disabled mode must be a safe no-op even for a protected RPC with no gateway key.
+-- Seed the same live Auth identity used by the pre-request tests. PostgREST normally
+-- provides request.jwt.claim.sub after JWT verification; set it explicitly here.
+INSERT INTO auth.users (
+    instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
+    raw_app_meta_data,raw_user_meta_data,created_at,updated_at
+) VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    'f2000000-0000-0000-0000-000000000001',
+    'authenticated','authenticated','gateway-signal@test.local','',now(),
+    '{"provider":"email","providers":["email"],"must_change_password":false}'::jsonb,
+    '{}'::jsonb,now(),now()
+);
+SELECT set_config('request.jwt.claim.sub', 'f2000000-0000-0000-0000-000000000001', true);
+
+-- Disabling the gateway transport control must not disable the authoritative user
+-- guard, but a healthy live user remains allowed.
 SELECT set_config('request.method', 'POST', true);
 SELECT set_config('request.path', '/rest/v1/rpc/get_exam_session_window', true);
 SELECT set_config('request.headers', '{}'::jsonb::text, true);
 SELECT extensions.lives_ok(
     'SELECT api_hooks.royal_exam_pre_request()',
-    'protected RPC is not blocked before staged enforcement is enabled'
+    'protected RPC allows a live authenticated user while gateway enforcement is staged off'
 );
+
+UPDATE auth.users
+SET raw_app_meta_data = jsonb_set(raw_app_meta_data, '{must_change_password}', 'true'::jsonb, true)
+WHERE id = 'f2000000-0000-0000-0000-000000000001';
+SELECT extensions.throws_ok(
+    'SELECT api_hooks.royal_exam_pre_request()',
+    'PT403',
+    'PASSWORD_CHANGE_REQUIRED',
+    'live must_change_password state blocks protected exam RPCs even when gateway enforcement is off'
+);
+UPDATE auth.users
+SET raw_app_meta_data = jsonb_set(raw_app_meta_data, '{must_change_password}', 'false'::jsonb, true)
+WHERE id = 'f2000000-0000-0000-0000-000000000001';
+
+SELECT set_config('request.jwt.claim.sub', 'f2000000-0000-0000-0000-000000000099', true);
+SELECT extensions.throws_ok(
+    'SELECT api_hooks.royal_exam_pre_request()',
+    'PT401',
+    'INVALID_AUTH_TOKEN',
+    'a JWT subject with no live auth.users row is rejected'
+);
+SELECT set_config('request.jwt.claim.sub', 'f2000000-0000-0000-0000-000000000001', true);
+
+UPDATE auth.users
+SET banned_until = clock_timestamp() + interval '1 hour'
+WHERE id = 'f2000000-0000-0000-0000-000000000001';
+SELECT extensions.throws_ok(
+    'SELECT api_hooks.royal_exam_pre_request()',
+    'PT403',
+    'ACCOUNT_BANNED',
+    'a currently banned Auth user is rejected before a protected exam RPC executes'
+);
+UPDATE auth.users
+SET banned_until = NULL
+WHERE id = 'f2000000-0000-0000-0000-000000000001';
 
 INSERT INTO private.exam_gateway_keys(key_id, secret_digest)
 VALUES ('test-key', extensions.digest('correct-horse-battery-staple', 'sha256'));
@@ -94,23 +144,13 @@ SELECT set_config(
 );
 SELECT extensions.lives_ok(
     'SELECT api_hooks.royal_exam_pre_request()',
-    'valid gateway key is accepted'
+    'valid gateway key plus live Auth user is accepted'
 );
 
 SELECT extensions.is(
     current_setting('request.royal_gateway_verified', true),
     '1',
     'valid gateway request receives a DB-side verified marker'
-);
-
-INSERT INTO auth.users (
-    instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
-    raw_app_meta_data,raw_user_meta_data,created_at,updated_at
-) VALUES (
-    '00000000-0000-0000-0000-000000000000',
-    'f2000000-0000-0000-0000-000000000001',
-    'authenticated','authenticated','gateway-signal@test.local','',now(),
-    '{"provider":"email","providers":["email"]}'::jsonb,'{}'::jsonb,now(),now()
 );
 
 INSERT INTO public.questions(id,main_id,text_html,explanation_html,category,topic,difficulty)
