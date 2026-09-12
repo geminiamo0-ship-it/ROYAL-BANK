@@ -22,10 +22,10 @@ const rows = [];
 const ids = [];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function signInWithRateLimitRetry(client) {
+async function signInWithRateLimitRetry(client, email) {
   let lastError = null;
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const signedIn = await client.auth.signInWithPassword({ email: client.__loadEmail, password });
+    const signedIn = await client.auth.signInWithPassword({ email, password });
     if (!signedIn.error) return;
     lastError = signedIn.error;
     const rateLimited = signedIn.error.status === 429 || signedIn.error.code === 'over_request_rate_limit';
@@ -71,9 +71,8 @@ for (let i = 1; i <= userCount; i += 1) {
     },
     auth: { autoRefreshToken: false, persistSession: true, detectSessionInUrl: false },
   });
-  client.__loadEmail = email;
 
-  await signInWithRateLimitRetry(client);
+  await signInWithRateLimitRetry(client, email);
   const cookie = [...jar.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
   if (!cookie.includes('royal-auth')) throw new Error(`Auth cookie missing for load user ${i}`);
   rows.push({ email, cookie });
