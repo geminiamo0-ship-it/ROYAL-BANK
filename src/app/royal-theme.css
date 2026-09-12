@@ -1,0 +1,295 @@
+/* RoyalBank theme system
+   Light = ivory / navy / muted gold.
+   Dark deliberately preserves the existing product palette. */
+
+:root {
+  --rb-bg: #fbfaf7;
+  --rb-surface: #fffdfa;
+  --rb-surface-soft: #f6f1e8;
+  --rb-surface-muted: #f1ece3;
+  --rb-navy: #10243f;
+  --rb-navy-soft: #31445e;
+  --rb-muted: #66768a;
+  --rb-gold: #ad7d2d;
+  --rb-gold-hover: #9a6d24;
+  --rb-gold-soft: #f3ead9;
+  --rb-border: #e2dbcf;
+  --rb-border-strong: #cfbea3;
+  --rb-success: #12945d;
+  --rb-shadow: 0 8px 28px rgba(54, 42, 23, 0.07);
+}
+
+.dark {
+  --rb-bg: #282828;
+  --rb-surface: #30373d;
+  --rb-surface-soft: #282f34;
+  --rb-surface-muted: #1e2d3a;
+  --rb-navy: #ffffff;
+  --rb-navy-soft: #dbe7f0;
+  --rb-muted: #9fb0bc;
+  --rb-gold: #19bbff;
+  --rb-gold-hover: #70d4ff;
+  --rb-gold-soft: #2c3d5e;
+  --rb-border: #414a52;
+  --rb-border-strong: #46515a;
+  --rb-success: #34d399;
+  --rb-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+html.light body {
+  background: var(--rb-bg);
+  color: var(--rb-navy);
+}
+
+html.light h1,
+html.light h2,
+html.light h3 {
+  color: var(--rb-navy);
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.02em;
+}
+
+html.light ::selection {
+  background: #d8bc82;
+  color: #10243f;
+}
+
+/* Standard Tailwind surfaces used by auth/admin/support pages. */
+html.light .bg-white,
+html.light .bg-slate-50,
+html.light .bg-slate-100,
+html.light .bg-slate-900,
+html.light .bg-slate-950 {
+  background-color: var(--rb-surface) !important;
+}
+
+html.light .bg-slate-50,
+html.light .bg-slate-100 {
+  background-color: var(--rb-bg) !important;
+}
+
+html.light .text-slate-950,
+html.light .text-slate-900,
+html.light .text-slate-800 {
+  color: var(--rb-navy) !important;
+}
+
+html.light .text-slate-700,
+html.light .text-slate-600 {
+  color: var(--rb-navy-soft) !important;
+}
+
+html.light .text-slate-500,
+html.light .text-slate-400,
+html.light .text-slate-300 {
+  color: var(--rb-muted) !important;
+}
+
+html.light .border-slate-200,
+html.light .border-slate-300,
+html.light .border-slate-700,
+html.light .border-slate-800,
+html.light .ring-slate-200,
+html.light .ring-slate-800 {
+  border-color: var(--rb-border) !important;
+  --tw-ring-color: var(--rb-border) !important;
+}
+
+html.light .bg-blue-600,
+html.light .bg-purple-600 {
+  background-color: var(--rb-gold) !important;
+}
+
+html.light .text-blue-600,
+html.light .text-blue-500,
+html.light .text-purple-600 {
+  color: var(--rb-gold) !important;
+}
+
+html.light [class~="hover:bg-blue-700"]:hover,
+html.light [class~="hover:bg-blue-600"]:hover,
+html.light [class~="hover:bg-purple-700"]:hover {
+  background-color: var(--rb-gold-hover) !important;
+}
+
+html.light [class~="focus:ring-blue-500"]:focus,
+html.light [class~="focus:border-blue-500"]:focus {
+  --tw-ring-color: rgba(173, 125, 45, 0.3) !important;
+  border-color: var(--rb-gold) !important;
+}
+
+/* Existing student/catalog dark palette -> Royal light palette.
+   These selectors only run in light mode, so the current dark mode stays exact. */
+html.light [class~="bg-[#20262b]"],
+html.light [class~="bg-[#282828]"] {
+  background-color: var(--rb-bg) !important;
+}
+
+html.light [class~="bg-[#394046]"],
+html.light [class~="bg-[#353c42]"],
+html.light [class~="bg-[#30373d]"],
+html.light [class~="bg-[#1e2d3a]"] {
+  background-color: var(--rb-surface) !important;
+}
+
+html.light [class~="bg-[#282f34]"],
+html.light [class~="bg-[#2c3237]"],
+html.light [class~="bg-[#2f353a]"],
+html.light [class~="bg-[#31363b]"],
+html.light [class~="bg-[#34393e]"],
+html.light [class~="bg-[#22272b]"],
+html.light [class~="bg-[#172531]"],
+html.light [class~="bg-[#182632]"] {
+  background-color: var(--rb-surface-soft) !important;
+}
+
+html.light [class~="bg-[#31485b]"],
+html.light [class~="bg-[#344d61]"] {
+  background-color: #f8f5ef !important;
+}
+
+html.light [class~="bg-[#3b5368]"],
+html.light [class~="bg-[#3a566d]"],
+html.light [class~="bg-[#3a4147]"],
+html.light [class~="bg-[#434a51]"],
+html.light [class~="bg-[#2c3d5e]"] {
+  background-color: var(--rb-gold-soft) !important;
+}
+
+html.light [class*="bg-[#2e6a55]"],
+html.light [class*="bg-[#2b5b50]"],
+html.light [class*="bg-[#164842]"],
+html.light [class*="bg-[#245e54]"] {
+  background-color: rgba(173, 125, 45, 0.10) !important;
+}
+
+html.light [class~="border-[#414a52]"],
+html.light [class~="border-[#334654]"],
+html.light [class~="border-[#304350]"],
+html.light [class~="border-[#334c60]"],
+html.light [class~="border-[#385165]"],
+html.light [class~="border-[#3b4e5d]"],
+html.light [class~="border-[#46515a]"],
+html.light [class~="border-[#4a545d]"],
+html.light [class~="border-[#46505a]"],
+html.light [class~="border-[#80868b]"],
+html.light [class~="border-[#9ca3aa]"],
+html.light [class~="border-[#78828a]"],
+html.light [class~="border-[#30363b]"],
+html.light [class~="border-[#233545]"],
+html.light [class~="border-[#71808c]"] {
+  border-color: var(--rb-border) !important;
+}
+
+html.light [class~="border-[#d7b3b3]"],
+html.light [class~="border-[#d9a8a8]"] {
+  border-color: #d9c5a5 !important;
+}
+
+/* Light typography for text that was explicitly tuned for dark surfaces. */
+html.light [class~="text-white"],
+html.light [class~="text-[#f2f2f2]"],
+html.light [class~="text-[#f4f4f4]"],
+html.light [class~="text-[#edf1f4]"],
+html.light [class~="text-[#e1eaf0]"],
+html.light [class~="text-[#e3ebf0]"],
+html.light [class~="text-[#e7ebef]"],
+html.light [class~="text-[#dfe7ee]"],
+html.light [class~="text-[#dbe7f0]"] {
+  color: var(--rb-navy) !important;
+}
+
+html.light [class~="text-[#b9c4cb]"],
+html.light [class~="text-[#bdc7cd]"],
+html.light [class~="text-[#c6cdd3]"],
+html.light [class~="text-[#a8b8c4]"],
+html.light [class~="text-[#d7e0e6]"],
+html.light [class~="text-[#9fb0bc]"],
+html.light [class~="text-[#91a4b2]"],
+html.light [class~="text-[#8fa5b5]"],
+html.light [class~="text-[#83acd0]"],
+html.light [class~="text-[#82acd0]"],
+html.light [class~="text-[#b8d6ef]"],
+html.light [class~="text-[#7894aa]"],
+html.light [class~="text-[#7890a2]"],
+html.light [class~="text-[#7390a7]"],
+html.light [class~="text-[#8e9ba4]"],
+html.light [class~="text-[#9aa3aa]"],
+html.light [class~="text-[#b7c0c8]"],
+html.light [class~="text-[#aeb7bf]"],
+html.light [class~="text-[#b9c2c9]"] {
+  color: var(--rb-muted) !important;
+}
+
+html.light [class~="text-[#19bbff]"],
+html.light [class~="text-[#70d4ff]"],
+html.light [class~="text-[#cda9ff]"],
+html.light [class~="text-[#c8a9ff]"] {
+  color: var(--rb-gold) !important;
+}
+
+html.light [class~="text-[#f6d8d8]"],
+html.light [class~="text-[#ffd7d7]"] {
+  color: #9b6b27 !important;
+}
+
+/* Primary actions become muted Royal gold in light mode. */
+html.light [class~="bg-[#2f7df4]"],
+html.light [class~="bg-[#316ce7]"],
+html.light [class~="bg-[#d5e4ff]"] {
+  background-color: var(--rb-gold) !important;
+}
+
+html.light [class~="bg-[#2f7df4]"][class~="text-white"],
+html.light [class~="bg-[#316ce7]"][class~="text-white"],
+html.light [class~="bg-[#d5e4ff]"],
+html.light [class~="bg-blue-600"][class~="text-white"],
+html.light [class~="bg-purple-600"][class~="text-white"],
+html.light [class*="bg-emerald-"][class~="text-white"],
+html.light [class*="bg-green-"][class~="text-white"],
+html.light [class*="bg-red-"][class~="text-white"] {
+  color: #ffffff !important;
+}
+
+html.light [class~="bg-[#17bf8e]"] [class~="text-white"],
+html.light [class~="bg-[#f44755]"] [class~="text-white"],
+html.light [class~="bg-[#316ce7]"] [class~="text-white"],
+html.light [class*="bg-emerald-"] [class~="text-white"],
+html.light [class*="bg-green-"] [class~="text-white"],
+html.light [class*="bg-red-"] [class~="text-white"] {
+  color: #ffffff !important;
+}
+
+html.light [class~="text-[#102148]"],
+html.light [class~="text-[#1d3152]"] {
+  color: #ffffff !important;
+}
+
+/* Keep semantic feedback colours recognizable in both themes. */
+html.light [class~="bg-[#ffd4c8]"] {
+  background-color: #fde6df !important;
+}
+
+html.light [class~="bg-[#fff5c9]"] {
+  background-color: #fbf0cf !important;
+}
+
+html.light [class~="bg-[#dff5df]"] {
+  background-color: #e3f4e7 !important;
+}
+
+/* Softer, human-looking elevation for the premium light theme. */
+html.light [class*="shadow-"] {
+  --tw-shadow-color: rgba(54, 42, 23, 0.08);
+}
+
+html.light input,
+html.light select,
+html.light textarea {
+  caret-color: var(--rb-gold);
+}
+
+html.light input[type="checkbox"],
+html.light input[type="radio"] {
+  accent-color: var(--rb-gold);
+}
