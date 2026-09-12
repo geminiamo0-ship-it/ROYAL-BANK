@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(3);
+SELECT extensions.plan(4);
 
 INSERT INTO auth.users (
     instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -45,6 +45,11 @@ SELECT extensions.is(
     (SELECT count(*)::bigint FROM public.test_session_questions WHERE test_session_id=(SELECT id FROM premium_session)),
     3::bigint,
     'scoped premium user receives requested questions above trial cap'
+);
+SELECT extensions.is(
+    (SELECT count(*)::bigint FROM public.free_trial_block_usage WHERE user_id='90000000-0000-0000-0000-000000000001'),
+    0::bigint,
+    'premium session does not consume the free-trial ledger'
 );
 
 SELECT set_config('request.jwt.claim.sub','90000000-0000-0000-0000-000000000002',true);
