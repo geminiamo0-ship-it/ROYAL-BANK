@@ -1,0 +1,1 @@
+authorized production load test target=https://royal-bank-nhr8.vercel.app date=2026-09-12 users=1000 requests=1000 action=create questions=40
