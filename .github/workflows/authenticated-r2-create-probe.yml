@@ -1,0 +1,130 @@
+name: Authenticated R2 Create Probe
+
+on:
+  push:
+    branches:
+      - ops/authenticated-load-test
+    paths:
+      - .github/workflows/authenticated-r2-create-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: royal-authenticated-r2-create-probe
+  cancel-in-progress: true
+
+env:
+  TARGET_URL: https://royal-bank-nhr8.vercel.app
+  SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      LOAD_USER_COUNT: 1
+      LOAD_AUTH_PACING_MS: 0
+      LOAD_SHARD: r2probe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Prepare one isolated authenticated user
+        run: node scripts/auth-load-prepare-1000.mjs
+      - name: Verify R2-hydrated Create and idempotent replay
+        shell: bash
+        run: |
+          cat > /tmp/r2-create-probe.mjs <<'EOF'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+
+          const target = (process.env.TARGET_URL || '').replace(/\/$/, '');
+          const users = JSON.parse(fs.readFileSync('load-cookies.json', 'utf8'));
+          if (!Array.isArray(users) || users.length !== 1) throw new Error('Expected one prepared user.');
+
+          const requestId = crypto.randomUUID();
+          const payload = {
+            action: 'create',
+            args: {
+              p_request_id: requestId,
+              p_bank_id: 1,
+              p_session_type: 'timed',
+              p_limit: 40,
+              p_difficulties: [],
+              p_categories: [],
+              p_topics: [],
+              p_question_selection: 'all',
+            },
+          };
+
+          async function create() {
+            const res = await fetch(`${target}/api/exam`, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                cookie: users[0].cookie,
+                'user-agent': 'RoyalBank-Authorized-R2-Create-Probe',
+              },
+              body: JSON.stringify(payload),
+              signal: AbortSignal.timeout(30000),
+            });
+            const text = await res.text();
+            let body;
+            try { body = JSON.parse(text); } catch { throw new Error(`Create returned non-JSON status=${res.status}`); }
+            if (res.status !== 200) throw new Error(`Create failed status=${res.status} code=${body?.code || 'unknown'}`);
+            return body;
+          }
+
+          function inspect(body) {
+            if (body?.status !== 'active') throw new Error('Expected active bootstrap.');
+            if (!body?.session?.id) throw new Error('Missing session id.');
+            if (!Array.isArray(body.question_ids) || body.question_ids.length !== 40) throw new Error('Expected 40 question ids.');
+            if (!Array.isArray(body.questions) || body.questions.length !== 1) throw new Error('Expected one hydrated Q1.');
+            const q = body.questions[0];
+            if (typeof q?.id !== 'number' || typeof q?.text_html !== 'string') throw new Error('Q1 was not hydrated from R2.');
+            if (!Array.isArray(q.options) || q.options.length < 2) throw new Error('Q1 options missing.');
+            if ('explanation_html' in q || 'correct_option_id' in q) throw new Error('Answer data leaked in Q1.');
+            for (const option of q.options) {
+              if ('is_correct' in option || 'percentage' in option) throw new Error('Option correctness/percentage leaked in Q1.');
+            }
+            if (typeof body.session.content_release_id !== 'string' || !/^[0-9a-f]{64}$/.test(body.session.content_release_id)) {
+              throw new Error('Pinned R2 release id missing.');
+            }
+            return {
+              session_id: body.session.id,
+              release_id: body.session.content_release_id,
+              question_ids: body.question_ids,
+              first_question_id: q.id,
+              option_count: q.options.length,
+            };
+          }
+
+          const first = inspect(await create());
+          const replay = inspect(await create());
+          if (first.session_id !== replay.session_id) throw new Error('Idempotent replay created a second session.');
+          if (JSON.stringify(first.question_ids) !== JSON.stringify(replay.question_ids)) throw new Error('Idempotent replay changed question order.');
+          if (first.release_id !== replay.release_id) throw new Error('Idempotent replay changed content release.');
+
+          console.log(`ROYAL_R2_CREATE_PROBE ${JSON.stringify({
+            ok: true,
+            same_session: true,
+            same_order: true,
+            same_release: true,
+            question_count: first.question_ids.length,
+            q1_hydrated: true,
+            q1_option_count: first.option_count,
+            answer_data_leaked: false,
+          })}`);
+          EOF
+          node /tmp/r2-create-probe.mjs
+      - name: Cleanup isolated probe user
+        if: always()
+        run: node scripts/auth-load-cleanup-1000.mjs
