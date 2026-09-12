@@ -1,0 +1,63 @@
+name: Authenticated Single Create Probe
+
+on:
+  push:
+    branches:
+      - ops/authenticated-load-test
+    paths:
+      - .github/workflows/authenticated-single-create-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TARGET_URL: https://royal-bank-nhr8.vercel.app
+  SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+  LOAD_USER_COUNT: 1
+  LOAD_AUTH_PACING_MS: 0
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Prepare one isolated authenticated user
+        run: node scripts/auth-load-prepare.mjs
+      - name: Probe one 40-question create
+        shell: bash
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import { performance } from 'node:perf_hooks';
+          const target=(process.env.TARGET_URL||'').replace(/\/$/,'');
+          const [account]=JSON.parse(fs.readFileSync('load-cookies.json','utf8'));
+          const t0=performance.now();
+          try {
+            const res=await fetch(`${target}/api/exam`,{
+              method:'POST',
+              headers:{'content-type':'application/json',cookie:account.cookie,'user-agent':'RoyalBank-Authorized-LoadTest/PostBurstProbe'},
+              body:JSON.stringify({action:'create',args:{p_request_id:crypto.randomUUID(),p_bank_id:1,p_session_type:'timed',p_limit:40,p_difficulties:[],p_categories:[],p_topics:[],p_question_selection:'all'}}),
+              redirect:'manual',signal:AbortSignal.timeout(30000)
+            });
+            const text=await res.text();
+            const ms=performance.now()-t0;
+            console.log('SINGLE_CREATE_PROBE '+JSON.stringify({status:res.status,ms:Number(ms.toFixed(2)),request_id:res.headers.get('x-royal-request-id')||'',server_timing:res.headers.get('server-timing')||'',detail:res.ok?'':text.slice(0,500)}));
+          } catch(e) {
+            console.log('SINGLE_CREATE_PROBE '+JSON.stringify({status:0,ms:Number((performance.now()-t0).toFixed(2)),detail:String(e?.message||e).slice(0,500)}));
+          }
+          EOF
+      - name: Cleanup isolated user
+        if: always()
+        run: node scripts/auth-load-cleanup.mjs
