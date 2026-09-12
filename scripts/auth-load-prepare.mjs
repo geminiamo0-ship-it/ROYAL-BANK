@@ -9,7 +9,7 @@ const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
 if (!url || !serviceKey || !publishableKey) throw new Error('Missing Supabase load-test configuration.');
 
 const requestedCount = Number(process.env.LOAD_USER_COUNT || 25);
-const userCount = Math.max(1, Math.min(Number.isFinite(requestedCount) ? Math.floor(requestedCount) : 25, 100));
+const userCount = Math.max(1, Math.min(Number.isFinite(requestedCount) ? Math.floor(requestedCount) : 25, 1000));
 const requestedPacingMs = Number(process.env.LOAD_AUTH_PACING_MS || 1200);
 const authPacingMs = Math.max(0, Math.min(Number.isFinite(requestedPacingMs) ? Math.floor(requestedPacingMs) : 1200, 10000));
 const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
@@ -37,7 +37,7 @@ async function signInWithRateLimitRetry(client, email) {
 }
 
 for (let i = 1; i <= userCount; i += 1) {
-  const email = `royal-load-${runTag}-${String(i).padStart(3, '0')}@load.invalid`;
+  const email = `royal-load-${runTag}-${String(i).padStart(4, '0')}@load.invalid`;
   const created = await admin.auth.admin.createUser({
     email,
     password,
@@ -74,6 +74,7 @@ for (let i = 1; i <= userCount; i += 1) {
   if (!cookie.includes('royal-auth')) throw new Error(`Auth cookie missing for ${email}`);
   rows.push({ email, cookie });
   fs.writeFileSync('load-cookies.json', JSON.stringify(rows));
+  if (i % 50 === 0 || i === userCount) console.log(`Prepared ${i}/${userCount} isolated authenticated users.`);
   if (authPacingMs > 0 && i < userCount) await sleep(authPacingMs);
 }
 
