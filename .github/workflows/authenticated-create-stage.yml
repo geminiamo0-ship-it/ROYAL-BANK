@@ -19,6 +19,9 @@ env:
   TARGET_URL: https://royal-bank-nhr8.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   STAGE_USERS: 150
+  LOAD_USER_COUNT: 150
+  LOAD_AUTH_PACING_MS: 1200
+  LOAD_SHARD: stage
 
 jobs:
   create_stage:
@@ -28,9 +31,6 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      LOAD_USER_COUNT: ${{ env.STAGE_USERS }}
-      LOAD_AUTH_PACING_MS: 1200
-      LOAD_SHARD: stage
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -146,7 +146,12 @@ jobs:
           const timing_summary = {};
           for (const name of timingNames) {
             const xs = rows.map((r) => r.server_timing?.[name]).filter(Number.isFinite);
-            timing_summary[name] = { p50_ms: pct(xs,.50), p95_ms: pct(xs,.95), max_ms: xs.length ? Number(Math.max(...xs).toFixed(2)) : null, samples: xs.length };
+            timing_summary[name] = {
+              p50_ms: pct(xs,.50),
+              p95_ms: pct(xs,.95),
+              max_ms: xs.length ? Number(Math.max(...xs).toFixed(2)) : null,
+              samples: xs.length,
+            };
           }
 
           const summary = {
