@@ -10,15 +10,22 @@ export default async function StudentLayout({
   const supabase = await createClient();
 
   // Protected student routes are authenticated authoritatively in middleware.
-  // The shell only needs presentation metadata, so read it from the already
-  // validated cookie-backed session instead of adding a PostgREST round-trip on
-  // every page render. No authorization decision is based on these values.
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // The shell only needs presentation metadata, so verify the cookie-backed JWT
+  // locally and read display claims from it. This avoids both an extra PostgREST
+  // round-trip and trusting the unverified user object returned by getSession().
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims;
 
-  const userEmail = session?.user.email || 'student@royalbank.com';
-  const fullName = session?.user.user_metadata?.full_name;
+  const userEmail =
+    typeof claims?.email === 'string' && claims.email.trim()
+      ? claims.email.trim()
+      : 'student@royalbank.com';
+
+  const userMetadata =
+    claims?.user_metadata && typeof claims.user_metadata === 'object'
+      ? claims.user_metadata
+      : null;
+  const fullName = userMetadata && 'full_name' in userMetadata ? userMetadata.full_name : undefined;
   const userName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : 'Doctor';
 
   return (
