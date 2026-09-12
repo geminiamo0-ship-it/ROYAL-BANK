@@ -1,4 +1,4 @@
-# trigger: 2026-09-12 nhr8 bank concurrency ramp
+# trigger: 2026-09-12 nhr8 bank cold-warm comparison
 name: Authenticated Production Diagnostic V8
 
 on:
@@ -16,8 +16,9 @@ env:
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
   LOAD_USER_COUNT: 75
   LOAD_AUTH_PACING_MS: 1200
-  BANK_RAMP_PHASES: 1,10,25,50,75
-  BANK_RAMP_COOLDOWN_MS: 15000
+  BANK_COLD_WARM_USERS: 75
+  BANK_COLD_IDLE_MS: 60000
+  BANK_WARM_GAP_MS: 1000
 
 jobs:
   diagnose-75:
@@ -37,8 +38,8 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Prepare 75 isolated authenticated users
         run: node scripts/auth-load-prepare.mjs
-      - name: Run bank-only concurrency ramp
-        run: node scripts/auth-bank-load-ramp.mjs
+      - name: Run 75-user first-vs-warm bank diagnostic
+        run: node scripts/auth-bank-cold-warm.mjs
       - name: Cleanup isolated load users
         if: always()
         run: node scripts/auth-load-cleanup.mjs
