@@ -13,22 +13,46 @@ permissions:
 
 concurrency:
   group: royal-authenticated-1000-burst
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   TARGET_URL: https://royal-bank-nhr8.vercel.app
   SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
-  LOAD_USER_COUNT: 1000
-  LOAD_AUTH_PACING_MS: 1200
 
 jobs:
-  burst:
+  cleanup_previous:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 10
     environment: production
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      LOAD_RUN_TAG_TO_CLEAN: '34668426147'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Cleanup users from canceled single-run prep
+        run: node scripts/auth-load-cleanup-run-tag.mjs
+
+  burst_shard:
+    needs: cleanup_previous
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      LOAD_USER_COUNT: 100
+      LOAD_AUTH_PACING_MS: 1200
+      LOAD_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,31 +64,30 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Prepare 1000 isolated authenticated users
+      - name: Prepare 100 isolated authenticated users for shard
         run: node scripts/auth-load-prepare-1000.mjs
 
-      - name: Run 1000-user 1000-request create burst
+      - name: Run shard 100-user create burst
         shell: bash
         run: |
-          cat > /tmp/royal-1000-burst.mjs <<'EOF'
+          cat > /tmp/royal-load-shard.mjs <<'EOF'
           import fs from 'node:fs';
           import crypto from 'node:crypto';
           import { performance } from 'node:perf_hooks';
 
           const target = (process.env.TARGET_URL || '').replace(/\/$/, '');
+          const shard = Number(process.env.LOAD_SHARD || 0);
           const users = JSON.parse(fs.readFileSync('load-cookies.json', 'utf8'));
-          if (!Array.isArray(users) || users.length !== 1000) {
-            throw new Error(`Expected exactly 1000 prepared users, got ${Array.isArray(users) ? users.length : 'invalid'}.`);
-          }
+          if (!Array.isArray(users) || users.length !== 100) throw new Error(`Shard ${shard}: expected 100 users, got ${Array.isArray(users) ? users.length : 'invalid'}`);
 
-          function percentile(values, q) {
+          const pct = (values, q) => {
             if (!values.length) return null;
-            const xs = [...values].sort((a, b) => a - b);
+            const xs = [...values].sort((a,b) => a-b);
             const i = Math.min(xs.length - 1, Math.max(0, Math.ceil(xs.length * q) - 1));
             return Number(xs[i].toFixed(2));
-          }
+          };
 
-          async function createExam(account, index, zero) {
+          async function one(account, index, zero) {
             const launchedAt = performance.now();
             try {
               const res = await fetch(`${target}/api/exam`, {
@@ -72,7 +95,7 @@ jobs:
                 headers: {
                   'content-type': 'application/json',
                   cookie: account.cookie,
-                  'user-agent': 'RoyalBank-Authorized-LoadTest/1000-burst',
+                  'user-agent': `RoyalBank-Authorized-LoadTest/1000-shard-${shard}`,
                 },
                 body: JSON.stringify({
                   action: 'create',
@@ -92,64 +115,118 @@ jobs:
               });
               await res.arrayBuffer();
               const endedAt = performance.now();
-              return {
-                index,
-                status: res.status,
-                duration_ms: endedAt - launchedAt,
-                launch_offset_ms: launchedAt - zero,
-              };
+              return { index, status: res.status, duration_ms: endedAt - launchedAt, launch_offset_ms: launchedAt - zero };
             } catch (error) {
               const endedAt = performance.now();
-              return {
-                index,
-                status: 0,
-                duration_ms: endedAt - launchedAt,
-                launch_offset_ms: launchedAt - zero,
-                error: String(error?.message || error).slice(0, 160),
-              };
+              return { index, status: 0, duration_ms: endedAt - launchedAt, launch_offset_ms: launchedAt - zero, error: String(error?.message || error).slice(0,160) };
             }
           }
 
-          console.log('BURST_START users=1000 requests=1000 action=create questions=40');
+          const burstStartedAtMs = Date.now();
           const zero = performance.now();
-          const rows = await Promise.all(users.map((account, index) => createExam(account, index + 1, zero)));
-          const finished = performance.now();
-
+          const rows = await Promise.all(users.map((account, index) => one(account, index + 1, zero)));
+          const wallMs = performance.now() - zero;
           const durations = rows.map((r) => r.duration_ms);
           const statuses = {};
           for (const row of rows) statuses[row.status] = (statuses[row.status] || 0) + 1;
-          const ok = rows.filter((r) => r.status >= 200 && r.status < 300).length;
-          const errors429 = rows.filter((r) => r.status === 429).length;
-          const errors5xx = rows.filter((r) => r.status >= 500 && r.status <= 599).length;
-          const networkErrors = rows.filter((r) => r.status === 0).length;
-          const wallMs = finished - zero;
+          const success = rows.filter((r) => r.status >= 200 && r.status < 300).length;
           const summary = {
+            shard,
             target,
-            users: 1000,
+            users: 100,
             requests: rows.length,
             action: 'create',
             questions_per_session: 40,
-            success: ok,
-            success_rate: Number((ok / rows.length).toFixed(4)),
+            burst_started_at_ms: burstStartedAtMs,
+            success,
+            success_rate: Number((success / rows.length).toFixed(4)),
             statuses,
-            errors_429: errors429,
-            errors_5xx: errors5xx,
-            network_errors: networkErrors,
-            p50_ms: percentile(durations, 0.50),
-            p95_ms: percentile(durations, 0.95),
-            p99_ms: percentile(durations, 0.99),
+            p50_ms: pct(durations,.50),
+            p95_ms: pct(durations,.95),
+            p99_ms: pct(durations,.99),
             max_ms: Number(Math.max(...durations).toFixed(2)),
-            launch_skew_ms: Number(Math.max(...rows.map((r) => r.launch_offset_ms)).toFixed(2)),
             wall_ms: Number(wallMs.toFixed(2)),
             achieved_rps: Number((rows.length / (wallMs / 1000)).toFixed(2)),
           };
+          fs.writeFileSync(`royal-load-shard-${shard}.json`, JSON.stringify({ summary, rows }, null, 2));
+          console.log(`ROYAL_LOAD_SHARD_SUMMARY ${JSON.stringify(summary)}`);
+          EOF
+          node /tmp/royal-load-shard.mjs
 
+      - name: Upload shard result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: royal-load-shard-${{ matrix.shard }}
+          path: royal-load-shard-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Cleanup isolated load users for shard
+        if: always()
+        run: node scripts/auth-load-cleanup-1000.mjs
+
+  aggregate:
+    needs: burst_shard
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: royal-load-shard-*
+          path: results
+          merge-multiple: true
+
+      - name: Aggregate 1000-user result
+        shell: bash
+        run: |
+          cat > /tmp/aggregate.mjs <<'EOF'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const dir = 'results';
+          const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^royal-load-shard-\d+\.json$/.test(f)) : [];
+          const docs = files.map((file) => JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')));
+          const rows = docs.flatMap((d) => d.rows || []);
+          const starts = docs.map((d) => d.summary?.burst_started_at_ms).filter(Number.isFinite);
+          const durations = rows.map((r) => r.duration_ms).filter(Number.isFinite);
+          const pct = (values, q) => {
+            if (!values.length) return null;
+            const xs = [...values].sort((a,b) => a-b);
+            const i = Math.min(xs.length - 1, Math.max(0, Math.ceil(xs.length * q) - 1));
+            return Number(xs[i].toFixed(2));
+          };
+          const statuses = {};
+          for (const row of rows) statuses[row.status] = (statuses[row.status] || 0) + 1;
+          const success = rows.filter((r) => r.status >= 200 && r.status < 300).length;
+          const summary = {
+            target: 'https://royal-bank-nhr8.vercel.app',
+            shards_completed: docs.length,
+            users: rows.length,
+            requests: rows.length,
+            action: 'create',
+            questions_per_session: 40,
+            success,
+            success_rate: rows.length ? Number((success / rows.length).toFixed(4)) : 0,
+            statuses,
+            errors_429: rows.filter((r) => r.status === 429).length,
+            errors_5xx: rows.filter((r) => r.status >= 500 && r.status <= 599).length,
+            network_errors: rows.filter((r) => r.status === 0).length,
+            p50_ms: pct(durations,.50),
+            p95_ms: pct(durations,.95),
+            p99_ms: pct(durations,.99),
+            max_ms: durations.length ? Number(Math.max(...durations).toFixed(2)) : null,
+            shard_start_skew_ms: starts.length ? Math.max(...starts) - Math.min(...starts) : null,
+            shard_summaries: docs.map((d) => d.summary).sort((a,b) => a.shard-b.shard),
+          };
           fs.writeFileSync('royal-load-1000-results.json', JSON.stringify({ summary, rows }, null, 2));
           console.log(`ROYAL_LOAD_1000_SUMMARY ${JSON.stringify(summary)}`);
           EOF
-          node /tmp/royal-1000-burst.mjs
+          node /tmp/aggregate.mjs
 
-      - name: Publish summary
+      - name: Publish aggregate summary
         if: always()
         shell: bash
         run: |
@@ -157,6 +234,7 @@ jobs:
             echo '## Royal authenticated 1000-user burst' >> "$GITHUB_STEP_SUMMARY"
             echo '' >> "$GITHUB_STEP_SUMMARY"
             jq -r '.summary | "- Target: " + .target,
+              "- Shards: " + (.shards_completed|tostring) + "/10",
               "- Users / requests: " + (.users|tostring) + " / " + (.requests|tostring),
               "- Success: " + (.success|tostring) + " (" + ((.success_rate * 100)|tostring) + "%)",
               "- Statuses: " + (.statuses|tojson),
@@ -167,11 +245,10 @@ jobs:
               "- p95: " + (.p95_ms|tostring) + " ms",
               "- p99: " + (.p99_ms|tostring) + " ms",
               "- Max: " + (.max_ms|tostring) + " ms",
-              "- Achieved RPS: " + (.achieved_rps|tostring),
-              "- Launch skew: " + (.launch_skew_ms|tostring) + " ms"' royal-load-1000-results.json >> "$GITHUB_STEP_SUMMARY" || true
+              "- Shard start skew: " + (.shard_start_skew_ms|tostring) + " ms"' royal-load-1000-results.json >> "$GITHUB_STEP_SUMMARY" || true
           fi
 
-      - name: Upload result artifact
+      - name: Upload aggregate result
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -179,7 +256,3 @@ jobs:
           path: royal-load-1000-results.json
           if-no-files-found: ignore
           retention-days: 3
-
-      - name: Cleanup isolated load users
-        if: always()
-        run: node scripts/auth-load-cleanup-1000.mjs
