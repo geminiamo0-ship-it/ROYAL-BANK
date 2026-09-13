@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(12);
+SELECT extensions.plan(13);
 
 INSERT INTO auth.users (
     instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -167,7 +167,7 @@ SELECT extensions.is(
 );
 SELECT extensions.is(
     (public.get_study_plan_dashboard(9851)->'plan')::text,
-    NULL::text,
+    'null'::text,
     'another entitled user receives no active plan belonging to someone else'
 );
 SELECT extensions.throws_ok(
