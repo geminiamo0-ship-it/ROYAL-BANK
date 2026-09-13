@@ -129,6 +129,14 @@ SELECT extensions.is(
     'completed topic remains completed after plan edits'
 );
 
+CREATE TEMP TABLE linked_task(task_id bigint);
+INSERT INTO linked_task
+SELECT id
+FROM public.study_plan_tasks
+WHERE plan_id=(SELECT id FROM created_plan)
+ORDER BY id DESC
+LIMIT 1;
+
 CREATE TEMP TABLE study_session(id uuid);
 INSERT INTO study_session
 SELECT public.create_exam_session(
@@ -136,7 +144,7 @@ SELECT public.create_exam_session(
     ARRAY[]::text[],ARRAY[]::text[],'[]'::jsonb,'all'
 );
 SELECT public.link_study_plan_session(
-    (SELECT id FROM public.study_plan_tasks WHERE plan_id=(SELECT id FROM created_plan) ORDER BY id DESC LIMIT 1),
+    (SELECT task_id FROM linked_task),
     (SELECT id FROM study_session)
 );
 SELECT extensions.is(
@@ -163,7 +171,7 @@ SELECT extensions.is(
     'another entitled user receives no active plan belonging to someone else'
 );
 SELECT extensions.throws_ok(
-    format('SELECT public.mark_study_plan_task_complete(%s)', (SELECT id FROM public.study_plan_tasks WHERE plan_id=(SELECT id FROM created_plan) ORDER BY id DESC LIMIT 1)),
+    format('SELECT public.mark_study_plan_task_complete(%s)', (SELECT task_id FROM linked_task)),
     'P0001',
     'STUDY_PLAN_TASK_NOT_FOUND',
     'another user cannot mutate the owner plan task'
