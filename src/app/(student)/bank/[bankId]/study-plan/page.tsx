@@ -4,6 +4,7 @@ import {
   getStudyPlanDashboard,
   StudyPlanAccessError,
   StudyPlanAuthenticationError,
+  type StudyPlanDashboard,
 } from '@/lib/study-plan';
 
 export const preferredRegion = 'dub1';
@@ -17,9 +18,9 @@ export default async function StudyPlanPage({
   const parsedBankId = Number(bankId);
   if (!Number.isInteger(parsedBankId) || parsedBankId <= 0) notFound();
 
+  let dashboard: StudyPlanDashboard;
   try {
-    const dashboard = await getStudyPlanDashboard(parsedBankId);
-    return <StudyPlanDashboardClient bankId={parsedBankId} initialDashboard={dashboard} />;
+    dashboard = await getStudyPlanDashboard(parsedBankId);
   } catch (error) {
     if (error instanceof StudyPlanAuthenticationError) {
       redirect(`/login?redirect=/bank/${parsedBankId}/study-plan`);
@@ -29,4 +30,6 @@ export default async function StudyPlanPage({
     }
     throw error;
   }
+
+  return <StudyPlanDashboardClient bankId={parsedBankId} initialDashboard={dashboard} />;
 }
