@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -44,6 +44,17 @@ function planStatusCopy(status: ActiveStudyPlan['status']) {
     return { label: 'Ahead', className: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/35 dark:text-emerald-300' };
   }
   return { label: 'On track', className: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300' };
+}
+
+function getUpcomingGroups(tasks: StudyPlanTask[], today: string): Array<[string, StudyPlanTask[]]> {
+  const grouped = new Map<string, StudyPlanTask[]>();
+  for (const task of tasks) {
+    if (task.scheduledDate < today || task.status === 'completed') continue;
+    const list = grouped.get(task.scheduledDate) ?? [];
+    list.push(task);
+    grouped.set(task.scheduledDate, list);
+  }
+  return Array.from(grouped.entries()).slice(0, 10);
 }
 
 export function StudyPlanDashboardClient({
@@ -110,16 +121,7 @@ export function StudyPlanDashboardClient({
   const today = localDateKey();
   const todayTasks = plan.tasks.filter((task) => task.scheduledDate === today);
   const overdue = plan.tasks.filter((task) => task.status === 'pending' && task.scheduledDate < today);
-  const upcomingGroups = useMemo(() => {
-    const grouped = new Map<string, StudyPlanTask[]>();
-    for (const task of plan.tasks) {
-      if (task.scheduledDate < today || task.status === 'completed') continue;
-      const list = grouped.get(task.scheduledDate) ?? [];
-      list.push(task);
-      grouped.set(task.scheduledDate, list);
-    }
-    return Array.from(grouped.entries()).slice(0, 10);
-  }, [plan.tasks, today]);
+  const upcomingGroups = getUpcomingGroups(plan.tasks, today);
   const status = planStatusCopy(plan.status);
 
   const markComplete = (task: StudyPlanTask) => {
@@ -334,7 +336,7 @@ function TaskRow({
         <div className="flex flex-wrap gap-2">
           {task.articleId ? (
             <Link
-              href={`/bank/${bankId}/textbook/high-yield?article=${encodeURIComponent(task.articleId)}`}
+              href={`/bank/${bankId}/textbook/high-yield/${encodeURIComponent(task.articleId)}`}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
             >
               <BookOpen className="h-3.5 w-3.5" /> Study Topic
