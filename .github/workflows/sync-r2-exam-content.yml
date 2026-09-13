@@ -8,6 +8,11 @@ on:
         required: true
         default: false
         type: boolean
+  push:
+    branches:
+      - ops/r2-resync-20260913
+    paths:
+      - '.github/workflows/sync-r2-exam-content.yml'
 
 permissions:
   contents: read
