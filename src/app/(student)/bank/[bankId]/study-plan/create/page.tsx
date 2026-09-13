@@ -5,6 +5,8 @@ import {
   getStudyPlanDashboard,
   StudyPlanAccessError,
   StudyPlanAuthenticationError,
+  type StudyPlanCatalog,
+  type StudyPlanDashboard,
 } from '@/lib/study-plan';
 
 export const preferredRegion = 'dub1';
@@ -20,28 +22,13 @@ export default async function StudyPlanCreatePage({
   const parsedBankId = Number(bankId);
   if (!Number.isInteger(parsedBankId) || parsedBankId <= 0) notFound();
 
+  let catalog: StudyPlanCatalog;
+  let dashboard: StudyPlanDashboard;
   try {
-    const [catalog, dashboard] = await Promise.all([
+    [catalog, dashboard] = await Promise.all([
       getStudyPlanCatalog(parsedBankId),
       getStudyPlanDashboard(parsedBankId),
     ]);
-
-    if (catalog.topicCount === 0) {
-      redirect(`/bank/${parsedBankId}/study-plan`);
-    }
-
-    const editing = query.edit === '1' && dashboard.plan;
-    if (!editing && dashboard.plan) {
-      redirect(`/bank/${parsedBankId}/study-plan`);
-    }
-
-    return (
-      <StudyPlanWizardClient
-        bankId={parsedBankId}
-        catalog={catalog}
-        initialPlan={editing ? dashboard.plan : null}
-      />
-    );
   } catch (error) {
     if (error instanceof StudyPlanAuthenticationError) {
       redirect(`/login?redirect=/bank/${parsedBankId}/study-plan/create`);
@@ -51,4 +38,21 @@ export default async function StudyPlanCreatePage({
     }
     throw error;
   }
+
+  if (catalog.topicCount === 0) {
+    redirect(`/bank/${parsedBankId}/study-plan`);
+  }
+
+  const editing = query.edit === '1' ? dashboard.plan : null;
+  if (!editing && dashboard.plan) {
+    redirect(`/bank/${parsedBankId}/study-plan`);
+  }
+
+  return (
+    <StudyPlanWizardClient
+      bankId={parsedBankId}
+      catalog={catalog}
+      initialPlan={editing}
+    />
+  );
 }
