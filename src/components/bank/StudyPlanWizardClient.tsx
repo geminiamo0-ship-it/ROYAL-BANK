@@ -57,7 +57,7 @@ export function StudyPlanWizardClient({
   initialPlan?: ActiveStudyPlan | null;
 }) {
   const router = useRouter();
-  const defaults = useMemo(defaultDates, []);
+  const defaults = useMemo(() => defaultDates(), []);
   const initialCategoryOrder = useMemo(() => {
     if (!initialPlan) return catalog.categories.map((category) => category.name);
     const priorities = new Map(initialPlan.categories.map((item) => [item.category, item.priority]));
