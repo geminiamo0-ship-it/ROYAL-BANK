@@ -45,6 +45,7 @@ jobs:
       - name: Verify
         run: |
           set -o pipefail
+          node --test scripts/exam-load-metrics.test.mjs scripts/exam-timing.test.mjs
           npm run verify 2>&1 | tee verify.log
 
       - name: Upload verification log
@@ -55,3 +56,4 @@ jobs:
           path: verify.log
           if-no-files-found: warn
           retention-days: 3
+
