@@ -18,7 +18,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
-      LOAD_USER_COUNT: 6
+      LOAD_USER_COUNT: 26
       LOAD_AUTH_PACING_MS: 1600
     steps:
       - uses: actions/checkout@v4
@@ -178,8 +178,12 @@ jobs:
            if(a.status!==200)throw Error('Answer failed');
            const b=await req(u,'bootstrap',{p_session_id:sid});
            if(b.status!==200)throw Error('Resume failed');
+           if(!b.json?.answers?.some(x=>Number(x.question_id)===Number(q.id)&&Number(x.selected_option_id)===Number(q.options[0].id)))throw Error('Saved answer missing after resume');
+           report.answer_persistence_verified=true;
            const complete=await req(u,'complete',{p_session_id:sid});if(complete.status!==200)throw Error('Complete failed');
            const review=await req(u,'reviewBootstrap',{p_session_id:sid});if(review.status!==200)throw Error('Review failed');
+           if(!review.json?.answers?.some(x=>Number(x.question_id)===Number(q.id)&&Number(x.selected_option_id)===Number(q.options[0].id)))throw Error('Saved answer missing in completed review');
+           report.review_persistence_verified=true;
           }
           try{
            await journey(users[0]);
@@ -191,12 +195,12 @@ jobs:
           finally{save();console.log('DIAGNOSTIC_SUMMARY '+JSON.stringify(report));}
           
           PROBE
-      - name: Confirm production project and prepare six isolated users
+      - name: Confirm production project and prepare 26 isolated users
         shell: bash
         run: |
           node -e "if(new URL(process.env.SUPABASE_URL).hostname !== 'trnvsgenmzhyuayxxdoq.supabase.co')throw Error('Unexpected Supabase project')"
           node scripts/diagnostic-prepare.mjs
-      - name: Test journey then five concurrent creates
+      - name: Test journey then 25 concurrent creates
         run: node scripts/diagnostic-run.mjs
       - name: Cleanup isolated test users
         if: always()
