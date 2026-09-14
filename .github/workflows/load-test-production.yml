@@ -2,9 +2,6 @@ name: Authenticated staged exam load
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ops/exam-observability-20260914]
-    paths: [.github/workflows/load-test-production.yml]
 
 permissions:
   contents: read
@@ -23,7 +20,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
-      LOAD_USER_COUNT: 16
+      LOAD_USER_COUNT: 94
       LOAD_AUTH_PACING_MS: 1600
     steps:
       - uses: actions/checkout@v4
