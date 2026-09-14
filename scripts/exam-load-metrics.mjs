@@ -54,6 +54,7 @@ export async function runStage({ rate, durationSeconds, send, users, maxLatencyM
     pending.add(task);
   }
   await Promise.all(pending);
+  if (!stopReason) await sleep(Math.max(0, start + durationSeconds * 1000 - performance.now()));
   const elapsedMs = performance.now() - start;
   const summary = summarize(rows);
   if (rows.length !== expected) stopReason ||= 'incomplete_stage';
