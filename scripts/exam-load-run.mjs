@@ -9,7 +9,7 @@ if (new URL(process.env.SUPABASE_URL).hostname !== 'trnvsgenmzhyuayxxdoq.supabas
   throw new Error('Unexpected Supabase project');
 }
 const users = JSON.parse(fs.readFileSync('load-cookies.json', 'utf8'));
-if (users.length !== 16) throw new Error('Expected exactly 16 isolated test users');
+if (users.length !== 94) throw new Error('Expected exactly 94 isolated test users');
 const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY,
   { auth: { persistSession: false, autoRefreshToken: false } });
 const report = { target, at: new Date().toISOString(), tooling_commit: process.env.LOAD_TOOLING_COMMIT || process.env.GITHUB_SHA,
@@ -64,7 +64,7 @@ async function setupRequest(user, action, args, token) {
 try {
   // Populate actual history through the API. Correctness lookup is limited to a
   // question just disclosed in an isolated test session, and is never logged.
-  for (const user of users) {
+  async function seedHistory(user) {
     const created = await setupRequest(user, 'create', argsFor('all'));
     const session = created.session.id;
     const window = await setupRequest(user, 'window',
@@ -87,21 +87,35 @@ try {
     const reviewed = await setupRequest(user, 'reviewBootstrap', { p_session_id: session });
     if (!saved(reviewed)) throw new Error('Incorrect answer did not persist in review');
   }
+  // Three independent setup journeys at a time; drain all of them on failure.
+  for (let start = 0; start < users.length; start += 3) {
+    const results = await Promise.allSettled(users.slice(start, start + 3).map(seedHistory));
+    const failed = results.find(r => r.status === 'rejected');
+    if (failed) throw failed.reason;
+    console.log(`History verified for ${Math.min(start + 3, users.length)}/${users.length} isolated users`);
+  }
   report.history_verified_users = users.length;
   // Validate all selectors before load. Incorrect-only has one eligible seeded
   // answer per user and uses limit=1; it must not be compared as a 40-question case.
   for (let i = 0; i < scenarios.length; i++) {
     await setupRequest(users[i], 'create', argsFor(scenarios[i]));
   }
+  // Live policy: four creations/10 minutes, then a 30-minute account block.
+  // Reserve four preflight users and disjoint cohorts; each load user creates
+  // one seed + two measured sessions, below both burst and active-session limits.
+  let cohortOffset = 4;
   for (const rate of [1, 3, 5]) {
-    const stage = await runStage({ rate, durationSeconds: 20, users: users.length,
+    const cohortSize = rate * 10;
+    const stage = await runStage({ rate, durationSeconds: 20, users: cohortSize,
       send: async (i, userIndex) => {
-        const scenario = scenarios[(Math.floor(i / users.length) + userIndex) % scenarios.length];
-        return (await request(users[userIndex], 'create', argsFor(scenario), null, scenario)).row;
+        const scenario = scenarios[i % scenarios.length];
+        return (await request(users[cohortOffset + userIndex], 'create', argsFor(scenario), null, scenario)).row;
       } });
     stage.by_scenario = Object.fromEntries(scenarios.map(s => [s,
       summarize(stage.rows.filter(r => r.scenario === s))]));
+    stage.cohort_users = cohortSize;
     report.stages.push(stage); save();
+    cohortOffset += cohortSize;
     console.log('EXAM_LOAD_STAGE ' + JSON.stringify({ ...stage, rows: undefined }));
     if (!stage.passed) throw new Error(`Stopped at ${rate} RPS: ${stage.stop_reason}`);
   }
