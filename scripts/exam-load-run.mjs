@@ -12,7 +12,7 @@ const users = JSON.parse(fs.readFileSync('load-cookies.json', 'utf8'));
 if (users.length !== 16) throw new Error('Expected exactly 16 isolated test users');
 const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY,
   { auth: { persistSession: false, autoRefreshToken: false } });
-const report = { target, at: new Date().toISOString(), tooling_commit: process.env.GITHUB_SHA,
+const report = { target, at: new Date().toISOString(), tooling_commit: process.env.LOAD_TOOLING_COMMIT || process.env.GITHUB_SHA,
   deployed_commits: [], setup: [], stages: [], passed: false };
 const save = () => fs.writeFileSync('exam-load-results.json', JSON.stringify(report, null, 2));
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
