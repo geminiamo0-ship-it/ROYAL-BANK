@@ -19,17 +19,17 @@ jobs:
     timeout-minutes: 15
     environment: production
     env:
-      LOAD_TOOLING_COMMIT: 3822b9a1d65a5dc7ef8911cbd3df12315aa3e298
+      LOAD_TOOLING_COMMIT: da8efa0ac39538b44633be8db3f78142ad14f420
       TARGET_URL: https://royal-bank-nhr8.vercel.app
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
-      LOAD_USER_COUNT: 16
+      LOAD_USER_COUNT: 94
       LOAD_AUTH_PACING_MS: 1600
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 3822b9a1d65a5dc7ef8911cbd3df12315aa3e298
+          ref: da8efa0ac39538b44633be8db3f78142ad14f420
       - uses: actions/setup-node@v4
         with:
           node-version: 24
