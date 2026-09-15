@@ -1,0 +1,26 @@
+name: Export V2 snapshot
+
+on:
+  push:
+    branches:
+      - ops/export-v2-20260915
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack repository snapshot
+        run: |
+          rm -rf node_modules .next
+          tar --exclude=.git --exclude=node_modules --exclude=.next -czf royal-v2-source.tar.gz .
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: royal-v2-source
+          path: royal-v2-source.tar.gz
+          retention-days: 1
