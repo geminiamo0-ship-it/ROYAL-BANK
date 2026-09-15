@@ -175,22 +175,6 @@ async function recordRateLimitRejection(options: {
   }
 }
 
-function addServerTiming(
-  headers: Headers,
-  enabled: boolean,
-  metrics: {
-    bodyParseMs: number;
-    authMs: number;
-    rateLimitMs: number;
-    upstreamFetchMs: number;
-    responseReadMs: number;
-    totalServerMs: number;
-  },
-): void {
-  if (!enabled) return;
-  headers.set('server-timing', serverTimingHeader(metrics));
-}
-
 export async function POST(request: Request) {
   const totalServerStart = performance.now();
   const initialRequestDeadline = totalServerStart + EXAM_REQUEST_BUDGET_MS;
@@ -200,459 +184,469 @@ export async function POST(request: Request) {
   let rateLimitMs = 0;
   let upstreamFetchMs = 0;
   let responseReadMs = 0;
+  let releaseLookupMs = 0;
+  let r2HydrateMs = 0;
+  let windowFastPathMs = 0;
+  let windowSignMs = 0;
 
-  const contentLength = Number(request.headers.get('content-length') || 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
-    return jsonError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
-  }
+  async function handleRequest(): Promise<Response> {
 
-  const accessToken = readBearerToken(request);
-  if (!accessToken) {
-    return jsonError(401, 'AUTH_REQUIRED', 'Authentication required.');
-  }
-
-  const { url: supabaseUrl, publishableKey } = getSupabaseServerConfig();
-  const gatewayKeyId = process.env.ROYAL_GATEWAY_KEY_ID || '';
-  const gatewayKey = process.env.ROYAL_GATEWAY_KEY || '';
-  const riskHmacSecret = process.env.ROYAL_RISK_HMAC_SECRET || '';
-  const rateLimitEnabled = process.env.ROYAL_GATEWAY_RATE_LIMIT_ENABLED === 'true';
-  const rateLimitId = process.env.ROYAL_GATEWAY_RATE_LIMIT_ID || '';
-  const serverTimingEnabled = process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true';
-
-  const requestTimeoutResponse = (stage: string): Response => {
-    const response = jsonError(
-      504,
-      'EXAM_REQUEST_TIMEOUT',
-      'Exam request took too long to complete.',
-    );
-    response.headers.set('x-royal-request-id', responseRequestId);
-    response.headers.set('x-royal-timeout-stage', stage);
-    addServerTiming(response.headers, serverTimingEnabled, {
-      bodyParseMs,
-      authMs,
-      rateLimitMs,
-      upstreamFetchMs,
-      responseReadMs,
-      totalServerMs: performance.now() - totalServerStart,
-    });
-    return response;
-  };
-
-  if (!supabaseUrl || !publishableKey || !gatewayKeyId || !gatewayKey || !riskHmacSecret) {
-    return jsonError(503, 'EXAM_GATEWAY_NOT_CONFIGURED', 'Exam gateway is not configured.');
-  }
-  if (rateLimitEnabled && !rateLimitId) {
-    return jsonError(503, 'EXAM_RATE_LIMIT_NOT_CONFIGURED', 'Exam rate limit is not configured.');
-  }
-  if (PINNED_SUPABASE_JWKS.kind === 'invalid') {
-    return jsonError(503, 'EXAM_AUTH_NOT_CONFIGURED', 'Exam authentication is not configured.');
-  }
-
-  const bodyParseStart = performance.now();
-  let rawRequestBody: unknown;
-  try {
-    const rawBody = await withinRequestBudget(initialRequestDeadline, () => request.text());
-    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+    const contentLength = Number(request.headers.get('content-length') || 0);
+    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
       return jsonError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
     }
-    rawRequestBody = JSON.parse(rawBody) as unknown;
-  } catch (error) {
-    bodyParseMs = performance.now() - bodyParseStart;
-    if (isTimeoutError(error)) return requestTimeoutResponse('body_parse');
-    return jsonError(400, 'INVALID_REQUEST', 'Invalid request body.');
-  }
 
-  const parsedRequest = parseExamGatewayRequest(rawRequestBody);
-  bodyParseMs = performance.now() - bodyParseStart;
-  if (!parsedRequest.ok) {
-    if (parsedRequest.code === 'INVALID_EXAM_ACTION') {
-      return jsonError(400, 'INVALID_EXAM_ACTION', 'Unsupported exam action.');
+    const accessToken = readBearerToken(request);
+    if (!accessToken) {
+      return jsonError(401, 'AUTH_REQUIRED', 'Authentication required.');
     }
-    return jsonError(400, 'INVALID_REQUEST', 'Invalid exam RPC arguments.');
-  }
 
-  const body = parsedRequest.value;
-  const requestDeadline =
-    totalServerStart +
-    (body.action === 'create' ? CREATE_REQUEST_BUDGET_MS : EXAM_REQUEST_BUDGET_MS);
-  const windowAction = body.action === 'window' || body.action === 'reviewWindow';
-  const windowAccessPresented = Boolean(request.headers.get(EXAM_WINDOW_ACCESS_HEADER));
-  const authStart = performance.now();
+    const { url: supabaseUrl, publishableKey } = getSupabaseServerConfig();
+    const gatewayKeyId = process.env.ROYAL_GATEWAY_KEY_ID || '';
+    const gatewayKey = process.env.ROYAL_GATEWAY_KEY || '';
+    const riskHmacSecret = process.env.ROYAL_RISK_HMAC_SECRET || '';
+    const rateLimitEnabled = process.env.ROYAL_GATEWAY_RATE_LIMIT_ENABLED === 'true';
+    const rateLimitId = process.env.ROYAL_GATEWAY_RATE_LIMIT_ID || '';
 
-  const authClient = createClient(supabaseUrl, publishableKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-      detectSessionInUrl: false,
-    },
-    db: { retry: false },
-  });
-
-  if (PINNED_SUPABASE_JWKS.kind === 'ready') {
-    const header = readJwtHeader(accessToken);
-    if (!header) {
-      return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
-    }
-    if (!pinnedJwkForHeader(PINNED_SUPABASE_JWKS.jwks, header)) {
-      return jsonError(
-        503,
-        'EXAM_AUTH_KEY_UNAVAILABLE',
-        'Exam authentication is temporarily unavailable.',
+    const requestTimeoutResponse = (stage: string): Response => {
+      const response = jsonError(
+        504,
+        'EXAM_REQUEST_TIMEOUT',
+        'Exam request took too long to complete.',
       );
+      response.headers.set('x-royal-request-id', responseRequestId);
+      response.headers.set('x-royal-timeout-stage', stage);
+      return response;
+    };
+
+    if (!supabaseUrl || !publishableKey || !gatewayKeyId || !gatewayKey || !riskHmacSecret) {
+      return jsonError(503, 'EXAM_GATEWAY_NOT_CONFIGURED', 'Exam gateway is not configured.');
     }
-  }
+    if (rateLimitEnabled && !rateLimitId) {
+      return jsonError(503, 'EXAM_RATE_LIMIT_NOT_CONFIGURED', 'Exam rate limit is not configured.');
+    }
+    if (PINNED_SUPABASE_JWKS.kind === 'invalid') {
+      return jsonError(503, 'EXAM_AUTH_NOT_CONFIGURED', 'Exam authentication is not configured.');
+    }
 
-  let claimsData;
-  let claimsError;
-  try {
-    const result = await withinRequestBudget(requestDeadline, () =>
-      PINNED_SUPABASE_JWKS.kind === 'ready'
-        ? authClient.auth.getClaims(accessToken, { jwks: PINNED_SUPABASE_JWKS.jwks })
-        : authClient.auth.getClaims(accessToken),
-    );
-    claimsData = result.data;
-    claimsError = result.error;
-  } catch (error) {
-    authMs = performance.now() - authStart;
-    if (isTimeoutError(error)) return requestTimeoutResponse('auth_claims');
-    return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
-  }
-
-  const claims = claimsData?.claims;
-  const userId = claims?.sub;
-  const expectedIssuer = `${supabaseUrl.replace(/\/+$/, '')}/auth/v1`;
-
-  if (
-    claimsError ||
-    typeof userId !== 'string' ||
-    !userId ||
-    claims?.iss !== expectedIssuer ||
-    !audienceIncludesAuthenticated(claims?.aud) ||
-    claims?.role !== 'authenticated'
-  ) {
-    return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
-  }
-  if (requiresPasswordChange(claims)) {
-    return jsonError(403, 'PASSWORD_CHANGE_REQUIRED', 'Change your password before continuing.');
-  }
-  authMs = performance.now() - authStart;
-
-  const validateAuthoritativeUser = async (): Promise<Response | null> => {
-    const currentUserStart = performance.now();
+    const bodyParseStart = performance.now();
+    let rawRequestBody: unknown;
     try {
-      const {
-        data: { user },
-        error,
-      } = await withinRequestBudget(requestDeadline, () => authClient.auth.getUser(accessToken));
-      authMs += performance.now() - currentUserStart;
+      const rawBody = await withinRequestBudget(initialRequestDeadline, () => request.text());
+      if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+        return jsonError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
+      }
+      rawRequestBody = JSON.parse(rawBody) as unknown;
+    } catch (error) {
+      bodyParseMs = performance.now() - bodyParseStart;
+      if (isTimeoutError(error)) return requestTimeoutResponse('body_parse');
+      return jsonError(400, 'INVALID_REQUEST', 'Invalid request body.');
+    }
 
-      if (error || !user || user.id !== userId) {
+    const parsedRequest = parseExamGatewayRequest(rawRequestBody);
+    bodyParseMs = performance.now() - bodyParseStart;
+    if (!parsedRequest.ok) {
+      if (parsedRequest.code === 'INVALID_EXAM_ACTION') {
+        return jsonError(400, 'INVALID_EXAM_ACTION', 'Unsupported exam action.');
+      }
+      return jsonError(400, 'INVALID_REQUEST', 'Invalid exam RPC arguments.');
+    }
+
+    const body = parsedRequest.value;
+    const requestDeadline =
+      totalServerStart +
+      (body.action === 'create' ? CREATE_REQUEST_BUDGET_MS : EXAM_REQUEST_BUDGET_MS);
+    const windowAction = body.action === 'window' || body.action === 'reviewWindow';
+    const windowAccessPresented = Boolean(request.headers.get(EXAM_WINDOW_ACCESS_HEADER));
+    const authStart = performance.now();
+
+    const authClient = createClient(supabaseUrl, publishableKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+      db: { retry: false },
+    });
+
+    if (PINNED_SUPABASE_JWKS.kind === 'ready') {
+      const header = readJwtHeader(accessToken);
+      if (!header) {
         return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
       }
-      if (user.app_metadata?.must_change_password === true) {
-        return jsonError(403, 'PASSWORD_CHANGE_REQUIRED', 'Change your password before continuing.');
-      }
-      return null;
-    } catch (error) {
-      authMs += performance.now() - currentUserStart;
-      if (isTimeoutError(error)) return requestTimeoutResponse('authoritative_user');
-      return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
-    }
-  };
-
-  if (windowAccessPresented && !windowAction) {
-    const authError = await validateAuthoritativeUser();
-    if (authError) return authError;
-  }
-
-  const proof = buildGatewayProof({ request, gatewayKeyId, gatewayKey, riskHmacSecret });
-  const rateLimitStart = performance.now();
-
-  if (rateLimitEnabled) {
-    try {
-      const { rateLimited, error: rateLimitError } = await withinRequestBudget(
-        requestDeadline,
-        () => checkVercelRateLimit(rateLimitId, { request, rateLimitKey: userId }),
-      );
-
-      if (rateLimitError) {
-        if (!RATE_LIMIT_FAIL_OPEN_ACTIONS.has(body.action)) {
-          return jsonError(503, 'EXAM_RATE_LIMIT_UNAVAILABLE', 'Exam service is temporarily unavailable.');
-        }
-      } else if (rateLimited) {
-        await recordRateLimitRejection({
-          supabaseUrl,
-          publishableKey,
-          accessToken,
-          proof,
-          action: body.action,
-          requestDeadline,
-        });
+      if (!pinnedJwkForHeader(PINNED_SUPABASE_JWKS.jwks, header)) {
         return jsonError(
-          429,
-          'RATE_LIMITED',
-          'Too many requests. Try again shortly.',
-          RATE_LIMIT_RETRY_AFTER_SECONDS,
+          503,
+          'EXAM_AUTH_KEY_UNAVAILABLE',
+          'Exam authentication is temporarily unavailable.',
         );
       }
-    } catch (error) {
-      rateLimitMs = performance.now() - rateLimitStart;
-      if (isTimeoutError(error)) return requestTimeoutResponse('rate_limit');
-      if (!RATE_LIMIT_FAIL_OPEN_ACTIONS.has(body.action)) {
-        return jsonError(503, 'EXAM_RATE_LIMIT_UNAVAILABLE', 'Exam service is temporarily unavailable.');
-      }
     }
-  }
-  rateLimitMs = performance.now() - rateLimitStart;
 
-  const r2ContentEnabled = isExamR2ContentEnabled();
-  if (r2ContentEnabled && windowAction) {
-    const fastPathStart = performance.now();
-    let fastPathBody: string | null = null;
+    let claimsData;
+    let claimsError;
     try {
-      fastPathBody = await withinRequestBudget(requestDeadline, () =>
-        trySignedExamWindowFastPath({
-          request,
-          action: body.action,
-          args: body.args,
-          userId,
-          secret: riskHmacSecret,
-        }),
+      const result = await withinRequestBudget(requestDeadline, () =>
+        PINNED_SUPABASE_JWKS.kind === 'ready'
+          ? authClient.auth.getClaims(accessToken, { jwks: PINNED_SUPABASE_JWKS.jwks })
+          : authClient.auth.getClaims(accessToken),
       );
+      claimsData = result.data;
+      claimsError = result.error;
     } catch (error) {
-      upstreamFetchMs = performance.now() - fastPathStart;
-      if (isTimeoutError(error)) return requestTimeoutResponse('window_fast_path');
-    }
-    upstreamFetchMs = performance.now() - fastPathStart;
-
-    if (fastPathBody != null) {
-      const headers = new Headers({
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-        'x-royal-request-id': responseRequestId,
-      });
-      addServerTiming(headers, serverTimingEnabled, {
-        bodyParseMs,
-        authMs,
-        rateLimitMs,
-        upstreamFetchMs,
-        responseReadMs,
-        totalServerMs: performance.now() - totalServerStart,
-      });
-      return new Response(fastPathBody, { status: 200, headers });
+      authMs = performance.now() - authStart;
+      if (isTimeoutError(error)) return requestTimeoutResponse('auth_claims');
+      return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
     }
 
-    if (windowAccessPresented) {
+    authMs = performance.now() - authStart;
+    const claims = claimsData?.claims;
+    const userId = claims?.sub;
+    const expectedIssuer = `${supabaseUrl.replace(/\/+$/, '')}/auth/v1`;
+
+    if (
+      claimsError ||
+      typeof userId !== 'string' ||
+      !userId ||
+      claims?.iss !== expectedIssuer ||
+      !audienceIncludesAuthenticated(claims?.aud) ||
+      claims?.role !== 'authenticated'
+    ) {
+      return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+    }
+    if (requiresPasswordChange(claims)) {
+      return jsonError(403, 'PASSWORD_CHANGE_REQUIRED', 'Change your password before continuing.');
+    }
+    authMs = performance.now() - authStart;
+
+    const validateAuthoritativeUser = async (): Promise<Response | null> => {
+      const currentUserStart = performance.now();
+      try {
+        const {
+          data: { user },
+          error,
+        } = await withinRequestBudget(requestDeadline, () => authClient.auth.getUser(accessToken));
+        authMs += performance.now() - currentUserStart;
+
+        if (error || !user || user.id !== userId) {
+          return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+        }
+        if (user.app_metadata?.must_change_password === true) {
+          return jsonError(403, 'PASSWORD_CHANGE_REQUIRED', 'Change your password before continuing.');
+        }
+        return null;
+      } catch (error) {
+        authMs += performance.now() - currentUserStart;
+        if (isTimeoutError(error)) return requestTimeoutResponse('authoritative_user');
+        return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+      }
+    };
+
+    if (windowAccessPresented && !windowAction) {
       const authError = await validateAuthoritativeUser();
       if (authError) return authError;
     }
-  }
 
-  const legacyRpcName = EXAM_RPC_BY_ACTION[body.action];
-  const r2RpcName = r2ContentEnabled ? r2RpcNameForAction(body.action) : null;
-  const primaryRpcName = r2RpcName || legacyRpcName;
-  let rpcArgs: Record<string, unknown> = body.args;
+    const proof = buildGatewayProof({ request, gatewayKeyId, gatewayKey, riskHmacSecret });
+    const rateLimitStart = performance.now();
 
-  if (r2ContentEnabled && RELEASE_PIN_ACTIONS.has(body.action)) {
-    let activeRelease = null;
-    try {
-      activeRelease = await withinRequestBudget(
-        requestDeadline,
-        () => resolveActiveExamContentRelease(),
-        ACTIVE_RELEASE_LOOKUP_CAP_MS,
-      );
-    } catch (error) {
-      if (isTimeoutError(error)) return requestTimeoutResponse('release_lookup');
+    if (rateLimitEnabled) {
+      try {
+        const { rateLimited, error: rateLimitError } = await withinRequestBudget(
+          requestDeadline,
+          () => checkVercelRateLimit(rateLimitId, { request, rateLimitKey: userId }),
+        );
+
+        rateLimitMs = performance.now() - rateLimitStart;
+        if (rateLimitError) {
+          if (!RATE_LIMIT_FAIL_OPEN_ACTIONS.has(body.action)) {
+            return jsonError(503, 'EXAM_RATE_LIMIT_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+          }
+        } else if (rateLimited) {
+          await recordRateLimitRejection({
+            supabaseUrl,
+            publishableKey,
+            accessToken,
+            proof,
+            action: body.action,
+            requestDeadline,
+          });
+          return jsonError(
+            429,
+            'RATE_LIMITED',
+            'Too many requests. Try again shortly.',
+            RATE_LIMIT_RETRY_AFTER_SECONDS,
+          );
+        }
+      } catch (error) {
+        rateLimitMs = performance.now() - rateLimitStart;
+        if (isTimeoutError(error)) return requestTimeoutResponse('rate_limit');
+        if (!RATE_LIMIT_FAIL_OPEN_ACTIONS.has(body.action)) {
+          return jsonError(503, 'EXAM_RATE_LIMIT_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+        }
+      }
     }
+    rateLimitMs = performance.now() - rateLimitStart;
 
-    if (!activeRelease) {
-      return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
-    }
-    rpcArgs = {
-      ...body.args,
-      p_content_release_id: activeRelease.releaseId,
-    };
-  }
+    const r2ContentEnabled = isExamR2ContentEnabled();
+    if (r2ContentEnabled && windowAction) {
+      const fastPathStart = performance.now();
+      let fastPathBody: string | null = null;
+      try {
+        fastPathBody = await withinRequestBudget(requestDeadline, () =>
+          trySignedExamWindowFastPath({
+            request,
+            action: body.action,
+            args: body.args,
+            userId,
+            secret: riskHmacSecret,
+          }),
+        );
+      } catch (error) {
+        windowFastPathMs = performance.now() - fastPathStart;
+        if (isTimeoutError(error)) return requestTimeoutResponse('window_fast_path');
+      }
+      windowFastPathMs = performance.now() - fastPathStart;
 
-  const callRpc = (rpcName: string, args: Record<string, unknown> = rpcArgs) => {
-    const upstreamTimeoutMs =
-      body.action === 'create' ? CREATE_UPSTREAM_TIMEOUT_MS : EXAM_UPSTREAM_TIMEOUT_MS;
-    const timeoutMs = remainingBudgetMs(requestDeadline, upstreamTimeoutMs);
-    return fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: gatewayHeaders(publishableKey, accessToken, proof),
-      body: JSON.stringify(args),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  };
+      if (fastPathBody != null) {
+        const headers = new Headers({
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'x-royal-request-id': responseRequestId,
+        });
+        return new Response(fastPathBody, { status: 200, headers });
+      }
 
-  const upstreamFetchStart = performance.now();
-  let upstream: Response;
-  try {
-    upstream = await callRpc(primaryRpcName);
-  } catch (error) {
-    upstreamFetchMs += performance.now() - upstreamFetchStart;
-    if (isTimeoutError(error)) return requestTimeoutResponse('rpc_fetch');
-    return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
-  }
-  upstreamFetchMs += performance.now() - upstreamFetchStart;
-
-  const responseReadStart = performance.now();
-  let rawResponseBody: string;
-  try {
-    rawResponseBody = await withinRequestBudget(requestDeadline, () => upstream.text());
-  } catch (error) {
-    responseReadMs = performance.now() - responseReadStart;
-    if (isTimeoutError(error)) return requestTimeoutResponse('rpc_response_read');
-    return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
-  }
-  responseReadMs = performance.now() - responseReadStart;
-
-  if (r2RpcName && upstream.ok) {
-    const releaseState = contentReleaseStateForResponse(body.action, rawResponseBody);
-    let hydratedBody: string | null = null;
-    try {
-      hydratedBody = await withinRequestBudget(
-        requestDeadline,
-        () => hydrateExamR2Response(body.action, rawResponseBody),
-      );
-    } catch (error) {
-      // submit may already be committed. Never turn an R2 timeout after mutation
-      // into a replay requirement; acknowledge persistence with feedback pending.
-      if (isTimeoutError(error) && body.action !== 'submit') {
-        return requestTimeoutResponse('r2_hydrate');
+      if (windowAccessPresented) {
+        const authError = await validateAuthoritativeUser();
+        if (authError) return authError;
       }
     }
 
-    if (hydratedBody != null) {
-      rawResponseBody = hydratedBody;
-    } else if (releaseState === 'legacy' && body.action !== 'create') {
-      // Explicitly unpinned sessions predate release pinning. They intentionally
-      // keep the proven live Postgres path until completion. This branch is never
-      // available to a pinned session, so immutable generations cannot be mixed.
-      if (body.action === 'submit') {
-        let submitResult: JsonObject | null = null;
-        try {
-          submitResult = asJsonObject(JSON.parse(rawResponseBody) as unknown);
-        } catch {
-          submitResult = null;
+    const legacyRpcName = EXAM_RPC_BY_ACTION[body.action];
+    const r2RpcName = r2ContentEnabled ? r2RpcNameForAction(body.action) : null;
+    const primaryRpcName = r2RpcName || legacyRpcName;
+    let rpcArgs: Record<string, unknown> = body.args;
+
+    if (r2ContentEnabled && RELEASE_PIN_ACTIONS.has(body.action)) {
+      const releaseLookupStart = performance.now();
+      let activeRelease = null;
+      try {
+        activeRelease = await withinRequestBudget(
+          requestDeadline,
+          () => resolveActiveExamContentRelease(),
+          ACTIVE_RELEASE_LOOKUP_CAP_MS,
+        );
+      } catch (error) {
+        if (isTimeoutError(error)) return requestTimeoutResponse('release_lookup');
+      } finally {
+        releaseLookupMs = performance.now() - releaseLookupStart;
+      }
+
+      if (!activeRelease) {
+        return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
+      }
+      rpcArgs = {
+        ...body.args,
+        p_content_release_id: activeRelease.releaseId,
+      };
+    }
+
+    const callRpc = (rpcName: string, args: Record<string, unknown> = rpcArgs) => {
+      const upstreamTimeoutMs =
+        body.action === 'create' ? CREATE_UPSTREAM_TIMEOUT_MS : EXAM_UPSTREAM_TIMEOUT_MS;
+      const timeoutMs = remainingBudgetMs(requestDeadline, upstreamTimeoutMs);
+      return fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: gatewayHeaders(publishableKey, accessToken, proof),
+        body: JSON.stringify(args),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    };
+
+    const upstreamFetchStart = performance.now();
+    let upstream: Response;
+    try {
+      upstream = await callRpc(primaryRpcName);
+    } catch (error) {
+      upstreamFetchMs += performance.now() - upstreamFetchStart;
+      if (isTimeoutError(error)) return requestTimeoutResponse('rpc_fetch');
+      return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+    }
+    upstreamFetchMs += performance.now() - upstreamFetchStart;
+
+    const responseReadStart = performance.now();
+    let rawResponseBody: string;
+    try {
+      rawResponseBody = await withinRequestBudget(requestDeadline, () => upstream.text());
+    } catch (error) {
+      responseReadMs = performance.now() - responseReadStart;
+      if (isTimeoutError(error)) return requestTimeoutResponse('rpc_response_read');
+      return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+    }
+    responseReadMs = performance.now() - responseReadStart;
+
+    if (r2RpcName && upstream.ok) {
+      const releaseState = contentReleaseStateForResponse(body.action, rawResponseBody);
+      const r2HydrateStart = performance.now();
+      let hydratedBody: string | null = null;
+      try {
+        hydratedBody = await withinRequestBudget(
+          requestDeadline,
+          () => hydrateExamR2Response(body.action, rawResponseBody),
+        );
+      } catch (error) {
+        // submit may already be committed. Never turn an R2 timeout after mutation
+        // into a replay requirement; acknowledge persistence with feedback pending.
+        if (isTimeoutError(error) && body.action !== 'submit') {
+          return requestTimeoutResponse('r2_hydrate');
         }
+      } finally {
+        r2HydrateMs = performance.now() - r2HydrateStart;
+      }
 
-        const sessionId = body.args.p_session_id;
-        const questionId = body.args.p_question_id;
-        if (
-          !submitResult ||
-          !asJsonObject(submitResult.answer) ||
-          typeof sessionId !== 'string' ||
-          typeof questionId !== 'number'
-        ) {
-          return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
-        }
+      if (hydratedBody != null) {
+        rawResponseBody = hydratedBody;
+      } else if (releaseState === 'legacy' && body.action !== 'create') {
+        // Explicitly unpinned sessions predate release pinning. They intentionally
+        // keep the proven live Postgres path until completion. This branch is never
+        // available to a pinned session, so immutable generations cannot be mixed.
+        if (body.action === 'submit') {
+          let submitResult: JsonObject | null = null;
+          try {
+            submitResult = asJsonObject(JSON.parse(rawResponseBody) as unknown);
+          } catch {
+            submitResult = null;
+          }
 
-        const feedbackFetchStart = performance.now();
-        try {
-          const feedbackResponse = await callRpc(EXAM_RPC_BY_ACTION.feedback, {
-            p_session_id: sessionId,
-            p_question_id: questionId,
-          });
-          upstreamFetchMs += performance.now() - feedbackFetchStart;
+          const sessionId = body.args.p_session_id;
+          const questionId = body.args.p_question_id;
+          if (
+            !submitResult ||
+            !asJsonObject(submitResult.answer) ||
+            typeof sessionId !== 'string' ||
+            typeof questionId !== 'number'
+          ) {
+            return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
+          }
 
-          const feedbackReadStart = performance.now();
-          const feedbackBody = await withinRequestBudget(requestDeadline, () => feedbackResponse.text());
-          responseReadMs += performance.now() - feedbackReadStart;
+          const feedbackFetchStart = performance.now();
+          try {
+            const feedbackResponse = await callRpc(EXAM_RPC_BY_ACTION.feedback, {
+              p_session_id: sessionId,
+              p_question_id: questionId,
+            });
+            upstreamFetchMs += performance.now() - feedbackFetchStart;
 
-          if (feedbackResponse.ok) {
-            const feedback = JSON.parse(feedbackBody) as unknown;
-            rawResponseBody = JSON.stringify({ ...submitResult, feedback });
-          } else {
+            const feedbackReadStart = performance.now();
+            const feedbackBody = await withinRequestBudget(requestDeadline, () => feedbackResponse.text());
+            responseReadMs += performance.now() - feedbackReadStart;
+
+            if (feedbackResponse.ok) {
+              const feedback = JSON.parse(feedbackBody) as unknown;
+              rawResponseBody = JSON.stringify({ ...submitResult, feedback });
+            } else {
+              rawResponseBody = JSON.stringify({
+                ...submitResult,
+                feedback: null,
+                feedback_pending: true,
+              });
+            }
+          } catch {
+            upstreamFetchMs += performance.now() - feedbackFetchStart;
             rawResponseBody = JSON.stringify({
               ...submitResult,
               feedback: null,
               feedback_pending: true,
             });
           }
+        } else {
+          const fallbackFetchStart = performance.now();
+          try {
+            upstream = await callRpc(legacyRpcName, body.args);
+          } catch (error) {
+            upstreamFetchMs += performance.now() - fallbackFetchStart;
+            if (isTimeoutError(error)) return requestTimeoutResponse('legacy_fallback_fetch');
+            return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+          }
+          upstreamFetchMs += performance.now() - fallbackFetchStart;
+
+          const fallbackReadStart = performance.now();
+          try {
+            rawResponseBody = await withinRequestBudget(requestDeadline, () => upstream.text());
+          } catch (error) {
+            responseReadMs += performance.now() - fallbackReadStart;
+            if (isTimeoutError(error)) return requestTimeoutResponse('legacy_fallback_read');
+            return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
+          }
+          responseReadMs += performance.now() - fallbackReadStart;
+        }
+      } else if (body.action === 'submit') {
+        // A pinned mutation already committed. Never replay it or read correctness
+        // from live content; the client retries feedback against the same release.
+        let submitResult: JsonObject | null = null;
+        try {
+          submitResult = asJsonObject(JSON.parse(rawResponseBody) as unknown);
         } catch {
-          upstreamFetchMs += performance.now() - feedbackFetchStart;
+          submitResult = null;
+        }
+        if (submitResult && asJsonObject(submitResult.answer)) {
           rawResponseBody = JSON.stringify({
             ...submitResult,
             feedback: null,
             feedback_pending: true,
           });
+        } else {
+          return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
         }
-      } else {
-        const fallbackFetchStart = performance.now();
-        try {
-          upstream = await callRpc(legacyRpcName, body.args);
-        } catch (error) {
-          upstreamFetchMs += performance.now() - fallbackFetchStart;
-          if (isTimeoutError(error)) return requestTimeoutResponse('legacy_fallback_fetch');
-          return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
-        }
-        upstreamFetchMs += performance.now() - fallbackFetchStart;
-
-        const fallbackReadStart = performance.now();
-        try {
-          rawResponseBody = await withinRequestBudget(requestDeadline, () => upstream.text());
-        } catch (error) {
-          responseReadMs += performance.now() - fallbackReadStart;
-          if (isTimeoutError(error)) return requestTimeoutResponse('legacy_fallback_read');
-          return jsonError(502, 'EXAM_UPSTREAM_UNAVAILABLE', 'Exam service is temporarily unavailable.');
-        }
-        responseReadMs += performance.now() - fallbackReadStart;
-      }
-    } else if (body.action === 'submit') {
-      // A pinned mutation already committed. Never replay it or read correctness
-      // from live content; the client retries feedback against the same release.
-      let submitResult: JsonObject | null = null;
-      try {
-        submitResult = asJsonObject(JSON.parse(rawResponseBody) as unknown);
-      } catch {
-        submitResult = null;
-      }
-      if (submitResult && asJsonObject(submitResult.answer)) {
-        rawResponseBody = JSON.stringify({
-          ...submitResult,
-          feedback: null,
-          feedback_pending: true,
-        });
       } else {
         return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
       }
-    } else {
-      return jsonError(503, 'EXAM_CONTENT_UNAVAILABLE', 'Exam content is temporarily unavailable.');
     }
-  }
 
-  if (upstream.ok && r2ContentEnabled) {
-    rawResponseBody = attachExamWindowAccess({
-      action: body.action,
-      rawBody: rawResponseBody,
-      userId,
-      secret: riskHmacSecret,
+    if (upstream.ok && r2ContentEnabled) {
+      const windowSignStart = performance.now();
+      rawResponseBody = attachExamWindowAccess({
+        action: body.action,
+        rawBody: rawResponseBody,
+        userId,
+        secret: riskHmacSecret,
+      });
+      windowSignMs = performance.now() - windowSignStart;
+    }
+
+    const responseBody = upstream.ok ? rawResponseBody : safeUpstreamErrorBody(rawResponseBody);
+    const headers = new Headers({
+      'content-type': upstream.ok
+        ? upstream.headers.get('content-type') || 'application/json; charset=utf-8'
+        : 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-royal-request-id': responseRequestId,
     });
+
+    const retryAfter = upstream.headers.get('retry-after');
+    if (retryAfter) headers.set('retry-after', retryAfter);
+
+    return new Response(responseBody, { status: upstream.status, headers });
   }
 
-  const responseBody = upstream.ok ? rawResponseBody : safeUpstreamErrorBody(rawResponseBody);
-  const headers = new Headers({
-    'content-type': upstream.ok
-      ? upstream.headers.get('content-type') || 'application/json; charset=utf-8'
-      : 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-    'x-royal-request-id': responseRequestId,
-  });
-
-  const retryAfter = upstream.headers.get('retry-after');
-  if (retryAfter) headers.set('retry-after', retryAfter);
-
-  addServerTiming(headers, serverTimingEnabled, {
-    bodyParseMs,
-    authMs,
-    rateLimitMs,
-    upstreamFetchMs,
-    responseReadMs,
-    totalServerMs: performance.now() - totalServerStart,
-  });
-
-  return new Response(responseBody, { status: upstream.status, headers });
+  const response = await handleRequest();
+  response.headers.set('x-royal-request-id', responseRequestId);
+  if (process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true') {
+    const forwardedMs = request.headers.get('x-royal-internal-middleware-ms');
+    const middlewareMs = forwardedMs === null ? undefined : Number(forwardedMs);
+    response.headers.set('server-timing', serverTimingHeader({
+      bodyParseMs, authMs, rateLimitMs, upstreamFetchMs, responseReadMs,
+      releaseLookupMs, r2HydrateMs, windowFastPathMs, windowSignMs,
+      // Proxy overwrites this header. It is diagnostic only, never authorization.
+      middlewareMs: middlewareMs !== undefined && Number.isFinite(middlewareMs)
+        && middlewareMs >= 0 && middlewareMs <= 120000 ? middlewareMs : undefined,
+      totalServerMs: performance.now() - totalServerStart,
+    }));
+    const commit = process.env.VERCEL_GIT_COMMIT_SHA;
+    if (commit && /^[0-9a-f]{40}$/.test(commit)) response.headers.set('x-royal-build', commit);
+  }
+  return response;
 }
+

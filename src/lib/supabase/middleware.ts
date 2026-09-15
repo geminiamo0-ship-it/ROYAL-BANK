@@ -5,7 +5,10 @@ import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
 
 export async function updateSession(request: NextRequest) {
+  const middlewareStart = performance.now();
   const requestHeaders = new Headers(request.headers);
+  // Never trust diagnostic timings supplied by the caller.
+  requestHeaders.delete('x-royal-internal-middleware-ms');
   let response = NextResponse.next({ request: { headers: requestHeaders } });
   const { url, publishableKey } = getSupabaseServerConfig();
 
@@ -33,6 +36,9 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   function forwardExamSession(accessToken: string | null) {
+    if (process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true') {
+      requestHeaders.set('x-royal-internal-middleware-ms', (performance.now() - middlewareStart).toFixed(1));
+    }
     if (accessToken) {
       requestHeaders.set('authorization', `Bearer ${accessToken}`);
     } else {
@@ -172,3 +178,4 @@ export async function updateSession(request: NextRequest) {
 
   return response;
 }
+

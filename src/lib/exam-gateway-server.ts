@@ -62,6 +62,11 @@ export type ExamServerTimings = {
   upstreamFetchMs: number;
   responseReadMs: number;
   totalServerMs: number;
+  middlewareMs?: number;
+  releaseLookupMs?: number;
+  r2HydrateMs?: number;
+  windowFastPathMs?: number;
+  windowSignMs?: number;
 };
 
 function parsePinnedSupabaseJwks(rawValue: string | undefined): PinnedJwksState {
@@ -124,6 +129,11 @@ export function jsonError(status: number, code: string, message: string, retryAf
 
 export function serverTimingHeader(timings: ExamServerTimings): string {
   return [
+    ...(timings.middlewareMs === undefined ? [] : [`middleware;dur=${timings.middlewareMs.toFixed(1)}`]),
+    `release_lookup;dur=${(timings.releaseLookupMs ?? 0).toFixed(1)}`,
+    `r2_hydrate;dur=${(timings.r2HydrateMs ?? 0).toFixed(1)}`,
+    `window_fast_path;dur=${(timings.windowFastPathMs ?? 0).toFixed(1)}`,
+    `window_sign;dur=${(timings.windowSignMs ?? 0).toFixed(1)}`,
     `body_parse;dur=${timings.bodyParseMs.toFixed(1)}`,
     `auth;dur=${timings.authMs.toFixed(1)}`,
     `rate_limit;dur=${timings.rateLimitMs.toFixed(1)}`,
@@ -255,3 +265,4 @@ export function safeUpstreamErrorBody(responseBody: string): string {
     });
   }
 }
+
