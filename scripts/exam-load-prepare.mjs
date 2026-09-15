@@ -9,7 +9,7 @@ const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
 if (!url || !serviceKey || !publishableKey) throw new Error('Missing Supabase load-test configuration.');
 
 const requestedCount = Number(process.env.LOAD_USER_COUNT || 25);
-const userCount = Math.max(1, Math.min(Number.isFinite(requestedCount) ? Math.floor(requestedCount) : 25, 100));
+const userCount = Math.max(1, Math.min(Number.isFinite(requestedCount) ? Math.floor(requestedCount) : 25, 400));
 const requestedPacingMs = Number(process.env.LOAD_AUTH_PACING_MS || 1200);
 const authPacingMs = Math.max(0, Math.min(Number.isFinite(requestedPacingMs) ? Math.floor(requestedPacingMs) : 1200, 10000));
 if (new URL(url).hostname !== 'trnvsgenmzhyuayxxdoq.supabase.co') throw new Error('Unexpected Supabase project');
@@ -80,5 +80,3 @@ for (let i = 1; i <= userCount; i += 1) {
 }
 
 console.log(`Prepared ${rows.length} isolated authenticated users for run ${runTag}.`);
-
-
