@@ -1,10 +1,10 @@
 # Cloudflare Exam Production Cutover Manifest
 
-Status: **prepared, not applied**
+Status: **Production Edge database schema applied; Cloudflare Production deploy and traffic cutover still pending**
 
-This document defines the production migration boundary for the Cloudflare exam architecture. It is intentionally conservative: Production keeps the existing business/auth/performance functions unless a separate reviewed change says otherwise.
+This document defines the production migration boundary for the Cloudflare exam architecture. Production keeps the existing business/auth/performance functions unless a separate reviewed change says otherwise.
 
-## Production facts established by read-only reconciliation
+## Production facts established by reconciliation
 
 Production Supabase project: `trnvsgenmzhyuayxxdoq`.
 
@@ -27,24 +27,11 @@ Verified present and compatible dependencies:
 - `compute_question_bank_performance(bigint)`
 - `get_question_bank_performance(bigint)`
 
-All Production auth users had matching `profiles` rows at reconciliation time.
+The final preflight immediately before migration returned `ready: true`. At that point all 10 Production auth users had matching `profiles` rows, the required ACL checks passed, and all Edge object names were free.
 
-The following Edge object names were free at reconciliation time:
+## Functions preserved from Production
 
-- `edge_exam_sync_inbox`
-- `edge_exam_sessions`
-- `edge_exam_session_questions`
-- `edge_exam_answers`
-- `edge_exam_flags`
-- `edge_user_question_state`
-- `edge_user_bank_daily`
-- `ingest_edge_exam_sync_batch(jsonb)`
-
-Run `scripts/preflight-edge-production.sql` again immediately before any production migration. The preflight is read-only.
-
-## Functions to preserve from Production
-
-Do **not** replace these functions as part of the Edge cutover:
+The Edge database rollout did **not** replace these Production functions:
 
 - `public.can_access_question_bank(bigint)`
 - `public.is_active_user()`
@@ -53,26 +40,42 @@ Do **not** replace these functions as part of the Edge cutover:
 
 Reason:
 
-- `can_access_question_bank` and `is_active_user` are semantically aligned with DEV.
+- `can_access_question_bank` and `is_active_user` were semantically aligned with DEV.
 - Production `mark_question_bank_dashboard_dirty` dirties both dashboard and performance caches and must not be downgraded.
-- Production `get_question_bank_performance` contains the cache/advisory-lock wrapper and should remain authoritative.
-- `compute_question_bank_performance(bigint)` matched DEV during reconciliation and can consume the Edge-aware `get_user_question_states` bridge once installed.
+- Production `get_question_bank_performance` contains the cache/advisory-lock wrapper and remains authoritative.
+- `compute_question_bank_performance(bigint)` matched DEV and can consume the Edge-aware `get_user_question_states` bridge.
 
-## Additive Edge migration order
+## Production Edge migrations applied
 
-Apply only the reviewed Edge migrations below, in this order:
+The following reviewed Edge migrations were applied to Production in order:
 
-1. `20260916044500_v2_edge_exam_sync_inbox.sql`
-2. `20260916050000_v2_edge_exam_history_materializer.sql`
-3. `20260916063312_v2_completion_snapshot_questions.sql`
-4. `20260916121608_v2_slim_history_bridge_core.sql`
-5. `20260916121650_v2_slim_history_materializer.sql`
-6. `20260916121717_v2_slim_history_read_bridge.sql`
-7. `20260916121939_fix_v2_slim_history_state_ambiguity.sql`
-8. `20260916122841_v2_edge_user_lifecycle_cleanup.sql`
-9. `20260916123940_v2_compact_sync_inbox_retention.sql`
+1. `v2_edge_exam_sync_inbox`
+2. `v2_edge_exam_history_materializer`
+3. `v2_completion_snapshot_questions`
+4. `v2_slim_history_bridge_core`
+5. `v2_slim_history_materializer`
+6. `v2_slim_history_read_bridge`
+7. `fix_v2_slim_history_state_ambiguity`
+8. `v2_edge_user_lifecycle_cleanup`
+9. `v2_compact_sync_inbox_retention`
 
 Do not run a blind `supabase db push` against Production because DEV and Production have different historical migration records.
+
+### Post-migration verification
+
+Verified after the migration chain:
+
+- all 7 Edge tables exist
+- RLS is enabled on all 7 Edge tables
+- `ingest_edge_exam_sync_batch(jsonb)` exists
+- `materialize_edge_exam_sync_inbox_row()` exists
+- `get_user_question_states(bigint)` exists
+- `get_my_bank_sessions(bigint,integer)` exists
+- `get_my_bank_activity_rollup(bigint)` exists
+- `get_question_bank_performance_v2(bigint)` exists
+- 6 profile foreign keys are installed with the Edge lifecycle cleanup
+- ingest RPC execute access is denied to `anon` and `authenticated`, and allowed to `service_role`
+- Edge sync inbox was empty immediately after rollout: 0 total, 0 pending, 0 errors
 
 ## Cloudflare Production isolation
 
@@ -87,25 +90,20 @@ Expected production resources:
 - Durable Object binding: `USER_EXAMS`
 - Supabase project ref: `trnvsgenmzhyuayxxdoq`
 
-Required production secrets must be configured in the **production Wrangler environment** before deployment:
+The Production Supabase publishable key is configured in the Wrangler Production vars. The server-side `SUPABASE_SECRET_KEY` must still be configured as a Production Wrangler secret before deploy. Never reuse the DEV secret.
 
-- `SUPABASE_SECRET_KEY`
-- `SUPABASE_PUBLISHABLE_KEY`
+## Remaining cutover gates
 
-Never reuse DEV secrets or DEV R2/Queue resources.
+Production traffic remains on the legacy `/api/exam` path until all remaining gates pass:
 
-## Cutover gates
-
-Production traffic must remain on the legacy `/api/exam` path until all gates below pass:
-
-1. Read-only Production preflight returns `ready: true`.
-2. The nine Edge migrations are reviewed and applied in order.
-3. Post-migration checks confirm RLS, policies, triggers, FKs, RPC grants, and zero pending/error rows before traffic.
-4. Production R2 content is built and validated against the active release contract.
-5. Production Worker deploy passes `/health` with `APP_ENV=production` and the Production Supabase project ref.
-6. Authenticated lifecycle smoke test passes: `prepare -> create -> window -> submit -> flag -> suspend -> resume -> complete`.
-7. Queue-to-Supabase materialization completes and leaves no sync errors.
-8. A controlled low-volume rollout is enabled with `ROYAL_EXAM_EDGE_ENABLED=true` only after the previous gates pass.
+1. Configure the Production-only `SUPABASE_SECRET_KEY` in Cloudflare.
+2. Create/validate the Production R2 bucket, Queue and DLQ resources.
+3. Build/copy and validate Production R2 exam content against the active release contract.
+4. Deploy the Worker with `wrangler deploy --env production`.
+5. `/health` must report `APP_ENV=production` and Supabase project ref `trnvsgenmzhyuayxxdoq`.
+6. Authenticated lifecycle smoke must pass: `prepare -> create -> window -> submit -> flag -> suspend -> resume -> complete`.
+7. Queue-to-Supabase materialization must complete with zero sync errors.
+8. Only then enable a controlled low-volume rollout with `ROYAL_EXAM_EDGE_ENABLED=true`.
 
 ## Rollback
 
@@ -117,7 +115,3 @@ Immediate traffic rollback is server-side:
 The existing `/api/exam` implementation remains present during rollout.
 
 Do not drop Edge tables or delete Durable Object state as an emergency rollback action. Leave Edge data intact for diagnosis/reconciliation while routing traffic back to the legacy path.
-
-## Production remains untouched by this manifest
-
-Adding this document, the preflight SQL, and the Wrangler production environment does **not** create Cloudflare resources, apply database migrations, set secrets, or route Production traffic.
