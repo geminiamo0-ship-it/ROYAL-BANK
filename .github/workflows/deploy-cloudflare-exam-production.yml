@@ -1,0 +1,61 @@
+name: Deploy Cloudflare Exam Production
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: royal-bank-cloudflare-exam-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: cloudflare/exam-gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloudflare/exam-gateway/package.json
+
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+
+      - name: Validate production credentials
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'CLOUDFLARE_API_TOKEN is missing'; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'CLOUDFLARE_ACCOUNT_ID is missing'; exit 1; }
+          test -n "$SUPABASE_SECRET_KEY_PRODUCTION" || { echo 'SUPABASE_SECRET_KEY_PRODUCTION is missing'; exit 1; }
+
+      - name: Configure production Supabase secret
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
+        run: printf '%s' "$SUPABASE_SECRET_KEY_PRODUCTION" | npx wrangler secret put SUPABASE_SECRET_KEY --env production
+
+      - name: Deploy production Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --env production
+
+      - name: Verify production health
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 \
+            https://royal-bank-exam-production.geminiamo0.workers.dev/health | tee /tmp/royal-exam-production-health.json
+          grep -q '"ok":true' /tmp/royal-exam-production-health.json
+          grep -q '"environment":"production"' /tmp/royal-exam-production-health.json
+          grep -q '"supabase_project_ref":"trnvsgenmzhyuayxxdoq"' /tmp/royal-exam-production-health.json
