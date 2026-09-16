@@ -6,8 +6,7 @@ export const EXAM_RATE_LIMIT_STORAGE_KEY = 'royal.exam-rate-limit-until';
 
 const EXAM_WINDOW_ACCESS_HEADER = 'x-royal-window-access';
 const DEFAULT_CLIENT_TIMEOUT_MS = 10_000;
-const EXAM_GATEWAY_ENDPOINT =
-  process.env.NEXT_PUBLIC_ROYAL_EXAM_EDGE_ENABLED === 'true' ? '/api/exam-edge' : '/api/exam';
+const EXAM_GATEWAY_ENDPOINT = '/api/exam-edge';
 
 type GatewayErrorInfo = {
   message: string;
