@@ -90,16 +90,26 @@ Expected production resources:
 - Durable Object binding: `USER_EXAMS`
 - Supabase project ref: `trnvsgenmzhyuayxxdoq`
 
-The Production Supabase publishable key is configured in the Wrangler Production vars. The server-side `SUPABASE_SECRET_KEY` must still be configured as a Production Wrangler secret before deploy. Never reuse the DEV secret.
+The Production Supabase publishable key is configured in the Wrangler Production vars.
+
+A guarded manual deploy workflow now exists at `.github/workflows/deploy-cloudflare-exam-production.yml`. It refuses to deploy unless all of these repository/environment secrets are available:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `SUPABASE_SECRET_KEY_PRODUCTION`
+
+The workflow injects `SUPABASE_SECRET_KEY_PRODUCTION` into the Production Wrangler environment as `SUPABASE_SECRET_KEY`, then runs `wrangler deploy --env production` and verifies `/health` against the Production project ref.
+
+Never reuse the DEV Supabase secret.
 
 ## Remaining cutover gates
 
 Production traffic remains on the legacy `/api/exam` path until all remaining gates pass:
 
-1. Configure the Production-only `SUPABASE_SECRET_KEY` in Cloudflare.
+1. Ensure the three Production deploy secrets above exist in the GitHub `production` environment/repository.
 2. Create/validate the Production R2 bucket, Queue and DLQ resources.
 3. Build/copy and validate Production R2 exam content against the active release contract.
-4. Deploy the Worker with `wrangler deploy --env production`.
+4. Run the guarded Production deploy workflow.
 5. `/health` must report `APP_ENV=production` and Supabase project ref `trnvsgenmzhyuayxxdoq`.
 6. Authenticated lifecycle smoke must pass: `prepare -> create -> window -> submit -> flag -> suspend -> resume -> complete`.
 7. Queue-to-Supabase materialization must complete with zero sync errors.
