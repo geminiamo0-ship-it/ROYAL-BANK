@@ -5,11 +5,11 @@ const EXPECTED_WORKER = 'https://royal-bank-exam-production.geminiamo0.workers.d
 const PUBLISHABLE_KEY = 'sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9';
 
 const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-const adminKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const adminKey = process.env.SUPABASE_SECRET_KEY_PRODUCTION || '';
 const workerUrl = (process.env.WORKER_URL || '').replace(/\/+$/, '');
 if (supabaseUrl !== EXPECTED_SUPABASE) throw new Error(`Refusing smoke: unexpected Supabase URL ${supabaseUrl}`);
 if (workerUrl !== EXPECTED_WORKER) throw new Error(`Refusing smoke: unexpected Worker URL ${workerUrl}`);
-if (!adminKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
+if (!adminKey || !adminKey.startsWith('sb_secret_')) throw new Error('Missing or invalid SUPABASE_SECRET_KEY_PRODUCTION');
 
 const run = String(process.env.GITHUB_RUN_ID || Date.now()).replace(/\D/g, '').slice(-12) || String(Date.now());
 const email = `royal-edge-prod-smoke-${run}-${Date.now()}@load.invalid`;
@@ -25,7 +25,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function adminHeaders(json = true) {
   return {
     apikey: adminKey,
-    authorization: `Bearer ${adminKey}`,
     accept: 'application/json',
     ...(json ? { 'content-type': 'application/json' } : {}),
     'user-agent': 'royal-bank-production-edge-smoke/1.0',
