@@ -1,31 +1,53 @@
 import { randomUUID } from 'node:crypto';
 
-const EXPECTED_SUPABASE_URL = 'https://trnvsgenmzhyuayxxdoq.supabase.co';
-const EXPECTED_WORKER_URL = 'https://royal-bank-exam-production.geminiamo0.workers.dev';
-const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-const secret = process.env.SUPABASE_SECRET_KEY?.trim();
-const workerUrl = (process.env.WORKER_URL || '').replace(/\/+$/, '');
-if (supabaseUrl !== EXPECTED_SUPABASE_URL) throw new Error(`Refusing smoke: expected ${EXPECTED_SUPABASE_URL}`);
-if (workerUrl !== EXPECTED_WORKER_URL) throw new Error(`Refusing smoke: expected ${EXPECTED_WORKER_URL}`);
-if (!secret) throw new Error('Missing SUPABASE_SECRET_KEY');
+const EXPECTED_SUPABASE = 'https://trnvsgenmzhyuayxxdoq.supabase.co';
+const EXPECTED_WORKER = 'https://royal-bank-exam-production.geminiamo0.workers.dev';
+const PUBLISHABLE_KEY = 'sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9';
 
-const email = `edge-prod-smoke-${process.env.GITHUB_RUN_ID || Date.now()}-${Date.now()}@example.com`;
+const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+const adminKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const workerUrl = (process.env.WORKER_URL || '').replace(/\/+$/, '');
+if (supabaseUrl !== EXPECTED_SUPABASE) throw new Error(`Refusing smoke: unexpected Supabase URL ${supabaseUrl}`);
+if (workerUrl !== EXPECTED_WORKER) throw new Error(`Refusing smoke: unexpected Worker URL ${workerUrl}`);
+if (!adminKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
+
+const run = String(process.env.GITHUB_RUN_ID || Date.now()).replace(/\D/g, '').slice(-12) || String(Date.now());
+const email = `royal-edge-prod-smoke-${run}-${Date.now()}@load.invalid`;
 const password = `Smoke!${randomUUID()}Aa1`;
 let userId = null;
+let token = null;
+let sessionId = null;
 let touchedWorker = false;
 let syncVerified = false;
 
-const supabaseHeaders = (json = true) => ({
-  apikey: secret,
-  ...(json ? { 'content-type': 'application/json' } : {}),
-  accept: 'application/json',
-  'user-agent': 'royal-bank-edge-production-smoke/1.0',
-});
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function responseJson(response, label) {
+function adminHeaders(json = true) {
+  return {
+    apikey: adminKey,
+    authorization: `Bearer ${adminKey}`,
+    accept: 'application/json',
+    ...(json ? { 'content-type': 'application/json' } : {}),
+    'user-agent': 'royal-bank-production-edge-smoke/1.0',
+  };
+}
+
+function publicHeaders(json = true) {
+  return {
+    apikey: PUBLISHABLE_KEY,
+    accept: 'application/json',
+    ...(json ? { 'content-type': 'application/json' } : {}),
+    'user-agent': 'royal-bank-production-edge-smoke/1.0',
+  };
+}
+
+async function readBody(response) {
   const text = await response.text();
-  let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  try { return text ? JSON.parse(text) : null; } catch { return text; }
+}
+
+async function expectOk(response, label) {
+  const body = await readBody(response);
   if (!response.ok) {
     const detail = typeof body === 'string' ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500);
     throw new Error(`${label} failed (${response.status}): ${detail}`);
@@ -33,160 +55,202 @@ async function responseJson(response, label) {
   return body;
 }
 
-async function adminCreateUser() {
-  const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+async function createUser() {
+  const body = await expectOk(await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
     method: 'POST',
-    headers: supabaseHeaders(),
-    body: JSON.stringify({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: 'Edge Production Smoke' },
-    }),
-  });
-  const body = await responseJson(response, 'Admin create user');
+    headers: adminHeaders(),
+    body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { full_name: 'Royal Edge Production Smoke' } }),
+  }), 'Admin create user');
   const id = body?.id || body?.user?.id;
-  if (!id) throw new Error('Admin create user returned no user id');
+  if (!id) throw new Error('Admin create user returned no id');
   return id;
 }
 
-async function signIn() {
-  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+async function patchProfile() {
+  const url = new URL(`${supabaseUrl}/rest/v1/profiles`);
+  url.searchParams.set('id', `eq.${userId}`);
+  await expectOk(await fetch(url, {
+    method: 'PATCH',
+    headers: { ...adminHeaders(), prefer: 'return=minimal' },
+    body: JSON.stringify({ is_active: true, role: 'student' }),
+  }), 'Activate smoke profile');
+}
+
+async function grantBankAccess() {
+  await expectOk(await fetch(`${supabaseUrl}/rest/v1/user_access_grants`, {
     method: 'POST',
-    headers: supabaseHeaders(),
+    headers: { ...adminHeaders(), prefer: 'return=minimal' },
+    body: JSON.stringify({
+      user_id: userId,
+      scope_type: 'bank',
+      question_bank_id: 1,
+      starts_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    }),
+  }), 'Grant smoke bank access');
+}
+
+async function signIn() {
+  const body = await expectOk(await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: publicHeaders(),
     body: JSON.stringify({ email, password }),
-  });
-  const body = await responseJson(response, 'Password sign-in');
-  if (!body?.access_token) throw new Error('Sign-in returned no access token');
+  }), 'Smoke sign-in');
+  if (!body?.access_token) throw new Error('Smoke sign-in returned no access token');
   return body.access_token;
 }
 
-async function workerExam(token, action, args) {
+async function worker(action, args) {
   touchedWorker = true;
+  const started = performance.now();
   const response = await fetch(`${workerUrl}/exam`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
       'content-type': 'application/json',
       accept: 'application/json',
-      'user-agent': 'royal-bank-edge-production-smoke/1.0',
+      'user-agent': 'royal-bank-production-edge-smoke/1.0',
     },
     body: JSON.stringify({ action, args }),
   });
-  return responseJson(response, `Worker ${action}`);
+  const body = await expectOk(response, `Worker ${action}`);
+  return { body, ms: Math.round((performance.now() - started) * 100) / 100 };
 }
 
-async function fetchRows(table, params) {
-  const query = new URL(`${supabaseUrl}/rest/v1/${table}`);
-  for (const [key, value] of Object.entries(params)) query.searchParams.set(key, value);
-  const response = await fetch(query, { headers: supabaseHeaders(false) });
-  const rows = await responseJson(response, `Read ${table}`);
-  return Array.isArray(rows) ? rows : [];
+async function getSyncRows() {
+  const url = new URL(`${supabaseUrl}/rest/v1/edge_exam_sync_inbox`);
+  url.searchParams.set('select', 'event_type,processed_at,last_error');
+  url.searchParams.set('user_id', `eq.${userId}`);
+  url.searchParams.set('order', 'received_at.asc');
+  return expectOk(await fetch(url, { headers: adminHeaders(false) }), 'Read smoke sync inbox');
 }
 
-async function waitForSync(sessionId) {
-  const required = ['session.created', 'answer.finalized', 'session.completed'];
-  const deadline = Date.now() + 45_000;
+async function getCompletedSession() {
+  const url = new URL(`${supabaseUrl}/rest/v1/edge_exam_sessions`);
+  url.searchParams.set('select', 'session_id,completed_at,total_questions,version');
+  url.searchParams.set('user_id', `eq.${userId}`);
+  url.searchParams.set('session_id', `eq.${sessionId}`);
+  return expectOk(await fetch(url, { headers: adminHeaders(false) }), 'Read smoke materialized session');
+}
+
+async function waitForSync() {
+  const required = ['session.created', 'answer.finalized', 'question.flagged', 'session.suspended', 'session.resumed', 'session.completed'];
+  const started = Date.now();
+  const deadline = started + 45_000;
   while (Date.now() < deadline) {
-    const inbox = await fetchRows('edge_exam_sync_inbox', {
-      select: 'event_type',
-      user_id: `eq.${userId}`,
-    });
-    const types = inbox.map((row) => String(row.event_type));
-    const sessions = await fetchRows('edge_exam_sessions', {
-      select: 'session_id,completed_at',
-      user_id: `eq.${userId}`,
-      session_id: `eq.${sessionId}`,
-    });
-    const materialized = sessions.some((row) => String(row.session_id) === String(sessionId) && row.completed_at);
-    if (required.every((type) => types.includes(type)) && materialized) {
+    const rows = await getSyncRows();
+    const types = Array.isArray(rows) ? rows.map((row) => String(row.event_type)) : [];
+    const clean = Array.isArray(rows) && rows.every((row) => row.processed_at && !row.last_error);
+    const materialized = await getCompletedSession();
+    if (required.every((type) => types.includes(type)) && clean && Array.isArray(materialized) && materialized.length === 1 && materialized[0]?.completed_at) {
       syncVerified = true;
-      return [...new Set(types)].sort();
+      return { types: [...new Set(types)].sort(), lag_ms: Date.now() - started, materialized: materialized[0] };
     }
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await sleep(1500);
   }
-  throw new Error('Async Queue -> Supabase materialization did not complete within 45 seconds.');
+  const rows = await getSyncRows();
+  throw new Error(`Async sync incomplete after 45s: ${JSON.stringify(rows).slice(0, 1000)}`);
 }
 
-async function deleteRowsByUser(table) {
-  const query = new URL(`${supabaseUrl}/rest/v1/${table}`);
-  query.searchParams.set('user_id', `eq.${userId}`);
-  const response = await fetch(query, {
-    method: 'DELETE',
-    headers: { ...supabaseHeaders(false), prefer: 'return=minimal' },
-  });
-  if (!response.ok) throw new Error(`${table} cleanup failed (${response.status}): ${(await response.text()).slice(0, 300)}`);
+async function deleteByUser(table) {
+  const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
+  url.searchParams.set('user_id', `eq.${userId}`);
+  const response = await fetch(url, { method: 'DELETE', headers: { ...adminHeaders(false), prefer: 'return=minimal' } });
+  if (!response.ok) throw new Error(`${table} cleanup returned ${response.status}: ${(await response.text()).slice(0, 250)}`);
 }
 
 async function cleanup() {
   if (!userId) return;
-  if (touchedWorker && !syncVerified) await new Promise((resolve) => setTimeout(resolve, 8_000));
-  for (const table of [
+  if (touchedWorker && !syncVerified) await sleep(8000);
+  const tables = [
     'edge_exam_answers',
     'edge_exam_session_questions',
     'edge_exam_flags',
-    'edge_exam_sessions',
     'edge_user_question_state',
     'edge_user_bank_daily',
+    'edge_exam_sessions',
     'edge_exam_sync_inbox',
-  ]) {
-    try { await deleteRowsByUser(table); }
-    catch (error) { console.error(`Smoke ${table} cleanup failed:`, error?.message || error); }
+    'user_access_grants',
+  ];
+  for (const table of tables) {
+    try { await deleteByUser(table); } catch (error) { console.error(`Cleanup ${table}: ${error?.message || error}`); }
   }
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
-      method: 'DELETE',
-      headers: supabaseHeaders(false),
+      method: 'DELETE', headers: adminHeaders(false),
     });
-    if (!response.ok) console.error(`Smoke user cleanup returned ${response.status}`);
+    if (!response.ok) console.error(`Auth cleanup returned ${response.status}: ${(await response.text()).slice(0, 250)}`);
   } catch (error) {
-    console.error('Smoke user cleanup failed:', error?.message || error);
+    console.error(`Auth cleanup failed: ${error?.message || error}`);
   }
 }
 
 try {
-  userId = await adminCreateUser();
-  const token = await signIn();
+  userId = await createUser();
+  await patchProfile();
+  await grantBankAccess();
+  token = await signIn();
 
-  const created = await workerExam(token, 'create', {
+  const latencies = {};
+  const prepared = await worker('prepare', { p_bank_id: 1 });
+  latencies.prepare_ms = prepared.ms;
+  if (prepared.body?.prepared !== true) throw new Error(`Prepare did not confirm access: ${JSON.stringify(prepared.body).slice(0, 400)}`);
+
+  const created = await worker('create', {
     p_request_id: randomUUID(),
     p_bank_id: 1,
     p_session_type: 'standard',
-    p_limit: 1,
+    p_limit: 4,
     p_difficulties: [],
     p_categories: [],
     p_topics: [],
     p_question_selection: 'all',
   });
+  latencies.create_ms = created.ms;
+  sessionId = created.body?.session?.id;
+  const first = created.body?.questions?.[0];
+  if (!sessionId || !first?.id || !first?.options?.[0]?.id || !Array.isArray(created.body?.question_ids) || created.body.question_ids.length !== 4) {
+    throw new Error(`Invalid create response: ${JSON.stringify(created.body).slice(0, 600)}`);
+  }
 
-  const sessionId = created?.session?.id;
-  const question = created?.questions?.[0];
-  const questionId = question?.id;
-  const optionId = question?.options?.[0]?.id;
-  if (!sessionId || !questionId || !optionId) throw new Error('Create response did not contain session/question/option');
+  const windowed = await worker('window', { p_session_id: sessionId, p_start: 1, p_count: 3 });
+  latencies.window_ms = windowed.ms;
+  if (!Array.isArray(windowed.body) || windowed.body.length !== 3) throw new Error('Window did not return the remaining 3 questions');
+  const questions = [first, ...windowed.body];
 
-  const submitted = await workerExam(token, 'submit', {
-    p_request_id: randomUUID(),
-    p_session_id: sessionId,
-    p_question_id: Number(questionId),
-    p_selected_option_id: Number(optionId),
-    p_time_spent_seconds: 1,
-  });
-  if (Number(submitted?.answer?.question_id) !== Number(questionId)) throw new Error('Submit response question mismatch');
+  latencies.first_submit_ms = (await worker('submit', {
+    p_request_id: randomUUID(), p_session_id: sessionId, p_question_id: Number(first.id),
+    p_selected_option_id: Number(first.options[0].id), p_time_spent_seconds: 1,
+  })).ms;
 
-  const completed = await workerExam(token, 'complete', { p_session_id: sessionId });
-  const completedOk = completed?.ok === true || completed?.completed === true || completed?.status === 'completed' || completed?.is_completed === true || typeof completed?.completed_at === 'string';
-  if (!completedOk) throw new Error(`Complete response did not confirm completion: ${JSON.stringify(completed).slice(0, 300)}`);
+  latencies.flag_ms = (await worker('flag', { p_question_id: Number(first.id), p_flagged: true })).ms;
+  latencies.suspend_ms = (await worker('suspend', { p_session_id: sessionId })).ms;
+  latencies.resume_ms = (await worker('resume', { p_session_id: sessionId })).ms;
 
-  const types = await waitForSync(sessionId);
-  console.log(JSON.stringify({
+  const remainingSubmitMs = [];
+  for (const question of questions.slice(1)) {
+    const result = await worker('submit', {
+      p_request_id: randomUUID(), p_session_id: sessionId, p_question_id: Number(question.id),
+      p_selected_option_id: Number(question.options[0].id), p_time_spent_seconds: 1,
+    });
+    remainingSubmitMs.push(result.ms);
+  }
+  latencies.remaining_submit_ms = remainingSubmitMs;
+
+  const completed = await worker('complete', { p_session_id: sessionId });
+  latencies.complete_ms = completed.ms;
+  const completedOk = completed.body?.ok === true || completed.body?.completed === true || completed.body?.status === 'completed' || completed.body?.is_completed === true || typeof completed.body?.completed_at === 'string';
+  if (!completedOk) throw new Error(`Complete did not confirm completion: ${JSON.stringify(completed.body).slice(0, 500)}`);
+
+  const sync = await waitForSync();
+  console.log(`PRODUCTION_EDGE_SMOKE ${JSON.stringify({
     ok: true,
-    create: 'passed',
-    submit: 'passed',
-    complete: 'passed',
-    queue_to_supabase: 'passed',
-    synced_event_types: types,
-  }));
+    worker: workerUrl,
+    question_count: questions.length,
+    lifecycle: ['prepare','create','window','submit','flag','suspend','resume','submit','complete'],
+    latencies,
+    sync,
+  })}`);
 } finally {
   await cleanup();
 }
