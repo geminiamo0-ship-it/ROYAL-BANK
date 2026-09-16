@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  // DEV-only deployment target while the Cloudflare exam architecture is migrated
-  // into ROYAL-BANK. Production bindings are intentionally not committed yet.
+  // Default target remains DEV while the Cloudflare exam architecture is
+  // validated. Production requires an explicit `--env production` deploy.
   "name": "royal-bank-v2-exam",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-15",
@@ -58,5 +58,52 @@
         "dead_letter_queue": "royal-bank-v2-exam-sync-dlq"
       }
     ]
+  },
+  "env": {
+    "production": {
+      // Named environments do not inherit bindings/vars. Keep every production
+      // resource explicit so a DEV binding can never be reused accidentally.
+      "name": "royal-bank-exam-production",
+      "vars": {
+        "APP_ENV": "production",
+        "SERVICE_NAME": "royal-bank-exam-production",
+        "SUPABASE_PROJECT_REF": "trnvsgenmzhyuayxxdoq",
+        "SUPABASE_URL": "https://trnvsgenmzhyuayxxdoq.supabase.co",
+        "EXAM_CONTENT_ROOT": "exam-content-v2",
+        "EXAM_SYNC_QUEUE_NAME": "royal-bank-exam-production-sync"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "USER_EXAMS",
+            "class_name": "UserExamState"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "EXAM_CONTENT",
+          "bucket_name": "royal-bank-exam-production-content"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "EXAM_SYNC_QUEUE",
+            "queue": "royal-bank-exam-production-sync"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "royal-bank-exam-production-sync",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 3,
+            "retry_delay": 5,
+            "dead_letter_queue": "royal-bank-exam-production-sync-dlq"
+          }
+        ]
+      }
+    }
   }
 }
