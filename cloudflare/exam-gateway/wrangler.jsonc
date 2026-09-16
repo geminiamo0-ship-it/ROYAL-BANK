@@ -69,6 +69,7 @@
         "SERVICE_NAME": "royal-bank-exam-production",
         "SUPABASE_PROJECT_REF": "trnvsgenmzhyuayxxdoq",
         "SUPABASE_URL": "https://trnvsgenmzhyuayxxdoq.supabase.co",
+        "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9",
         "EXAM_CONTENT_ROOT": "exam-content-v2",
         "EXAM_SYNC_QUEUE_NAME": "royal-bank-exam-production-sync"
       },
