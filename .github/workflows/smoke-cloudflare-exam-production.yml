@@ -1,0 +1,40 @@
+name: Smoke Cloudflare Exam Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - architecture/cloudflare-exam-v2
+    paths:
+      - '.github/production-smoke-trigger'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: royal-bank-cloudflare-exam-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      WORKER_URL: https://royal-bank-exam-production.geminiamo0.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate smoke credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo 'SUPABASE_SERVICE_ROLE_KEY is missing'; exit 1; }
+      - name: Syntax-check smoke
+        run: node --check scripts/smoke-edge-production.mjs
+      - name: Run isolated authenticated Production lifecycle smoke
+        run: node scripts/smoke-edge-production.mjs
