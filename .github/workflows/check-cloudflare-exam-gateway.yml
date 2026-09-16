@@ -27,4 +27,7 @@ jobs:
           cache-dependency-path: cloudflare/exam-gateway/package.json
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
-      - run: npx wrangler deploy --dry-run
+      - name: Validate DEV Wrangler config
+        run: npx wrangler deploy --dry-run
+      - name: Validate Production Wrangler config
+        run: npx wrangler deploy --dry-run --env production
