@@ -133,7 +133,7 @@ async function waitForMaterialization() {
   const deadline = Date.now() + 45_000;
   while (Date.now() < deadline) {
     const url = new URL(`${supabaseUrl}/rest/v1/edge_exam_sessions`);
-    url.searchParams.set('select', 'session_id,status,completed_at,correct_count,incorrect_count,unanswered_count');
+    url.searchParams.set('select', 'session_id,completed_at,correct_count,incorrect_count,unanswered_count');
     url.searchParams.set('user_id', `eq.${userId}`);
     url.searchParams.set('session_id', `eq.${sessionId}`);
     const rows = await expectOk(await fetch(url, { headers: adminHeaders(false) }), 'Read materialized session');
