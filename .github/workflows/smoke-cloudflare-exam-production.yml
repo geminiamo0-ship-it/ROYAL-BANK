@@ -22,7 +22,7 @@ jobs:
     environment: production
     env:
       SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
       WORKER_URL: https://royal-bank-exam-production.geminiamo0.workers.dev
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo 'SUPABASE_SERVICE_ROLE_KEY is missing'; exit 1; }
+          test -n "$SUPABASE_SECRET_KEY_PRODUCTION" || { echo 'SUPABASE_SECRET_KEY_PRODUCTION is missing'; exit 1; }
       - name: Syntax-check smoke
         run: node --check scripts/smoke-edge-production.mjs
       - name: Run isolated authenticated Production lifecycle smoke
