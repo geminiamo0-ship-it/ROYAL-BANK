@@ -6,6 +6,7 @@ export const maxDuration = 20;
 
 const MAX_BODY_BYTES = 32 * 1024;
 const EDGE_TIMEOUT_MS = 18_000;
+const EDGE_HEALTH_TIMEOUT_MS = 5_000;
 const MIGRATION_BRANCH = 'architecture/cloudflare-exam-v2';
 const DEV_EDGE_URL = 'https://royal-bank-v2-exam.geminiamo0.workers.dev';
 
@@ -59,6 +60,53 @@ function bearerToken(request: Request): string | null {
 
 function timedOut(error: unknown): boolean {
   return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+}
+
+export async function GET(): Promise<Response> {
+  const routing = edgeRouteMode();
+
+  if (routing.mode === 'legacy') {
+    return Response.json(
+      { ok: true, mode: 'legacy' },
+      {
+        headers: {
+          'cache-control': 'no-store',
+          'x-royal-proxy': 'legacy-fallback',
+        },
+      },
+    );
+  }
+  if (routing.mode === 'misconfigured') {
+    return jsonError(503, 'EDGE_EXAM_NOT_CONFIGURED', 'Edge exam gateway is not configured.');
+  }
+
+  const healthUrl = new URL(routing.url.toString());
+  healthUrl.pathname = `${healthUrl.pathname}/health`.replace(/\/+/g, '/');
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(healthUrl, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(EDGE_HEALTH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    return timedOut(error)
+      ? jsonError(504, 'EDGE_HEALTH_TIMEOUT', 'Edge exam gateway health check timed out.')
+      : jsonError(502, 'EDGE_HEALTH_UNAVAILABLE', 'Edge exam gateway health check failed.');
+  }
+
+  const responseBody = await upstream.text();
+  const headers = new Headers({
+    'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'x-royal-proxy': 'cloudflare-edge',
+  });
+  const gateway = upstream.headers.get('x-royal-gateway');
+  if (gateway) headers.set('x-royal-gateway', gateway);
+
+  return new Response(responseBody, { status: upstream.status, headers });
 }
 
 export async function POST(request: Request): Promise<Response> {
