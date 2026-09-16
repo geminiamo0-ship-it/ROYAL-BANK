@@ -6,6 +6,13 @@ export const maxDuration = 20;
 
 const MAX_BODY_BYTES = 32 * 1024;
 const EDGE_TIMEOUT_MS = 18_000;
+const MIGRATION_BRANCH = 'architecture/cloudflare-exam-v2';
+const DEV_EDGE_URL = 'https://royal-bank-v2-exam.geminiamo0.workers.dev';
+
+type EdgeRouteMode =
+  | { mode: 'legacy' }
+  | { mode: 'misconfigured' }
+  | { mode: 'edge'; url: URL };
 
 function jsonError(status: number, code: string, message: string): Response {
   return Response.json(
@@ -21,21 +28,33 @@ function jsonError(status: number, code: string, message: string): Response {
   );
 }
 
-function configuredEdgeUrl(): URL | null {
-  if (process.env.ROYAL_EXAM_EDGE_ENABLED !== 'true') return null;
-  const raw = process.env.ROYAL_EXAM_EDGE_URL?.trim();
-  if (!raw) return null;
+function edgeRouteMode(): EdgeRouteMode {
+  const migrationPreview =
+    process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_GIT_COMMIT_REF === MIGRATION_BRANCH;
+  const explicitlyEnabled = process.env.ROYAL_EXAM_EDGE_ENABLED === 'true';
+
+  if (!migrationPreview && !explicitlyEnabled) return { mode: 'legacy' };
+
+  const raw = process.env.ROYAL_EXAM_EDGE_URL?.trim() || (migrationPreview ? DEV_EDGE_URL : '');
+  if (!raw) return { mode: 'misconfigured' };
 
   try {
     const parsed = new URL(raw);
-    if (parsed.protocol !== 'https:') return null;
+    if (parsed.protocol !== 'https:') return { mode: 'misconfigured' };
     parsed.pathname = parsed.pathname.replace(/\/+$/, '');
     parsed.search = '';
     parsed.hash = '';
-    return parsed;
+    return { mode: 'edge', url: parsed };
   } catch {
-    return null;
+    return { mode: 'misconfigured' };
   }
+}
+
+function bearerToken(request: Request): string | null {
+  const authorization = request.headers.get('authorization') || '';
+  if (!authorization.startsWith('Bearer ')) return null;
+  const token = authorization.slice(7).trim();
+  return token || null;
 }
 
 function timedOut(error: unknown): boolean {
@@ -44,9 +63,13 @@ function timedOut(error: unknown): boolean {
 
 export async function POST(request: Request): Promise<Response> {
   const requestId = crypto.randomUUID();
-  const edgeUrl = configuredEdgeUrl();
-  if (!edgeUrl) {
-    const response = jsonError(503, 'EDGE_EXAM_DISABLED', 'Edge exam gateway is not enabled.');
+  const routing = edgeRouteMode();
+
+  if (routing.mode === 'legacy') {
+    return Response.redirect(new URL('/api/exam', request.url), 307);
+  }
+  if (routing.mode === 'misconfigured') {
+    const response = jsonError(503, 'EDGE_EXAM_NOT_CONFIGURED', 'Edge exam gateway is not configured.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
@@ -59,18 +82,32 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const callerToken = bearerToken(request);
+  let accessToken = callerToken;
 
-  const accessToken = session?.access_token;
+  if (!accessToken) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    accessToken = session?.access_token || null;
+  }
+
   if (!accessToken) {
     const response = jsonError(401, 'AUTH_REQUIRED', 'Authentication required.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
 
-  if (session.user.app_metadata?.must_change_password === true) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser(accessToken);
+  if (userError || !user) {
+    const response = jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+    response.headers.set('x-royal-request-id', requestId);
+    return response;
+  }
+  if (user.app_metadata?.must_change_password === true) {
     const response = jsonError(403, 'PASSWORD_CHANGE_REQUIRED', 'Change your password before continuing.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
@@ -91,7 +128,7 @@ export async function POST(request: Request): Promise<Response> {
     return response;
   }
 
-  const upstreamUrl = new URL(edgeUrl.toString());
+  const upstreamUrl = new URL(routing.url.toString());
   upstreamUrl.pathname = `${upstreamUrl.pathname}/exam`.replace(/\/+/g, '/');
 
   let upstream: Response;
