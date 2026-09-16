@@ -31,18 +31,22 @@ export function StudentShell({
   }
 
   const shellBackground = isStudyPlanRoute
-    ? 'bg-[radial-gradient(circle_at_18%_0%,#153a52_0%,#0a1f30_26%,#071722_58%,#06111a_100%)]'
-    : 'bg-[#282828]';
+    ? 'bg-[radial-gradient(circle_at_18%_0%,#fffdf8_0%,#f6f1e7_38%,#eee8dd_100%)] dark:bg-[radial-gradient(circle_at_18%_0%,#153a52_0%,#0a1f30_26%,#071722_58%,#06111a_100%)]'
+    : 'bg-[#f6f3ed] dark:bg-[#282828]';
+
+  const contentBackground = isStudyPlanRoute
+    ? 'bg-[linear-gradient(180deg,rgba(255,253,248,0.18),rgba(231,224,212,0.28))] dark:bg-[linear-gradient(180deg,rgba(5,17,26,0.18),rgba(5,17,26,0.5))]'
+    : '';
 
   return (
-    <div className={`royal-app-shell flex min-h-screen text-white ${shellBackground}`}>
+    <div className={`royal-app-shell flex min-h-screen text-[#172238] dark:text-white ${shellBackground}`}>
       <ExamRateLimitNotice />
       <PassMedicineSidebar currentPathwayName="MRCP Part 1" />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <StudentHeader userEmail={userEmail} userName={userName} />
 
-        <main className={`flex-1 overflow-y-auto px-4 pb-8 pt-4 ${isStudyPlanRoute ? 'bg-[linear-gradient(180deg,rgba(5,17,26,0.18),rgba(5,17,26,0.5))]' : ''}`}>
+        <main className={`flex-1 overflow-y-auto px-4 pb-8 pt-4 ${contentBackground}`}>
           {children}
         </main>
       </div>
