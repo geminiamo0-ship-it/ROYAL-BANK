@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { isInProductionEdgeRollout } from '@/lib/exam-edge-rollout';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'dub1';
@@ -12,11 +13,17 @@ const DEV_EDGE_URL = 'https://royal-bank-v2-exam.geminiamo0.workers.dev';
 const PROD_EDGE_URL = 'https://royal-bank-exam-production.geminiamo0.workers.dev';
 const INTERNAL_CANARY_HEADER = 'x-royal-edge-canary';
 const PRODUCTION_SMOKE_CANARY_VALUE = 'smoke';
+const PRODUCTION_ROLLOUT_CANARY_VALUE = 'rollout';
+
+type EdgeCanaryMode =
+  | typeof PRODUCTION_SMOKE_CANARY_VALUE
+  | typeof PRODUCTION_ROLLOUT_CANARY_VALUE
+  | null;
 
 type EdgeRouteMode =
   | { mode: 'legacy' }
   | { mode: 'misconfigured' }
-  | { mode: 'edge'; url: URL; smokeCanary: boolean };
+  | { mode: 'edge'; url: URL; canaryMode: EdgeCanaryMode };
 
 function jsonError(status: number, code: string, message: string): Response {
   return Response.json(
@@ -36,13 +43,22 @@ function edgeRouteMode(request: Request): EdgeRouteMode {
   const migrationPreview =
     process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_GIT_COMMIT_REF === MIGRATION_BRANCH;
   const explicitlyEnabled = process.env.ROYAL_EXAM_EDGE_ENABLED === 'true';
-  const smokeCanary =
-    process.env.VERCEL_ENV === 'production' &&
-    request.headers.get(INTERNAL_CANARY_HEADER) === PRODUCTION_SMOKE_CANARY_VALUE;
+  const canaryHeader = process.env.VERCEL_ENV === 'production'
+    ? request.headers.get(INTERNAL_CANARY_HEADER)
+    : null;
+  const smokeCanary = canaryHeader === PRODUCTION_SMOKE_CANARY_VALUE;
+  const rolloutCanary = canaryHeader === PRODUCTION_ROLLOUT_CANARY_VALUE;
 
-  if (!migrationPreview && !explicitlyEnabled && !smokeCanary) return { mode: 'legacy' };
+  if (!migrationPreview && !explicitlyEnabled && !smokeCanary && !rolloutCanary) {
+    return { mode: 'legacy' };
+  }
 
-  const fallbackUrl = migrationPreview ? DEV_EDGE_URL : smokeCanary ? PROD_EDGE_URL : '';
+  const canaryMode: EdgeCanaryMode = smokeCanary
+    ? PRODUCTION_SMOKE_CANARY_VALUE
+    : rolloutCanary
+      ? PRODUCTION_ROLLOUT_CANARY_VALUE
+      : null;
+  const fallbackUrl = migrationPreview ? DEV_EDGE_URL : canaryMode ? PROD_EDGE_URL : '';
   const raw = process.env.ROYAL_EXAM_EDGE_URL?.trim() || fallbackUrl;
   if (!raw) return { mode: 'misconfigured' };
 
@@ -52,7 +68,7 @@ function edgeRouteMode(request: Request): EdgeRouteMode {
     parsed.pathname = parsed.pathname.replace(/\/+$/, '');
     parsed.search = '';
     parsed.hash = '';
-    return { mode: 'edge', url: parsed, smokeCanary };
+    return { mode: 'edge', url: parsed, canaryMode };
   } catch {
     return { mode: 'misconfigured' };
   }
@@ -162,8 +178,16 @@ export async function POST(request: Request): Promise<Response> {
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
-  if (routing.smokeCanary && !user.email?.endsWith('@load.invalid')) {
+  if (routing.canaryMode === PRODUCTION_SMOKE_CANARY_VALUE && !user.email?.endsWith('@load.invalid')) {
     const response = jsonError(403, 'EDGE_CANARY_NOT_ALLOWED', 'This account is not enabled for the Edge canary.');
+    response.headers.set('x-royal-request-id', requestId);
+    return response;
+  }
+  if (
+    routing.canaryMode === PRODUCTION_ROLLOUT_CANARY_VALUE &&
+    !isInProductionEdgeRollout(user.id)
+  ) {
+    const response = jsonError(403, 'EDGE_ROLLOUT_NOT_ALLOWED', 'This account is not in the Edge rollout cohort.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
