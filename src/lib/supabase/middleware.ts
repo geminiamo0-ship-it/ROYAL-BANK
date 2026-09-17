@@ -3,11 +3,18 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { isSupabaseConfigured } from './config';
 import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
+import { isInProductionEdgeRollout, jwtSubject } from '@/lib/exam-edge-rollout';
 
 const EDGE_MIGRATION_BRANCH = 'architecture/cloudflare-exam-v2';
 const PRODUCTION_SMOKE_CANARY_PARAM = '__royal_edge_canary';
 const PRODUCTION_SMOKE_CANARY_VALUE = 'smoke';
+const PRODUCTION_ROLLOUT_CANARY_VALUE = 'rollout';
 const INTERNAL_CANARY_HEADER = 'x-royal-edge-canary';
+
+type EdgeCanaryMode =
+  | typeof PRODUCTION_SMOKE_CANARY_VALUE
+  | typeof PRODUCTION_ROLLOUT_CANARY_VALUE
+  | null;
 
 export async function updateSession(request: NextRequest) {
   const middlewareStart = performance.now();
@@ -49,7 +56,11 @@ export async function updateSession(request: NextRequest) {
     pathname === '/api/exam' &&
     request.nextUrl.searchParams.get(PRODUCTION_SMOKE_CANARY_PARAM) === PRODUCTION_SMOKE_CANARY_VALUE;
 
-  function forwardExamSession(accessToken: string | null, rewriteToEdge = false, smokeCanary = false) {
+  function forwardExamSession(
+    accessToken: string | null,
+    rewriteToEdge = false,
+    canaryMode: EdgeCanaryMode = null,
+  ) {
     if (process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true') {
       requestHeaders.set('x-royal-internal-middleware-ms', (performance.now() - middlewareStart).toFixed(1));
     }
@@ -58,8 +69,8 @@ export async function updateSession(request: NextRequest) {
     } else {
       requestHeaders.delete('authorization');
     }
-    if (smokeCanary) {
-      requestHeaders.set(INTERNAL_CANARY_HEADER, PRODUCTION_SMOKE_CANARY_VALUE);
+    if (canaryMode) {
+      requestHeaders.set(INTERNAL_CANARY_HEADER, canaryMode);
     } else {
       requestHeaders.delete(INTERNAL_CANARY_HEADER);
     }
@@ -89,23 +100,36 @@ export async function updateSession(request: NextRequest) {
   // Caller-supplied Authorization remains overwritten/removed for normal traffic.
   // The isolated Production smoke canary additionally accepts a bearer token so a
   // temporary @load.invalid test account can exercise the real /api/exam route without
-  // changing any real-user routing. /api/exam-edge revalidates that token and enforces
-  // the smoke-account restriction before forwarding to Cloudflare.
-  // During the migration preview (or an explicit server-side rollout), the same client
-  // endpoint is internally rewritten to /api/exam-edge. Production stays on the legacy
-  // request path unless the global flag or isolated smoke canary deliberately opts in.
+  // changing any real-user routing. The real Production rollout is deterministic by
+  // authenticated user id and is currently hard-capped at 1%; the same user therefore
+  // remains on the same path for every exam request. /api/exam-edge revalidates the JWT
+  // and independently re-checks rollout membership before forwarding to Cloudflare.
   if (pathname === '/api/exam') {
     const {
       data: { session },
     } = await supabase.auth.getSession();
+    const sessionToken = session?.access_token || null;
+    const sessionUserId = jwtSubject(sessionToken);
+    const productionRolloutCanary =
+      process.env.VERCEL_ENV === 'production' &&
+      !productionSmokeCanary &&
+      !routeExamToEdge &&
+      Boolean(sessionUserId && isInProductionEdgeRollout(sessionUserId));
+
     const callerAuthorization = productionSmokeCanary ? request.headers.get('authorization') || '' : '';
     const canaryBearer = callerAuthorization.startsWith('Bearer ')
       ? callerAuthorization.slice(7).trim() || null
       : null;
+    const canaryMode: EdgeCanaryMode = productionSmokeCanary
+      ? PRODUCTION_SMOKE_CANARY_VALUE
+      : productionRolloutCanary
+        ? PRODUCTION_ROLLOUT_CANARY_VALUE
+        : null;
+
     return forwardExamSession(
-      canaryBearer || session?.access_token || null,
-      routeExamToEdge || productionSmokeCanary,
-      productionSmokeCanary,
+      canaryBearer || sessionToken,
+      routeExamToEdge || productionSmokeCanary || productionRolloutCanary,
+      canaryMode,
     );
   }
 
