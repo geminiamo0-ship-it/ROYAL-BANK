@@ -9,11 +9,14 @@ const EDGE_TIMEOUT_MS = 18_000;
 const EDGE_HEALTH_TIMEOUT_MS = 5_000;
 const MIGRATION_BRANCH = 'architecture/cloudflare-exam-v2';
 const DEV_EDGE_URL = 'https://royal-bank-v2-exam.geminiamo0.workers.dev';
+const PROD_EDGE_URL = 'https://royal-bank-exam-production.geminiamo0.workers.dev';
+const INTERNAL_CANARY_HEADER = 'x-royal-edge-canary';
+const PRODUCTION_SMOKE_CANARY_VALUE = 'smoke';
 
 type EdgeRouteMode =
   | { mode: 'legacy' }
   | { mode: 'misconfigured' }
-  | { mode: 'edge'; url: URL };
+  | { mode: 'edge'; url: URL; smokeCanary: boolean };
 
 function jsonError(status: number, code: string, message: string): Response {
   return Response.json(
@@ -29,14 +32,18 @@ function jsonError(status: number, code: string, message: string): Response {
   );
 }
 
-function edgeRouteMode(): EdgeRouteMode {
+function edgeRouteMode(request: Request): EdgeRouteMode {
   const migrationPreview =
     process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_GIT_COMMIT_REF === MIGRATION_BRANCH;
   const explicitlyEnabled = process.env.ROYAL_EXAM_EDGE_ENABLED === 'true';
+  const smokeCanary =
+    process.env.VERCEL_ENV === 'production' &&
+    request.headers.get(INTERNAL_CANARY_HEADER) === PRODUCTION_SMOKE_CANARY_VALUE;
 
-  if (!migrationPreview && !explicitlyEnabled) return { mode: 'legacy' };
+  if (!migrationPreview && !explicitlyEnabled && !smokeCanary) return { mode: 'legacy' };
 
-  const raw = process.env.ROYAL_EXAM_EDGE_URL?.trim() || (migrationPreview ? DEV_EDGE_URL : '');
+  const fallbackUrl = migrationPreview ? DEV_EDGE_URL : smokeCanary ? PROD_EDGE_URL : '';
+  const raw = process.env.ROYAL_EXAM_EDGE_URL?.trim() || fallbackUrl;
   if (!raw) return { mode: 'misconfigured' };
 
   try {
@@ -45,7 +52,7 @@ function edgeRouteMode(): EdgeRouteMode {
     parsed.pathname = parsed.pathname.replace(/\/+$/, '');
     parsed.search = '';
     parsed.hash = '';
-    return { mode: 'edge', url: parsed };
+    return { mode: 'edge', url: parsed, smokeCanary };
   } catch {
     return { mode: 'misconfigured' };
   }
@@ -62,8 +69,8 @@ function timedOut(error: unknown): boolean {
   return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
-export async function GET(): Promise<Response> {
-  const routing = edgeRouteMode();
+export async function GET(request: Request): Promise<Response> {
+  const routing = edgeRouteMode(request);
 
   if (routing.mode === 'legacy') {
     return Response.json(
@@ -111,7 +118,7 @@ export async function GET(): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   const requestId = crypto.randomUUID();
-  const routing = edgeRouteMode();
+  const routing = edgeRouteMode(request);
 
   if (routing.mode === 'legacy') {
     return Response.redirect(new URL('/api/exam', request.url), 307);
@@ -152,6 +159,11 @@ export async function POST(request: Request): Promise<Response> {
   } = await supabase.auth.getUser(accessToken);
   if (userError || !user) {
     const response = jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+    response.headers.set('x-royal-request-id', requestId);
+    return response;
+  }
+  if (routing.smokeCanary && !user.email?.endsWith('@load.invalid')) {
+    const response = jsonError(403, 'EDGE_CANARY_NOT_ALLOWED', 'This account is not enabled for the Edge canary.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
