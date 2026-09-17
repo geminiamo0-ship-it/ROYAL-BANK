@@ -6,6 +6,7 @@ export const EXAM_RATE_LIMIT_STORAGE_KEY = 'royal.exam-rate-limit-until';
 
 const EXAM_WINDOW_ACCESS_HEADER = 'x-royal-window-access';
 const DEFAULT_CLIENT_TIMEOUT_MS = 10_000;
+const EXAM_GATEWAY_ENDPOINT = '/api/exam';
 
 type GatewayErrorInfo = {
   message: string;
@@ -144,7 +145,7 @@ export async function callExamGateway<T, A extends ExamGatewayAction>(
   const { signal, cleanup } = gatewaySignal(options);
   let response: Response;
   try {
-    response = await fetch('/api/exam', {
+    response = await fetch(EXAM_GATEWAY_ENDPOINT, {
       method: 'POST',
       cache: 'no-store',
       credentials: 'same-origin',

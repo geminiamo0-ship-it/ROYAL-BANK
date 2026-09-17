@@ -4,6 +4,8 @@ import { isSupabaseConfigured } from './config';
 import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
 
+const EDGE_MIGRATION_BRANCH = 'architecture/cloudflare-exam-v2';
+
 export async function updateSession(request: NextRequest) {
   const middlewareStart = performance.now();
   const requestHeaders = new Headers(request.headers);
@@ -34,8 +36,12 @@ export async function updateSession(request: NextRequest) {
   });
 
   const pathname = request.nextUrl.pathname;
+  const routeExamToEdge =
+    (process.env.VERCEL_ENV === 'preview' &&
+      process.env.VERCEL_GIT_COMMIT_REF === EDGE_MIGRATION_BRANCH) ||
+    process.env.ROYAL_EXAM_EDGE_ENABLED === 'true';
 
-  function forwardExamSession(accessToken: string | null) {
+  function forwardExamSession(accessToken: string | null, rewriteToEdge = false) {
     if (process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true') {
       requestHeaders.set('x-royal-internal-middleware-ms', (performance.now() - middlewareStart).toFixed(1));
     }
@@ -50,7 +56,11 @@ export async function updateSession(request: NextRequest) {
       .map((name) => [name, response.headers.get(name)] as const)
       .filter((entry): entry is readonly [string, string] => Boolean(entry[1]));
 
-    response = NextResponse.next({ request: { headers: requestHeaders } });
+    response = rewriteToEdge
+      ? NextResponse.rewrite(new URL('/api/exam-edge', request.url), {
+          request: { headers: requestHeaders },
+        })
+      : NextResponse.next({ request: { headers: requestHeaders } });
     pendingCookies.forEach((cookie) => response.cookies.set(cookie));
     pendingCacheHeaders.forEach(([name, value]) => response.headers.set(name, value));
     return response;
@@ -64,11 +74,14 @@ export async function updateSession(request: NextRequest) {
   // cookie session and forward its access token; repeating getClaims()+getUser() here
   // adds remote Auth round-trips without adding an independent authorization boundary.
   // Caller-supplied Authorization remains overwritten/removed exactly as before.
+  // During the migration preview (or an explicit server-side rollout), the same client
+  // endpoint is internally rewritten to /api/exam-edge. Production stays byte-for-byte
+  // on the legacy request path until ROYAL_EXAM_EDGE_ENABLED is deliberately enabled.
   if (pathname === '/api/exam') {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    return forwardExamSession(session?.access_token || null);
+    return forwardExamSession(session?.access_token || null, routeExamToEdge);
   }
 
   // Validate/refresh the cookie-backed session before using it for authorization on
@@ -178,4 +191,3 @@ export async function updateSession(request: NextRequest) {
 
   return response;
 }
-
