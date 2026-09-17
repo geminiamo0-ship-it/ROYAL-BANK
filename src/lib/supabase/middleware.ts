@@ -5,12 +5,16 @@ import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
 
 const EDGE_MIGRATION_BRANCH = 'architecture/cloudflare-exam-v2';
+const PRODUCTION_SMOKE_CANARY_PARAM = '__royal_edge_canary';
+const PRODUCTION_SMOKE_CANARY_VALUE = 'smoke';
+const INTERNAL_CANARY_HEADER = 'x-royal-edge-canary';
 
 export async function updateSession(request: NextRequest) {
   const middlewareStart = performance.now();
   const requestHeaders = new Headers(request.headers);
-  // Never trust diagnostic timings supplied by the caller.
+  // Never trust diagnostic/internal headers supplied by the caller.
   requestHeaders.delete('x-royal-internal-middleware-ms');
+  requestHeaders.delete(INTERNAL_CANARY_HEADER);
   let response = NextResponse.next({ request: { headers: requestHeaders } });
   const { url, publishableKey } = getSupabaseServerConfig();
 
@@ -40,8 +44,12 @@ export async function updateSession(request: NextRequest) {
     (process.env.VERCEL_ENV === 'preview' &&
       process.env.VERCEL_GIT_COMMIT_REF === EDGE_MIGRATION_BRANCH) ||
     process.env.ROYAL_EXAM_EDGE_ENABLED === 'true';
+  const productionSmokeCanary =
+    process.env.VERCEL_ENV === 'production' &&
+    pathname === '/api/exam' &&
+    request.nextUrl.searchParams.get(PRODUCTION_SMOKE_CANARY_PARAM) === PRODUCTION_SMOKE_CANARY_VALUE;
 
-  function forwardExamSession(accessToken: string | null, rewriteToEdge = false) {
+  function forwardExamSession(accessToken: string | null, rewriteToEdge = false, smokeCanary = false) {
     if (process.env.ROYAL_GATEWAY_TIMING_ENABLED === 'true') {
       requestHeaders.set('x-royal-internal-middleware-ms', (performance.now() - middlewareStart).toFixed(1));
     }
@@ -49,6 +57,11 @@ export async function updateSession(request: NextRequest) {
       requestHeaders.set('authorization', `Bearer ${accessToken}`);
     } else {
       requestHeaders.delete('authorization');
+    }
+    if (smokeCanary) {
+      requestHeaders.set(INTERNAL_CANARY_HEADER, PRODUCTION_SMOKE_CANARY_VALUE);
+    } else {
+      requestHeaders.delete(INTERNAL_CANARY_HEADER);
     }
 
     const pendingCookies = response.cookies.getAll();
@@ -73,15 +86,27 @@ export async function updateSession(request: NextRequest) {
   // before execution. Therefore middleware only needs to extract/refresh the server-side
   // cookie session and forward its access token; repeating getClaims()+getUser() here
   // adds remote Auth round-trips without adding an independent authorization boundary.
-  // Caller-supplied Authorization remains overwritten/removed exactly as before.
+  // Caller-supplied Authorization remains overwritten/removed for normal traffic.
+  // The isolated Production smoke canary additionally accepts a bearer token so a
+  // temporary @load.invalid test account can exercise the real /api/exam route without
+  // changing any real-user routing. /api/exam-edge revalidates that token and enforces
+  // the smoke-account restriction before forwarding to Cloudflare.
   // During the migration preview (or an explicit server-side rollout), the same client
-  // endpoint is internally rewritten to /api/exam-edge. Production stays byte-for-byte
-  // on the legacy request path until ROYAL_EXAM_EDGE_ENABLED is deliberately enabled.
+  // endpoint is internally rewritten to /api/exam-edge. Production stays on the legacy
+  // request path unless the global flag or isolated smoke canary deliberately opts in.
   if (pathname === '/api/exam') {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    return forwardExamSession(session?.access_token || null, routeExamToEdge);
+    const callerAuthorization = productionSmokeCanary ? request.headers.get('authorization') || '' : '';
+    const canaryBearer = callerAuthorization.startsWith('Bearer ')
+      ? callerAuthorization.slice(7).trim() || null
+      : null;
+    return forwardExamSession(
+      canaryBearer || session?.access_token || null,
+      routeExamToEdge || productionSmokeCanary,
+      productionSmokeCanary,
+    );
   }
 
   // Validate/refresh the cookie-backed session before using it for authorization on
