@@ -102,6 +102,7 @@ test('middleware overwrites forged diagnostic header and strips incoming bearer'
       './config': { isSupabaseConfigured: () => true },
       '@/lib/supabase/env': { getSupabaseServerConfig: () => ({ url: 'https://test.supabase.co', publishableKey: 'test' }) },
       '@/lib/supabase/session-cookies': { getRoyalAuthCookieOptions: () => ({}), hardenAuthCookie: value => value },
+      '@/lib/exam-edge-rollout': { isInProductionEdgeRollout: () => false, jwtSubject: () => null },
       '@supabase/ssr': { createServerClient: () => ({ auth: { getSession: async () => {
         now = 9; return { data: { session: null } }; } } }) },
     };
