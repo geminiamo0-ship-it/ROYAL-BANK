@@ -1,0 +1,267 @@
+/* Study Plan dashboard — Royal light palette + compact desktop density.
+   Scoped to the dashboard route only. The Study Plan wizard and all other pages are untouched. */
+
+html.light main.study-plan-dashboard-shell {
+  background: var(--rb-bg) !important;
+  color: var(--rb-navy) !important;
+}
+
+html.light main.study-plan-dashboard-shell > div > header {
+  background: linear-gradient(
+    105deg,
+    var(--rb-surface-soft) 0%,
+    var(--rb-surface) 56%,
+    var(--rb-gold-soft) 100%
+  ) !important;
+  border-color: var(--rb-border) !important;
+  box-shadow: var(--rb-shadow) !important;
+}
+
+html.light main.study-plan-dashboard-shell > div > section,
+html.light main.study-plan-dashboard-shell > div > div.grid > section {
+  background: var(--rb-surface) !important;
+  border-color: var(--rb-border) !important;
+  box-shadow: var(--rb-shadow) !important;
+}
+
+html.light main.study-plan-dashboard-shell h1,
+html.light main.study-plan-dashboard-shell h2,
+html.light main.study-plan-dashboard-shell h3 {
+  color: var(--rb-navy) !important;
+}
+
+html.light main.study-plan-dashboard-shell p,
+html.light main.study-plan-dashboard-shell span,
+html.light main.study-plan-dashboard-shell div {
+  border-color: var(--rb-border);
+}
+
+html.light main.study-plan-dashboard-shell [class*="text-[#a8bdcb]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#a9bcc9]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#9eb4c3]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#9eb2c0]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#91a9b9]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#8ea9ba]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#8da8b9]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#7996a8]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#7894a7]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#7794a7]"] {
+  color: var(--rb-muted) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="text-[#dce6ec]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#dbe6ed]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#d8e4eb]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#d7e3ea]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#e0e9ef]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#e0eaf0]"],
+html.light main.study-plan-dashboard-shell [class*="text-white"] {
+  color: var(--rb-navy) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="bg-[#fffdfa]"],
+html.light main.study-plan-dashboard-shell [class*="bg-[#f7f3eb]"],
+html.light main.study-plan-dashboard-shell [class*="bg-[#f3eee5]"] {
+  background-color: var(--rb-surface) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="bg-[#f3ead9]"],
+html.light main.study-plan-dashboard-shell [class*="bg-[#f5eddc]"] {
+  background-color: var(--rb-gold-soft) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="border-[#ded6c7]"],
+html.light main.study-plan-dashboard-shell [class*="border-[#e0d8cb]"],
+html.light main.study-plan-dashboard-shell [class*="border-[#e5ddd0]"],
+html.light main.study-plan-dashboard-shell [class*="border-[#d8cebd]"],
+html.light main.study-plan-dashboard-shell [class*="border-[#c8bda9]"] {
+  border-color: var(--rb-border) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="bg-[#eee7dc]"],
+html.light main.study-plan-dashboard-shell [class*="bg-[#e7ded0]"],
+html.light main.study-plan-dashboard-shell [class*="bg-[#e5ddd0]"] {
+  background-color: var(--rb-surface-soft) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="bg-[#b58a3d]"],
+html.light main.study-plan-dashboard-shell [class*="bg-[#f2cf70]"] {
+  background-color: var(--rb-gold) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="text-[#a17c35]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#b58a3d]"],
+html.light main.study-plan-dashboard-shell [class*="text-[#62c6ff]"] {
+  color: var(--rb-gold) !important;
+}
+
+html.light main.study-plan-dashboard-shell button[class*="bg-[#b58a3d]"],
+html.light main.study-plan-dashboard-shell button[class*="bg-[#f2cf70]"] {
+  background: var(--rb-gold) !important;
+  color: #ffffff !important;
+}
+
+html.light main.study-plan-dashboard-shell button[class*="bg-[#b58a3d]"]:hover,
+html.light main.study-plan-dashboard-shell button[class*="bg-[#f2cf70]"]:hover {
+  background: var(--rb-gold-hover) !important;
+}
+
+html.light main.study-plan-dashboard-shell a[href*="/textbook/high-yield/"] {
+  background: var(--rb-surface) !important;
+  border-color: var(--rb-border-strong) !important;
+  color: var(--rb-navy) !important;
+}
+
+html.light main.study-plan-dashboard-shell a[href*="study-plan/create"] {
+  background: var(--rb-surface) !important;
+  border-color: var(--rb-border-strong) !important;
+  color: var(--rb-navy) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="bg-emerald-400"] {
+  background-color: var(--rb-success) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="border-emerald-300"],
+html.light main.study-plan-dashboard-shell [class*="border-emerald-400"] {
+  border-color: rgba(18, 148, 93, 0.35) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="text-emerald-700"],
+html.light main.study-plan-dashboard-shell [class*="text-emerald-300"] {
+  color: var(--rb-success) !important;
+}
+
+html.light main.study-plan-dashboard-shell [class*="bg-[#b58a3d]"][class*="text-white"],
+html.light main.study-plan-dashboard-shell [class*="bg-[#f2cf70]"][class*="text-white"] {
+  color: #ffffff !important;
+}
+
+@media (min-width: 1280px) {
+  main.study-plan-dashboard-shell {
+    padding-top: 8px !important;
+    padding-bottom: 10px !important;
+  }
+
+  main.study-plan-dashboard-shell > div {
+    max-width: 1200px !important;
+    padding-bottom: 8px !important;
+  }
+
+  main.study-plan-dashboard-shell > div {
+    row-gap: 9px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > header {
+    padding: 9px 16px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > header h1 {
+    font-size: 23px !important;
+    line-height: 1.08 !important;
+  }
+
+  main.study-plan-dashboard-shell > div > header p {
+    margin-top: 2px !important;
+    font-size: 12px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > header a {
+    height: 32px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > section {
+    padding: 11px 15px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > section > div {
+    gap: 14px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > section [class*="mt-5"] {
+    margin-top: 10px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > section [class*="space-y-4"] > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 8px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > section [class*="pt-4"] {
+    padding-top: 8px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > div.grid {
+    gap: 9px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > div.grid > section {
+    border-radius: 10px !important;
+  }
+
+  main.study-plan-dashboard-shell .divide-y > div {
+    padding-top: 7px !important;
+    padding-bottom: 7px !important;
+  }
+
+  main.study-plan-dashboard-shell .divide-y > div[class*="grid-cols-"] {
+    min-height: 0 !important;
+  }
+
+  main.study-plan-dashboard-shell .divide-y > div > button[class*="h-6"] {
+    height: 21px !important;
+    width: 21px !important;
+  }
+
+  main.study-plan-dashboard-shell button[class*="h-9"],
+  main.study-plan-dashboard-shell a[class*="h-9"] {
+    height: 31px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > div.grid > section > div:first-child {
+    padding-top: 8px !important;
+    padding-bottom: 7px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > div.grid > section[class*="p-4"],
+  main.study-plan-dashboard-shell > div > div.grid > section[class*="p-5"] {
+    padding: 11px 13px !important;
+  }
+
+  main.study-plan-dashboard-shell > div > div.grid:last-of-type > section:first-child > div:last-child > div:nth-child(n + 6) {
+    display: none !important;
+  }
+
+  main.study-plan-dashboard-shell #schedule {
+    padding: 11px 13px !important;
+  }
+
+  main.study-plan-dashboard-shell #schedule > div:nth-of-type(2) {
+    margin-top: 7px !important;
+  }
+
+  main.study-plan-dashboard-shell #schedule > div:nth-of-type(3) {
+    row-gap: 1px !important;
+    margin-top: 3px !important;
+  }
+
+  main.study-plan-dashboard-shell #schedule [class*="min-h-9"] {
+    min-height: 24px !important;
+  }
+
+  main.study-plan-dashboard-shell #schedule [class*="h-7"][class*="w-7"] {
+    width: 22px !important;
+    height: 22px !important;
+  }
+
+  main.study-plan-dashboard-shell #schedule [class*="mt-1"][class*="h-2"] {
+    margin-top: 1px !important;
+    width: 6px !important;
+    height: 6px !important;
+  }
+
+  main.study-plan-dashboard-shell #schedule > div:last-child {
+    margin-top: 6px !important;
+    padding-top: 5px !important;
+    gap: 10px !important;
+  }
+}

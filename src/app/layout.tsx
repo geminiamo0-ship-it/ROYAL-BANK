@@ -4,6 +4,7 @@ import './royal-theme.css';
 import './royal-light-refinements.css';
 import './royal-exam-light.css';
 import './royal-component-light.css';
+import './study-plan-dashboard.css';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 
 export const metadata: Metadata = {
