@@ -1,4 +1,4 @@
-name: Production Edge Load 500x40
+name: Production Edge Distributed Load 500x40
 
 on:
   push:
@@ -16,18 +16,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  load:
+  coordinate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      barrier_epoch_ms: ${{ steps.barrier.outputs.barrier_epoch_ms }}
+    steps:
+      - id: barrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          barrier_epoch_ms=$(( ($(date +%s) + 300) * 1000 ))
+          echo "barrier_epoch_ms=$barrier_epoch_ms" >> "$GITHUB_OUTPUT"
+          echo "Distributed Create barrier: $barrier_epoch_ms"
+
+  load:
+    needs: coordinate
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
       SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
       APP_URL: https://royal-bank-five.vercel.app
-      LOAD_USER_COUNT: '500'
+      LOAD_USER_COUNT: '100'
       LOAD_QUESTION_COUNT: '40'
       LOAD_SETUP_CONCURRENCY: '1'
       LOAD_SETUP_PACING_MS: '1600'
+      LOAD_PREWARM_CONCURRENCY: '20'
+      LOAD_PREWARM_PACING_MS: '0'
       LOAD_SYNC_TIMEOUT_MS: '120000'
+      LOAD_BARRIER_EPOCH_MS: ${{ needs.coordinate.outputs.barrier_epoch_ms }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,12 +60,12 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_SECRET_KEY_PRODUCTION" || { echo 'SUPABASE_SECRET_KEY_PRODUCTION is missing'; exit 1; }
           node --check scripts/load-vercel-edge-production.mjs
-      - name: Run 500 authenticated users x 40 questions through Vercel to Cloudflare Edge
+      - name: Run shard ${{ matrix.shard }} — 100 authenticated users x 40 questions
         run: node scripts/load-vercel-edge-production.mjs
-      - name: Upload sanitized load results
+      - name: Upload sanitized shard results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: production-edge-checkpoint-500x40
+          name: production-edge-checkpoint-500x40-shard-${{ matrix.shard }}
           path: edge-load-results.json
           retention-days: 7

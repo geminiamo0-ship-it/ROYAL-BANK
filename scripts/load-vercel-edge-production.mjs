@@ -15,6 +15,13 @@ const setupPacingMs = boundedInt('LOAD_SETUP_PACING_MS', 1600, 0, 10000);
 const prewarmConcurrency = boundedInt('LOAD_PREWARM_CONCURRENCY', 25, 1, 50);
 const prewarmPacingMs = boundedInt('LOAD_PREWARM_PACING_MS', 0, 0, 5000);
 const syncTimeoutMs = boundedInt('LOAD_SYNC_TIMEOUT_MS', 60000, 5000, 120000);
+const barrierEpochMs = (() => {
+  const raw = process.env.LOAD_BARRIER_EPOCH_MS;
+  if (!raw) return 0;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) throw new Error('LOAD_BARRIER_EPOCH_MS must be a positive epoch millisecond value');
+  return Math.floor(value);
+})();
 
 if (supabaseUrl !== EXPECTED_SUPABASE) throw new Error(`Refusing load test: unexpected Supabase URL ${supabaseUrl}`);
 if (appUrl !== EXPECTED_APP) throw new Error(`Refusing load test: unexpected app URL ${appUrl}`);
@@ -433,6 +440,11 @@ try {
     },
     prewarmPacingMs,
   );
+  if (barrierEpochMs > Date.now()) {
+    const waitMs = barrierEpochMs - Date.now();
+    console.log(`Prewarmed ${users.length} users. Waiting ${waitMs}ms for distributed Create barrier at ${barrierEpochMs}.`);
+    await sleep(waitMs);
+  }
   console.log(`Prewarmed ${users.length} users. Starting synchronized Create/lifecycle load: ${userCount} users x ${questionCount} questions.`);
 
   const loadStartedAt = Date.now();
