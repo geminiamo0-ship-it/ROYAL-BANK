@@ -10,6 +10,9 @@ create table if not exists public.edge_question_annotation_versions (
   primary key (user_id, question_id)
 );
 
+create index if not exists idx_edge_question_annotation_versions_question
+  on public.edge_question_annotation_versions(question_id);
+
 alter table public.edge_question_annotation_versions enable row level security;
 revoke all on table public.edge_question_annotation_versions from public, anon, authenticated;
 grant select, insert, update, delete on table public.edge_question_annotation_versions to service_role;
