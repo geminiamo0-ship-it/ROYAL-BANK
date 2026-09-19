@@ -22,7 +22,7 @@ jobs:
     env:
       SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
       SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
-      APP_URL: https://royal-bank-opal.vercel.app
+      APP_URL: https://royal-bank-five.vercel.app
       LOAD_USER_COUNT: '250'
       LOAD_QUESTION_COUNT: '40'
       LOAD_SETUP_CONCURRENCY: '1'

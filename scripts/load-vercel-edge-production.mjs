@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 
 const EXPECTED_SUPABASE = 'https://trnvsgenmzhyuayxxdoq.supabase.co';
-const EXPECTED_APP = 'https://royal-bank-opal.vercel.app';
+const EXPECTED_APP = 'https://royal-bank-five.vercel.app';
 const PUBLISHABLE_KEY = 'sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9';
 
 const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
