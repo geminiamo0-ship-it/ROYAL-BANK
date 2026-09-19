@@ -51,3 +51,11 @@ export function jwtSubject(token: string | null): string | null {
     return null;
   }
 }
+
+
+export function productionEdgeCutoverEnabled(): boolean {
+  return (
+    process.env.VERCEL_ENV === 'production' &&
+    process.env.ROYAL_EXAM_EDGE_FORCE_LEGACY !== 'true'
+  );
+}

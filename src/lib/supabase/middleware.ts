@@ -3,7 +3,11 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { isSupabaseConfigured } from './config';
 import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalAuthCookieOptions, hardenAuthCookie } from '@/lib/supabase/session-cookies';
-import { isInProductionEdgeRollout, jwtSubject } from '@/lib/exam-edge-rollout';
+import {
+  isInProductionEdgeRollout,
+  jwtSubject,
+  productionEdgeCutoverEnabled,
+} from '@/lib/exam-edge-rollout';
 
 const EDGE_MIGRATION_BRANCH = 'architecture/cloudflare-exam-v2';
 const PRODUCTION_SMOKE_CANARY_PARAM = '__royal_edge_canary';
@@ -48,6 +52,7 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const routeExamToEdge =
+    productionEdgeCutoverEnabled() ||
     (process.env.VERCEL_ENV === 'preview' &&
       process.env.VERCEL_GIT_COMMIT_REF === EDGE_MIGRATION_BRANCH) ||
     process.env.ROYAL_EXAM_EDGE_ENABLED === 'true';
@@ -99,11 +104,11 @@ export async function updateSession(request: NextRequest) {
   // adds remote Auth round-trips without adding an independent authorization boundary.
   // Caller-supplied Authorization remains overwritten/removed for normal traffic.
   // The isolated Production smoke canary additionally accepts a bearer token so a
-  // temporary @load.invalid test account can exercise the real /api/exam route without
-  // changing any real-user routing. The real Production rollout is deterministic by
-  // authenticated user id and is currently hard-capped at 1%; the same user therefore
-  // remains on the same path for every exam request. /api/exam-edge revalidates the JWT
-  // and independently re-checks rollout membership before forwarding to Cloudflare.
+  // temporary @load.invalid test account can exercise the real /api/exam route.
+  // Production now routes all normal exam traffic through Cloudflare Edge by default.
+  // Set ROYAL_EXAM_EDGE_FORCE_LEGACY=true only for an emergency rollback. The historical
+  // deterministic rollout cohort remains available for non-cutover/canary operation.
+  // /api/exam-edge revalidates the JWT before forwarding to Cloudflare.
   if (pathname === '/api/exam') {
     const {
       data: { session },
@@ -112,6 +117,7 @@ export async function updateSession(request: NextRequest) {
     const sessionUserId = jwtSubject(sessionToken);
     const productionRolloutCanary =
       process.env.VERCEL_ENV === 'production' &&
+      process.env.ROYAL_EXAM_EDGE_FORCE_LEGACY !== 'true' &&
       !productionSmokeCanary &&
       !routeExamToEdge &&
       Boolean(sessionUserId && isInProductionEdgeRollout(sessionUserId));
