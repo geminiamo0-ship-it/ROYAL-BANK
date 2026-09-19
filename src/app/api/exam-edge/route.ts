@@ -121,7 +121,6 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const responseBody = await upstream.text();
-  upstreamMs = performance.now() - upstreamStarted;
   const headers = new Headers({
     'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -244,6 +243,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const responseBody = await upstream.text();
+  upstreamMs = performance.now() - upstreamStarted;
   const headers = new Headers({
     'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
     'cache-control': 'no-store',
