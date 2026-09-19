@@ -188,11 +188,12 @@ export function parseGatewayRequest(value: unknown): GatewayRequest | null {
     return isUuid(args.p_session_id) && isPositiveInteger(args.p_question_id) ? { action, args } : null;
   }
   if (action === 'annotationsBatch') {
+    const seed = args.p_seed === true;
     return isUuid(args.p_session_id)
       && isPositiveInteger(args.p_question_id)
       && Array.isArray(args.p_updates)
-      && args.p_updates.length > 0
       && args.p_updates.length <= 3
+      && (seed || args.p_updates.length > 0)
       && args.p_updates.every(validAnnotationUpdate)
       && (args.p_seed == null || typeof args.p_seed === 'boolean')
       ? { action, args }
