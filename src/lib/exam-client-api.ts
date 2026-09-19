@@ -1,5 +1,12 @@
 import { callExamGateway } from '@/lib/exam-gateway-client';
 import {
+  isAnnotationSurface,
+  isValidAnnotationStrokes,
+  type AnnotationStroke,
+  type AnnotationSurface,
+  type StoredQuestionAnnotation,
+} from '@/lib/exam-annotations';
+import {
   normalizeExamBootstrap,
   normalizeExamQuestion,
   toClientExamAnswer,
@@ -37,6 +44,47 @@ type RawPrepareBankAccess = {
   bank_id?: number;
   access_grant_expires_at?: number;
 };
+
+type RawAnnotationRecord = {
+  surface?: unknown;
+  content_hash?: unknown;
+  strokes?: unknown;
+  version?: unknown;
+  updated_at?: unknown;
+};
+
+type RawAnnotationState = {
+  hydrated?: unknown;
+  records?: unknown;
+};
+
+function normalizeEdgeAnnotationRecord(value: RawAnnotationRecord): StoredQuestionAnnotation {
+  if (!isAnnotationSurface(value.surface)) throw new Error('Invalid annotation surface from Edge.');
+  if (typeof value.content_hash !== 'string' || !/^[0-9a-f]{64}$/.test(value.content_hash)) {
+    throw new Error('Invalid annotation content hash from Edge.');
+  }
+  if (!isValidAnnotationStrokes(value.strokes)) throw new Error('Invalid annotation payload from Edge.');
+  const version = Number(value.version);
+  if (!Number.isInteger(version) || version < 1) throw new Error('Invalid annotation version from Edge.');
+  return {
+    surface: value.surface,
+    contentHash: value.content_hash,
+    strokes: value.strokes,
+    version,
+    updatedAt: typeof value.updated_at === 'string' ? value.updated_at : new Date().toISOString(),
+  };
+}
+
+function normalizeEdgeAnnotationState(value: RawAnnotationState | null | undefined): {
+  hydrated: boolean;
+  records: StoredQuestionAnnotation[];
+} {
+  const rows = Array.isArray(value?.records) ? value.records : [];
+  return {
+    hydrated: value?.hydrated === true,
+    records: rows.map((row) => normalizeEdgeAnnotationRecord(row as RawAnnotationRecord)),
+  };
+}
 
 export async function prepareExamBankAccessDirect(bankId: number): Promise<boolean> {
   const normalizedBankId = Math.max(1, Math.floor(bankId));
@@ -363,6 +411,58 @@ export async function setQuestionFlagDirect(questionId: number, flagged: boolean
     p_question_id: questionId,
     p_flagged: flagged,
   });
+}
+
+export async function getExamAnnotationsDirect(
+  sessionId: string,
+  questionId: number,
+): Promise<{ hydrated: boolean; records: StoredQuestionAnnotation[] }> {
+  const data = await callExamGateway<RawAnnotationState, 'annotationsGet'>('annotationsGet', {
+    p_session_id: sessionId,
+    p_question_id: questionId,
+  });
+  return normalizeEdgeAnnotationState(data);
+}
+
+export async function saveExamAnnotationsBatchDirect(input: {
+  sessionId: string;
+  questionId: number;
+  updates: Array<{
+    surface: AnnotationSurface;
+    contentHash: string;
+    strokes: AnnotationStroke[];
+  }>;
+  seed?: boolean;
+}): Promise<{ hydrated: boolean; records: StoredQuestionAnnotation[] }> {
+  const data = await callExamGateway<RawAnnotationState, 'annotationsBatch'>(
+    'annotationsBatch',
+    {
+      p_session_id: input.sessionId,
+      p_question_id: input.questionId,
+      p_updates: input.updates.map((update) => ({
+        surface: update.surface,
+        content_hash: update.contentHash,
+        strokes: update.strokes,
+      })),
+      p_seed: input.seed === true ? true : undefined,
+    },
+    { timeoutMs: 8_000 },
+  );
+  return normalizeEdgeAnnotationState(data);
+}
+
+export async function clearExamAnnotationsDirect(
+  sessionId: string,
+  questionId: number,
+): Promise<void> {
+  await callExamGateway<RawAnnotationState, 'annotationsClear'>(
+    'annotationsClear',
+    {
+      p_session_id: sessionId,
+      p_question_id: questionId,
+    },
+    { timeoutMs: 8_000 },
+  );
 }
 
 type RawSuspendResult = {

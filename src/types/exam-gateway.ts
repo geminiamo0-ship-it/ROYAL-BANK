@@ -1,3 +1,4 @@
+import type { AnnotationStroke, AnnotationSurface } from '@/lib/exam-annotations';
 import type { QuestionSelection, SessionType } from '@/types/database';
 
 export type ExamGatewayAction =
@@ -14,6 +15,9 @@ export type ExamGatewayAction =
   | 'submitRaw'
   | 'feedback'
   | 'flag'
+  | 'annotationsGet'
+  | 'annotationsBatch'
+  | 'annotationsClear'
   | 'complete';
 
 export type ExamGatewayArgsByAction = {
@@ -78,6 +82,24 @@ export type ExamGatewayArgsByAction = {
   flag: {
     p_question_id: number;
     p_flagged: boolean;
+  };
+  annotationsGet: {
+    p_session_id: string;
+    p_question_id: number;
+  };
+  annotationsBatch: {
+    p_session_id: string;
+    p_question_id: number;
+    p_updates: Array<{
+      surface: AnnotationSurface;
+      content_hash: string;
+      strokes: AnnotationStroke[];
+    }>;
+    p_seed?: boolean;
+  };
+  annotationsClear: {
+    p_session_id: string;
+    p_question_id: number;
   };
   complete: {
     p_session_id: string;
