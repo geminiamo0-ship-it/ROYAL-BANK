@@ -5,6 +5,7 @@ const EXPECTED_SUPABASE_URL = `https://${EXPECTED_PROJECT_REF}.supabase.co`;
 const EXPECTED_BUCKET = 'royal-bank-exam-production-content';
 const ROOT = 'exam-content-v2';
 const SOURCE = 'ROYAL-BANK-PRODUCTION';
+const UI_ROOT = 'ui-static-v1';
 const PAGE_SIZE = 1000;
 const CONCURRENCY = 24;
 const args = new Set(process.argv.slice(2));
@@ -152,10 +153,13 @@ async function mapConcurrent(items, worker) {
 }
 
 console.log('Exporting edge content from Production Supabase...');
-const [questions, options, memberships] = await Promise.all([
+const [questions, options, memberships, pathways, bankCatalog, libraryArticles] = await Promise.all([
   fetchAll('questions', 'id,text_html,explanation_html,category,topic,difficulty,notes_id,concept_id'),
   fetchAll('options', 'id,question_id,text_html,option_order,is_correct,percentage', 'question_id.asc,option_order.asc,id.asc'),
   fetchAll('question_bank_questions', 'question_bank_id,question_id', 'question_bank_id.asc,question_id.asc'),
+  fetchAll('pathways', 'id,slug,name,description,icon_url,is_free_trial_available,display_order', 'display_order.asc,id.asc'),
+  fetchAll('question_banks', 'id,pathway_id,name,description,display_order,is_free_trial,free_trial_block_limit,free_trial_question_limit,free_trial_article_limit', 'display_order.asc,id.asc'),
+  fetchAll('library_articles', 'id,name,category,topic,content_html', 'id.asc'),
 ]);
 
 if (questions.length === 0 || options.length === 0 || memberships.length === 0) {
@@ -288,6 +292,29 @@ const manifestKey = `${releasePrefix}/manifest.json`;
 const manifestResult = await putImmutable(manifestKey, manifestRaw);
 if (manifestResult === 'uploaded') uploaded += 1;
 else reused += 1;
+
+const catalogRaw = JSON.stringify({
+  schema_version: 1,
+  generated_at: new Date().toISOString(),
+  pathways,
+  banks: bankCatalog,
+});
+await putMutable(`${UI_ROOT}/catalog/current.json`, catalogRaw);
+
+await mapConcurrent(libraryArticles, async (article) => {
+  const articleRaw = JSON.stringify({
+    schema_version: 1,
+    id: String(article.id),
+    name: String(article.name ?? ''),
+    category: article.category == null ? null : String(article.category),
+    topic: article.topic == null ? null : String(article.topic),
+    content_html: String(article.content_html ?? ''),
+  });
+  await putMutable(
+    `${UI_ROOT}/library/articles/${encodeURIComponent(String(article.id))}.json`,
+    articleRaw,
+  );
+});
 
 const activeRaw = JSON.stringify({
   schema_version: 1,
