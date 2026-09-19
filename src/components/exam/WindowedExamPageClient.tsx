@@ -65,6 +65,7 @@ export function WindowedExamPageClient({
 
   const {
     flaggedQuestionIds,
+    savingQuestionIds: savingFlagQuestionIds,
     failedQuestionIds: failedFlagQuestionIds,
     error: flagPersistenceError,
     hydrate: hydrateFlags,
@@ -175,6 +176,9 @@ export function WindowedExamPageClient({
     isSubmitting,
     closingRef,
     error: lifecycleError,
+    leavePromptOpen,
+    confirmLeave,
+    cancelLeave,
     handleSuspend,
     handleEndBlock,
   } = useExamSessionLifecycle({
@@ -187,6 +191,12 @@ export function WindowedExamPageClient({
     flushAnnotations,
     drainAnswers: answerQueue.drain,
     drainFlags,
+    canBestEffortSuspend:
+      answerQueue.savingQuestionIds.size === 0 &&
+      answerQueue.failedQuestionIds.size === 0 &&
+      savingFlagQuestionIds.size === 0 &&
+      failedFlagQuestionIds.size === 0 &&
+      !annotationSaving,
   });
 
   const trainingWarmQuestionIds = capabilities.canPrefetchFeedback && !isReviewMode
@@ -477,6 +487,42 @@ export function WindowedExamPageClient({
         onClearAnnotations={() => void handleClearAnnotations()}
         onToggleFullscreen={() => void toggleFullscreen()}
       />
+
+      {leavePromptOpen ? (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="suspend-leave-title"
+        >
+          <div className="w-full max-w-[430px] rounded-[8px] border border-[#596168] bg-[#2f353a] p-5 shadow-2xl">
+            <h2 id="suspend-leave-title" className="text-[16px] font-semibold text-white">
+              Suspend this block before leaving?
+            </h2>
+            <p className="mt-2 text-[12px] leading-5 text-[#c5cbd0]">
+              Your saved answers and flags will be checkpointed so you can resume this block later.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelLeave}
+                disabled={isSubmitting}
+                className="rounded-[4px] border border-[#687179] px-4 py-2 text-[12px] font-medium text-[#e2e6e9] hover:bg-[#3a4248] disabled:opacity-45"
+              >
+                No, stay
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmLeave()}
+                disabled={isSubmitting}
+                className="rounded-[4px] bg-[#d5e4ff] px-4 py-2 text-[12px] font-semibold text-[#102148] hover:bg-[#e2ecff] disabled:opacity-45"
+              >
+                Yes, suspend & leave
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {visiblePersistenceError ? (
         <div className="mx-auto mt-2 flex w-[calc(100%-2rem)] max-w-[1240px] shrink-0 items-center justify-between gap-3 rounded-[4px] border border-[#95413d] bg-[#3a2d2c] px-3 py-2 text-[12px] text-[#ffd4ce]">

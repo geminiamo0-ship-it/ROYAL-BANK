@@ -287,6 +287,27 @@ for (const file of await walk(path.join(root, 'src'))) {
   }
 }
 
+
+const examLifecyclePath = path.join(root, 'src/components/exam/useExamSessionLifecycle.ts');
+const examLifecycle = await fs.readFile(examLifecyclePath, 'utf8');
+for (const invariant of [
+  'await suspendExamSessionDirect(sessionId);',
+  "window.addEventListener('beforeunload'",
+  "window.addEventListener('pagehide'",
+  "document.addEventListener('click', onDocumentClick, true)",
+  "window.addEventListener('popstate', onPopState)",
+]) {
+  if (!examLifecycle.includes(invariant)) {
+    failures.push(`exam lifecycle: missing ${invariant} suspend/leave safety invariant`);
+  }
+}
+
+const examClientApiPath = path.join(root, 'src/lib/exam-client-api.ts');
+const examClientApi = await fs.readFile(examClientApiPath, 'utf8');
+if (!examClientApi.includes("action: 'suspend'") || !examClientApi.includes('keepalive,')) {
+  failures.push('exam lifecycle: suspend must reach the Edge gateway and support best-effort pagehide delivery');
+}
+
 if (failures.length > 0) {
   console.error(`Exam architecture audit failed (${failures.length} finding${failures.length === 1 ? '' : 's'}):`);
   for (const failure of [...new Set(failures)].sort()) console.error(`- ${failure}`);
