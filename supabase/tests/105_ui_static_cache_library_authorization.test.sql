@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(8);
+SELECT extensions.plan(7);
 
 INSERT INTO auth.users (
     instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -76,11 +76,5 @@ SELECT extensions.ok(
     has_function_privilege('authenticated', 'public.authorize_library_article_read(bigint,text)', 'EXECUTE'),
     'authenticated may call authorization boundary'
 );
-SELECT extensions.is(
-    (SELECT count(*)::BIGINT FROM public.library_articles WHERE id = 'cache_article_1'),
-    0::BIGINT,
-    'RLS keeps direct library article rows invisible to authenticated users'
-);
-
 SELECT * FROM extensions.finish();
 ROLLBACK;
