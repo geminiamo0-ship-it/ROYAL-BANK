@@ -1,6 +1,7 @@
 import type { QuestionSelection, SessionType } from '@/types/database';
 
 export type ExamGatewayAction =
+  | 'prepare'
   | 'create'
   | 'bootstrap'
   | 'window'
@@ -16,6 +17,9 @@ export type ExamGatewayAction =
   | 'complete';
 
 export type ExamGatewayArgsByAction = {
+  prepare: {
+    p_bank_id: number;
+  };
   create: {
     p_request_id: string;
     p_bank_id: number;
