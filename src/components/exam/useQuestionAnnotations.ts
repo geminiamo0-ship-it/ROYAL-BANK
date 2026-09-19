@@ -9,6 +9,7 @@ import {
 import {
   ANNOTATION_SURFACES,
   isAnnotationSurface,
+  isValidAnnotationStroke,
   isValidAnnotationStrokes,
   type AnnotationStroke,
   type AnnotationSurface,
@@ -548,6 +549,31 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
     syncHistoryState();
   }, [applySurface, getState, questionId, syncHistoryState]);
 
+  const updateStroke = useCallback((
+    surface: AnnotationSurface,
+    contentHash: string,
+    stroke: AnnotationStroke,
+  ) => {
+    if (!questionId || !isValidAnnotationStroke(stroke)) return;
+    const state = getState(questionId);
+    const current = state.records[surface];
+    if (!current || current.contentHash !== contentHash) return;
+
+    const index = current.strokes.findIndex((candidate) => candidate.id === stroke.id);
+    if (index < 0) return;
+
+    const before = current.strokes;
+    const after = before.map((candidate, candidateIndex) => (
+      candidateIndex === index ? stroke : candidate
+    ));
+    if (!applySurface(surface, contentHash, after)) return;
+
+    undoRef.current.push({ surface, contentHash, before, after });
+    if (undoRef.current.length > 100) undoRef.current.shift();
+    redoRef.current = [];
+    syncHistoryState();
+  }, [applySurface, getState, questionId, syncHistoryState]);
+
   const undo = useCallback(() => {
     const entry = undoRef.current.pop();
     if (!entry) return;
@@ -635,6 +661,7 @@ export function useQuestionAnnotations(questionId: number | null, recoveryScope 
     canRedo: historyState.canRedo,
     appendStroke,
     eraseStroke,
+    updateStroke,
     undo,
     redo,
     clearAll,
