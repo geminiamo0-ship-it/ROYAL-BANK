@@ -122,7 +122,7 @@ export function AnswerOptionList({
               )}
 
               {showFeedback ? (
-                <span className="rounded-full bg-[#7f8790] px-2 py-[2px] text-[11px] font-semibold text-white">
+                <span data-annotation-ignore="true" className="rounded-full bg-[#7f8790] px-2 py-[2px] text-[11px] font-semibold text-white">
                   {percentage}%
                 </span>
               ) : (

@@ -98,6 +98,9 @@ export function WindowedExamQuestionPane({
   const optionsFingerprint = JSON.stringify(
     (question.options || []).map((option) => [option.id, option.text_html]),
   );
+  const explanationFingerprint = explanationHtml
+    .replace(/aria-pressed="(?:true|false)"/g, 'aria-pressed="false"')
+    .replace(/>Bookmarked</g, '>Bookmark concept<');
 
   return (
     <section className="min-w-0 pb-10">
@@ -222,7 +225,7 @@ export function WindowedExamQuestionPane({
             {hasFeedback ? (
               <ExamAnnotationLayer
                 surface="explanation"
-                contentFingerprint={explanationHtml}
+                contentFingerprint={explanationFingerprint}
                 tool={annotationTool}
                 record={annotationRecords.explanation}
                 onAppendStroke={onAppendAnnotationStroke}

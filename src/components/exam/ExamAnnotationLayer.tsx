@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ANNOTATION_COLOR_STORAGE_KEY,
   DEFAULT_ANNOTATION_COLOR,
@@ -160,12 +160,26 @@ function contentRootFor(layer: HTMLElement | null): HTMLElement | null {
   return parent.querySelector<HTMLElement>('[data-annotation-content="true"]');
 }
 
+function isIgnoredAnnotationNode(node: Node): boolean {
+  const element = node.nodeType === Node.ELEMENT_NODE
+    ? node as Element
+    : node.parentElement;
+  return Boolean(element?.closest('[data-annotation-ignore="true"]'));
+}
+
+function stripIgnoredAnnotationContent(fragment: DocumentFragment): DocumentFragment {
+  fragment.querySelectorAll('[data-annotation-ignore="true"]').forEach((element) => element.remove());
+  return fragment;
+}
+
 function offsetWithin(root: HTMLElement, node: Node, offset: number): number | null {
   try {
+    if (isIgnoredAnnotationNode(node)) return null;
     const range = document.createRange();
     range.selectNodeContents(root);
     range.setEnd(node, offset);
-    return range.toString().length;
+    const fragment = stripIgnoredAnnotationContent(range.cloneContents());
+    return fragment.textContent?.length ?? 0;
   } catch {
     return null;
   }
@@ -173,7 +187,13 @@ function offsetWithin(root: HTMLElement, node: Node, offset: number): number | n
 
 function textBoundaryAt(root: HTMLElement, targetOffset: number): { node: Text; offset: number } | null {
   if (targetOffset < 0) return null;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return isIgnoredAnnotationNode(node)
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT;
+    },
+  });
   let consumed = 0;
   let lastText: Text | null = null;
 
@@ -222,7 +242,8 @@ function selectedTextOffsets(root: HTMLElement): { start: number; end: number; q
   const end = offsetWithin(root, range.endContainer, range.endOffset);
   if (start == null || end == null || end <= start) return null;
 
-  const quote = range.toString();
+  const fragment = stripIgnoredAnnotationContent(range.cloneContents());
+  const quote = fragment.textContent || '';
   if (!quote.trim()) return null;
   return { start, end, quote: quote.slice(0, 1000) };
 }
@@ -278,9 +299,18 @@ export function ExamAnnotationLayer({
     erasedStrokeIdsRef.current.clear();
   }, [tool]);
 
-  const visibleMarks = contentHash && record?.contentHash === contentHash ? record.strokes : [];
-  const textHighlights = visibleMarks.filter(isTextHighlight);
-  const visibleInk = visibleMarks.filter(isInkAnnotationStroke);
+  const visibleMarks = useMemo<AnnotationStroke[]>(
+    () => (contentHash && record?.contentHash === contentHash ? record.strokes : []),
+    [contentHash, record],
+  );
+  const textHighlights = useMemo(
+    () => visibleMarks.filter(isTextHighlight),
+    [visibleMarks],
+  );
+  const visibleInk = useMemo(
+    () => visibleMarks.filter(isInkAnnotationStroke),
+    [visibleMarks],
+  );
   const hasStaleRecord = Boolean(contentHash && record && record.contentHash !== contentHash && record.strokes.length > 0);
   const strictInkMode = tool === 'pencil' || tool === 'eraser';
 
