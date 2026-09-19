@@ -248,12 +248,12 @@ async function syncState(users) {
   sessionsUrl.searchParams.set('user_id', filter);
 
   const pendingUrl = new URL(`${supabaseUrl}/rest/v1/edge_exam_sync_inbox`);
-  pendingUrl.searchParams.set('select', 'id,user_id,event_type');
+  pendingUrl.searchParams.set('select', 'event_id,user_id,event_type');
   pendingUrl.searchParams.set('user_id', filter);
   pendingUrl.searchParams.set('processed_at', 'is.null');
 
   const errorsUrl = new URL(`${supabaseUrl}/rest/v1/edge_exam_sync_inbox`);
-  errorsUrl.searchParams.set('select', 'id,user_id,event_type,last_error');
+  errorsUrl.searchParams.set('select', 'event_id,user_id,event_type,last_error');
   errorsUrl.searchParams.set('user_id', filter);
   errorsUrl.searchParams.set('last_error', 'not.is.null');
 
