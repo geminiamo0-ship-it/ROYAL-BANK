@@ -12,6 +12,8 @@ const userCount = boundedInt('LOAD_USER_COUNT', 50, 1, 500);
 const questionCount = boundedInt('LOAD_QUESTION_COUNT', 40, 1, 40);
 const setupConcurrency = boundedInt('LOAD_SETUP_CONCURRENCY', 1, 1, 10);
 const setupPacingMs = boundedInt('LOAD_SETUP_PACING_MS', 1600, 0, 10000);
+const prewarmConcurrency = boundedInt('LOAD_PREWARM_CONCURRENCY', 25, 1, 50);
+const prewarmPacingMs = boundedInt('LOAD_PREWARM_PACING_MS', 0, 0, 5000);
 const syncTimeoutMs = boundedInt('LOAD_SYNC_TIMEOUT_MS', 60000, 5000, 120000);
 
 if (supabaseUrl !== EXPECTED_SUPABASE) throw new Error(`Refusing load test: unexpected Supabase URL ${supabaseUrl}`);
@@ -128,7 +130,7 @@ async function setupUser(index) {
   return user;
 }
 
-async function mapLimit(items, limit, fn) {
+async function mapLimit(items, limit, fn, pacingMs = setupPacingMs) {
   let cursor = 0;
   const results = new Array(items.length);
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -136,7 +138,7 @@ async function mapLimit(items, limit, fn) {
       const current = cursor++;
       if (current >= items.length) return;
       results[current] = await fn(items[current], current);
-      if (setupPacingMs) await sleep(setupPacingMs);
+      if (pacingMs) await sleep(pacingMs);
     }
   });
   await Promise.all(workers);
@@ -203,9 +205,6 @@ async function exam(user, action, args) {
 }
 
 async function runUser(user, index) {
-  const prepared = await exam(user, 'prepare', { p_bank_id: 1 });
-  if (prepared?.prepared !== true) throw new Error(`user ${index}: prepare did not confirm access`);
-
   const created = await exam(user, 'create', {
     p_request_id: randomUUID(),
     p_bank_id: 1,
@@ -423,7 +422,18 @@ let summary;
 try {
   console.log(`Preparing ${userCount} isolated authenticated load users...`);
   const users = await mapLimit(Array.from({ length: userCount }, (_, i) => i), setupConcurrency, (index) => setupUser(index));
-  console.log(`Prepared ${users.length} users. Starting synchronized Edge lifecycle load: ${userCount} users x ${questionCount} questions.`);
+  console.log(`Prepared ${users.length} users. Prewarming bank access before the synchronized Create barrier...`);
+  await mapLimit(
+    users,
+    prewarmConcurrency,
+    async (user, index) => {
+      const prepared = await exam(user, 'prepare', { p_bank_id: 1 });
+      if (prepared?.prepared !== true) throw new Error(`user ${index}: prepare did not confirm access`);
+      return true;
+    },
+    prewarmPacingMs,
+  );
+  console.log(`Prewarmed ${users.length} users. Starting synchronized Create/lifecycle load: ${userCount} users x ${questionCount} questions.`);
 
   const loadStartedAt = Date.now();
   const settled = await Promise.allSettled(users.map((user, index) => runUser(user, index)));
