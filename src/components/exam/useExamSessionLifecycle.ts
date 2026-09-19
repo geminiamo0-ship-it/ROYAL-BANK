@@ -16,6 +16,7 @@ export function useExamSessionLifecycle(options: {
   sessionId: string;
   bankId: number;
   isReviewMode: boolean;
+  isSessionReady: boolean;
   isCountdownSession: boolean;
   deadlineAtMs: number | null;
   serverClockOffsetMs: number;
@@ -28,6 +29,7 @@ export function useExamSessionLifecycle(options: {
     sessionId,
     bankId,
     isReviewMode,
+    isSessionReady,
     isCountdownSession,
     deadlineAtMs,
     serverClockOffsetMs,
@@ -44,6 +46,11 @@ export function useExamSessionLifecycle(options: {
   const closingRef = useRef(false);
   const pendingLeaveRef = useRef<PendingLeave | null>(null);
   const allowHistoryNavigationRef = useRef(false);
+  const canBestEffortSuspendRef = useRef(canBestEffortSuspend);
+
+  useEffect(() => {
+    canBestEffortSuspendRef.current = canBestEffortSuspend;
+  }, [canBestEffortSuspend]);
 
   const exitTarget = bankId > 0 ? `/bank/${bankId}/sessions` : '/dashboard';
 
@@ -160,7 +167,7 @@ export function useExamSessionLifecycle(options: {
   }, [beginClosing, drainAnswers, drainFlags, exitTarget, flushAnnotations, isReviewMode, reopenAfterFailure, router, sessionId]);
 
   useEffect(() => {
-    if (isReviewMode) return;
+    if (isReviewMode || !isSessionReady) return;
 
     const historyGuardKey = '__royal_exam_leave_guard';
     const guardState = {
@@ -221,7 +228,7 @@ export function useExamSessionLifecycle(options: {
     };
 
     const onPageHide = () => {
-      if (closingRef.current || !canBestEffortSuspend) return;
+      if (closingRef.current || !canBestEffortSuspendRef.current) return;
       suspendExamSessionBestEffort(sessionId);
     };
 
@@ -236,7 +243,7 @@ export function useExamSessionLifecycle(options: {
       window.removeEventListener('beforeunload', onBeforeUnload);
       window.removeEventListener('pagehide', onPageHide);
     };
-  }, [canBestEffortSuspend, isReviewMode, requestLeave, sessionId]);
+  }, [isReviewMode, isSessionReady, requestLeave, sessionId]);
 
   useEffect(() => {
     if (isReviewMode || !isCountdownSession || deadlineAtMs == null) return;

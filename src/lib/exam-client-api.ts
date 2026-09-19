@@ -379,6 +379,7 @@ async function requestExamSuspend(sessionId: string, keepalive = false): Promise
     credentials: 'same-origin',
     keepalive,
     headers: { 'content-type': 'application/json' },
+    signal: keepalive ? undefined : AbortSignal.timeout(10_000),
     body: JSON.stringify({
       action: 'suspend',
       args: { p_session_id: sessionId },

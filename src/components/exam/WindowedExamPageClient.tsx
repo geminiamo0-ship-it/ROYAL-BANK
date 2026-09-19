@@ -185,6 +185,7 @@ export function WindowedExamPageClient({
     sessionId,
     bankId,
     isReviewMode,
+    isSessionReady: Boolean(session),
     isCountdownSession,
     deadlineAtMs: clockConfig.deadlineAtMs,
     serverClockOffsetMs: clockConfig.serverClockOffsetMs,
