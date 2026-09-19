@@ -268,9 +268,9 @@ async function getJson(url, label) {
   return expectOk(await fetch(url, { headers: adminHeaders(false) }), label);
 }
 
-async function readChunked(table, ids, select, extraParams, label) {
+async function readChunked(table, ids, select, extraParams, label, chunkSize = 100) {
   const rows = [];
-  for (const idChunk of chunks(ids)) {
+  for (const idChunk of chunks(ids, chunkSize)) {
     const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
     url.searchParams.set('select', select);
     url.searchParams.set('user_id', inFilter(idChunk));
@@ -300,6 +300,7 @@ async function syncEventCounts(users) {
     'event_id,user_id,event_type',
     {},
     'read sync event counts',
+    20,
   );
   const byType = {};
   for (const row of events) {
