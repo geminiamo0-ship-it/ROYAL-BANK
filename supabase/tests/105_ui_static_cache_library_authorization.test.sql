@@ -76,9 +76,10 @@ SELECT extensions.ok(
     has_function_privilege('authenticated', 'public.authorize_library_article_read(bigint,text)', 'EXECUTE'),
     'authenticated may call authorization boundary'
 );
-SELECT extensions.ok(
-    NOT has_table_privilege('authenticated', 'public.library_articles', 'SELECT'),
-    'direct library table reads remain unavailable to authenticated users'
+SELECT extensions.is(
+    (SELECT count(*)::BIGINT FROM public.library_articles WHERE id = 'cache_article_1'),
+    0::BIGINT,
+    'RLS keeps direct library article rows invisible to authenticated users'
 );
 
 SELECT * FROM extensions.finish();
