@@ -8,7 +8,7 @@ const PUBLISHABLE_KEY = 'sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9';
 const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const adminKey = process.env.SUPABASE_SECRET_KEY_PRODUCTION || '';
 const appUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
-const userCount = boundedInt('LOAD_USER_COUNT', 50, 1, 250);
+const userCount = boundedInt('LOAD_USER_COUNT', 50, 1, 500);
 const questionCount = boundedInt('LOAD_QUESTION_COUNT', 40, 1, 40);
 const setupConcurrency = boundedInt('LOAD_SETUP_CONCURRENCY', 1, 1, 10);
 const setupPacingMs = boundedInt('LOAD_SETUP_PACING_MS', 1600, 0, 10000);
@@ -258,33 +258,55 @@ function inFilter(ids) {
   return `in.(${ids.join(',')})`;
 }
 
+function chunks(values, size = 100) {
+  const out = [];
+  for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
+  return out;
+}
+
 async function getJson(url, label) {
   return expectOk(await fetch(url, { headers: adminHeaders(false) }), label);
 }
 
+async function readChunked(table, ids, select, extraParams, label) {
+  const rows = [];
+  for (const idChunk of chunks(ids)) {
+    const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
+    url.searchParams.set('select', select);
+    url.searchParams.set('user_id', inFilter(idChunk));
+    for (const [key, value] of Object.entries(extraParams || {})) url.searchParams.set(key, value);
+    const part = await getJson(url, `${label} chunk`);
+    if (!Array.isArray(part)) throw new Error(`${label} returned non-array payload`);
+    rows.push(...part);
+  }
+  return rows;
+}
+
 async function syncState(users) {
   const ids = users.map((user) => user.userId);
-  const filter = inFilter(ids);
-  const sessionsUrl = new URL(`${supabaseUrl}/rest/v1/edge_exam_sessions`);
-  sessionsUrl.searchParams.set('select', 'user_id,session_id,completed_at,total_questions,version');
-  sessionsUrl.searchParams.set('user_id', filter);
-
-  const pendingUrl = new URL(`${supabaseUrl}/rest/v1/edge_exam_sync_inbox`);
-  pendingUrl.searchParams.set('select', 'event_id,user_id,event_type');
-  pendingUrl.searchParams.set('user_id', filter);
-  pendingUrl.searchParams.set('processed_at', 'is.null');
-
-  const errorsUrl = new URL(`${supabaseUrl}/rest/v1/edge_exam_sync_inbox`);
-  errorsUrl.searchParams.set('select', 'event_id,user_id,event_type,last_error');
-  errorsUrl.searchParams.set('user_id', filter);
-  errorsUrl.searchParams.set('last_error', 'not.is.null');
-
   const [sessions, pending, errors] = await Promise.all([
-    getJson(sessionsUrl, 'read materialized sessions'),
-    getJson(pendingUrl, 'read pending inbox'),
-    getJson(errorsUrl, 'read inbox errors'),
+    readChunked('edge_exam_sessions', ids, 'user_id,session_id,completed_at,total_questions,version', {}, 'read materialized sessions'),
+    readChunked('edge_exam_sync_inbox', ids, 'event_id,user_id,event_type', { processed_at: 'is.null' }, 'read pending inbox'),
+    readChunked('edge_exam_sync_inbox', ids, 'event_id,user_id,event_type,last_error', { last_error: 'not.is.null' }, 'read inbox errors'),
   ]);
   return { sessions, pending, errors };
+}
+
+async function syncEventCounts(users) {
+  const ids = users.map((user) => user.userId);
+  const events = await readChunked(
+    'edge_exam_sync_inbox',
+    ids,
+    'event_id,user_id,event_type',
+    {},
+    'read sync event counts',
+  );
+  const byType = {};
+  for (const row of events) {
+    const type = String(row?.event_type || 'unknown');
+    byType[type] = (byType[type] || 0) + 1;
+  }
+  return { unique_events: events.length, event_counts: byType };
 }
 
 async function waitForSync(users, completedAtMs) {
@@ -359,10 +381,12 @@ function summarizeMetrics() {
 
 async function bulkDelete(table, ids) {
   if (!ids.length) return;
-  const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
-  url.searchParams.set('user_id', inFilter(ids));
-  const response = await fetch(url, { method: 'DELETE', headers: { ...adminHeaders(false), prefer: 'return=minimal' } });
-  if (!response.ok) throw new Error(`${table} cleanup returned ${response.status}: ${(await response.text()).slice(0, 250)}`);
+  for (const idChunk of chunks(ids)) {
+    const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
+    url.searchParams.set('user_id', inFilter(idChunk));
+    const response = await fetch(url, { method: 'DELETE', headers: { ...adminHeaders(false), prefer: 'return=minimal' } });
+    if (!response.ok) throw new Error(`${table} cleanup returned ${response.status}: ${(await response.text()).slice(0, 250)}`);
+  }
 }
 
 async function cleanup() {
@@ -408,7 +432,10 @@ try {
   });
 
   const successfulUsers = settled.filter((result) => result.status === 'fulfilled').length;
-  const sync = successfulUsers === users.length ? await waitForSync(users, loadCompletedAt) : { skipped: true };
+  let sync = successfulUsers === users.length ? await waitForSync(users, loadCompletedAt) : { skipped: true };
+  if (syncVerified) {
+    sync = { ...sync, ...(await syncEventCounts(users)) };
+  }
   summary = {
     ok: failures.length === 0 && syncVerified,
     app: appUrl,
