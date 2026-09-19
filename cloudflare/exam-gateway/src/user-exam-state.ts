@@ -20,7 +20,7 @@ const QUESTION_BURST_WINDOW_MS = 15 * 60 * 1000;
 const QUESTION_DAILY_LIMIT = 650;
 const QUESTION_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_NEW_QUESTIONS_PER_WINDOW = 3;
-const PREPARED_ACCESS_GRANT_TTL_MS = 30_000;
+const PREPARED_ACCESS_GRANT_TTL_MS = 2 * 60 * 1000;
 
 export type SessionRow = {
   id: string;
@@ -146,6 +146,34 @@ function normalizedSubmitPayload(args: Record<string, unknown>, withFeedback: bo
 
 export class UserExamState extends DurableObject<Env> {
   private readonly preparedAccessGrants = new Map<number, number>();
+
+  private preparedAccessGrantKey(bankId: number): string {
+    return `prepared-access:${bankId}`;
+  }
+
+  private async preparedAccessGrantExpiresAt(bankId: number): Promise<number> {
+    const cached = this.preparedAccessGrants.get(bankId) ?? 0;
+    if (cached > Date.now()) return cached;
+
+    const stored = Number(await this.ctx.storage.get<number>(this.preparedAccessGrantKey(bankId)) ?? 0);
+    if (stored > Date.now()) {
+      this.preparedAccessGrants.set(bankId, stored);
+      return stored;
+    }
+
+    this.preparedAccessGrants.delete(bankId);
+    if (stored > 0) {
+      await this.ctx.storage.delete(this.preparedAccessGrantKey(bankId));
+    }
+    return 0;
+  }
+
+  private async rememberPreparedAccessGrant(bankId: number): Promise<number> {
+    const expiresAt = Date.now() + PREPARED_ACCESS_GRANT_TTL_MS;
+    this.preparedAccessGrants.set(bankId, expiresAt);
+    await this.ctx.storage.put(this.preparedAccessGrantKey(bankId), expiresAt);
+    return expiresAt;
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -681,7 +709,7 @@ export class UserExamState extends DurableObject<Env> {
     const index = await getBankSelectionIndex(this.env, active, bankId);
     edgeTiming.do_index = performance.now() - indexStarted;
 
-    this.preparedAccessGrants.set(bankId, Date.now() + PREPARED_ACCESS_GRANT_TTL_MS);
+    const grantExpiresAt = await this.rememberPreparedAccessGrant(bankId);
     edgeTiming.do_prepare_total = performance.now() - prepareStarted;
 
     return {
@@ -690,20 +718,20 @@ export class UserExamState extends DurableObject<Env> {
       bank_id: bankId,
       release_id: active.release_id,
       question_count: index.questions.length,
+      access_grant_expires_at: grantExpiresAt,
       __edge_timing: edgeTiming,
     };
   }
 
   private async create(args: Record<string, unknown>, bankAccessGranted: boolean | undefined): Promise<Record<string, unknown>> {
     const bankId = Number(args.p_bank_id);
-    const preparedGrantExpiresAt = this.preparedAccessGrants.get(bankId) ?? 0;
+    const preparedGrantExpiresAt = await this.preparedAccessGrantExpiresAt(bankId);
     const hasPreparedAccessGrant = preparedGrantExpiresAt > Date.now();
     if (bankAccessGranted !== true && !hasPreparedAccessGrant) {
-      this.preparedAccessGrants.delete(bankId);
       throw new GatewayError(428, 'QUESTION_BANK_ACCESS_REVALIDATION_REQUIRED', 'Question bank access must be revalidated.');
     }
     if (bankAccessGranted === true) {
-      this.preparedAccessGrants.set(bankId, Date.now() + PREPARED_ACCESS_GRANT_TTL_MS);
+      await this.rememberPreparedAccessGrant(bankId);
     }
 
     const createStarted = performance.now();

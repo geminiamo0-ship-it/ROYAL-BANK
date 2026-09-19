@@ -22,6 +22,8 @@ import type {
 } from '@/types/exam';
 
 const inFlightExamCreates = new Map<string, Promise<ExamBootstrap>>();
+const inFlightBankPrepares = new Map<number, Promise<boolean>>();
+const preparedBankAccessExpiresAt = new Map<number, number>();
 const CREATE_REQUEST_STORAGE_KEY = 'royal.exam.pending-create-request-ids';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -29,6 +31,58 @@ type RawWindowAccessRenewal = {
   window_access_token?: string;
   window_access_expires_at?: number;
 };
+
+type RawPrepareBankAccess = {
+  prepared?: boolean;
+  bank_id?: number;
+  access_grant_expires_at?: number;
+};
+
+export async function prepareExamBankAccessDirect(bankId: number): Promise<boolean> {
+  const normalizedBankId = Math.max(1, Math.floor(bankId));
+  const cachedExpiry = preparedBankAccessExpiresAt.get(normalizedBankId) ?? 0;
+  if (cachedExpiry > Date.now() + 5_000) return true;
+
+  const existing = inFlightBankPrepares.get(normalizedBankId);
+  if (existing) return existing;
+
+  const request = (async () => {
+    const data = await callExamGateway<RawPrepareBankAccess, 'prepare'>(
+      'prepare',
+      { p_bank_id: normalizedBankId },
+      { timeoutMs: 20_000 },
+    );
+    if (data?.prepared !== true) return false;
+
+    const rawExpiry = Number(data.access_grant_expires_at || 0);
+    preparedBankAccessExpiresAt.set(
+      normalizedBankId,
+      Number.isFinite(rawExpiry) && rawExpiry > Date.now()
+        ? rawExpiry
+        : Date.now() + 30_000,
+    );
+    return true;
+  })();
+
+  inFlightBankPrepares.set(normalizedBankId, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlightBankPrepares.get(normalizedBankId) === request) {
+      inFlightBankPrepares.delete(normalizedBankId);
+    }
+  }
+}
+
+async function brieflyAwaitBankPrepare(bankId: number): Promise<void> {
+  const pending = inFlightBankPrepares.get(bankId);
+  if (!pending) return;
+
+  await Promise.race([
+    pending.catch(() => false),
+    new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 500)),
+  ]);
+}
 
 function loadCreateRequestIds(): Record<string, string> {
   if (typeof window === 'undefined') return {};
@@ -74,6 +128,8 @@ function clearCreateRequestId(requestKey: string): void {
 }
 
 export async function createExamSessionBootstrap(input: StartExamInput): Promise<ExamBootstrap> {
+  await brieflyAwaitBankPrepare(input.bankId);
+
   const parsedTopics: Array<{ category: string; topic: string }> = [];
   const parsedCategories: string[] = [];
 
