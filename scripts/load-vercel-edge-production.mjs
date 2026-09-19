@@ -10,8 +10,8 @@ const adminKey = process.env.SUPABASE_SECRET_KEY_PRODUCTION || '';
 const appUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
 const userCount = boundedInt('LOAD_USER_COUNT', 50, 1, 100);
 const questionCount = boundedInt('LOAD_QUESTION_COUNT', 40, 1, 40);
-const setupConcurrency = boundedInt('LOAD_SETUP_CONCURRENCY', 5, 1, 10);
-const setupPacingMs = boundedInt('LOAD_SETUP_PACING_MS', 75, 0, 1000);
+const setupConcurrency = boundedInt('LOAD_SETUP_CONCURRENCY', 1, 1, 10);
+const setupPacingMs = boundedInt('LOAD_SETUP_PACING_MS', 1600, 0, 10000);
 const syncTimeoutMs = boundedInt('LOAD_SYNC_TIMEOUT_MS', 60000, 5000, 120000);
 
 if (supabaseUrl !== EXPECTED_SUPABASE) throw new Error(`Refusing load test: unexpected Supabase URL ${supabaseUrl}`);
@@ -64,28 +64,48 @@ async function expectOk(response, label) {
   }
   return body;
 }
+async function fetchJsonWithRetry(url, init, label) {
+  let last = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const response = await fetch(url, init);
+    const body = await readBody(response);
+    if (response.ok) return body;
+    const detail = typeof body === 'string' ? body : JSON.stringify(body);
+    const retryable =
+      response.status === 429 ||
+      (response.status === 401 && detail.includes('JWT issued at future'));
+    if (!retryable) {
+      throw new Error(`${label} failed (${response.status}): ${detail.slice(0, 500)}`);
+    }
+    last = new Error(`${label} failed (${response.status}): ${detail.slice(0, 500)}`);
+    const waitMs = Math.min(30000, 1500 * (2 ** attempt));
+    console.log(`${label} transiently failed (${response.status}); retrying in ${waitMs}ms.`);
+    await sleep(waitMs);
+  }
+  throw last || new Error(`${label} failed after retries`);
+}
 
 async function setupUser(index) {
   const email = `royal-edge-load-${runId}-${String(index).padStart(3, '0')}-${randomUUID().slice(0, 8)}@load.invalid`;
   const password = `Load!${randomUUID()}Aa1`;
-  const created = await expectOk(await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+  const created = await fetchJsonWithRetry(`${supabaseUrl}/auth/v1/admin/users`, {
     method: 'POST',
     headers: adminHeaders(),
     body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { full_name: 'Royal Production Edge Load' } }),
-  }), `create user ${index}`);
+  }, `create user ${index}`);
   const userId = created?.id || created?.user?.id;
   if (!userId) throw new Error(`create user ${index} returned no id`);
   createdUsers.push({ userId, email, password, token: null, sessionId: null });
 
   const profileUrl = new URL(`${supabaseUrl}/rest/v1/profiles`);
   profileUrl.searchParams.set('id', `eq.${userId}`);
-  await expectOk(await fetch(profileUrl, {
+  await fetchJsonWithRetry(profileUrl, {
     method: 'PATCH',
     headers: { ...adminHeaders(), prefer: 'return=minimal' },
     body: JSON.stringify({ is_active: true, role: 'student' }),
-  }), `activate profile ${index}`);
+  }, `activate profile ${index}`);
 
-  await expectOk(await fetch(`${supabaseUrl}/rest/v1/user_access_grants`, {
+  await fetchJsonWithRetry(`${supabaseUrl}/rest/v1/user_access_grants`, {
     method: 'POST',
     headers: { ...adminHeaders(), prefer: 'return=minimal' },
     body: JSON.stringify({
@@ -95,13 +115,13 @@ async function setupUser(index) {
       starts_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
     }),
-  }), `grant bank access ${index}`);
+  }, `grant bank access ${index}`);
 
-  const signedIn = await expectOk(await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+  const signedIn = await fetchJsonWithRetry(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
     method: 'POST',
     headers: publicHeaders(),
     body: JSON.stringify({ email, password }),
-  }), `sign in ${index}`);
+  }, `sign in ${index}`);
   if (!signedIn?.access_token) throw new Error(`sign in ${index} returned no access token`);
   const user = createdUsers.find((item) => item.userId === userId);
   user.token = signedIn.access_token;
