@@ -149,6 +149,18 @@ function recordMetric(action, entry) {
   metrics.set(action, list);
 }
 
+function parseServerTiming(value) {
+  const out = {};
+  if (!value) return out;
+  for (const part of value.split(',')) {
+    const match = part.trim().match(/^([A-Za-z0-9_-]+)(?:;dur=([0-9.]+))?/);
+    if (!match || match[2] == null) continue;
+    const duration = Number(match[2]);
+    if (Number.isFinite(duration) && duration >= 0) out[match[1]] = duration;
+  }
+  return out;
+}
+
 async function exam(user, action, args) {
   const startedEpochMs = Date.now();
   const started = performance.now();
@@ -173,7 +185,17 @@ async function exam(user, action, args) {
   const ms = Math.round((performance.now() - started) * 100) / 100;
   const proxy = response.headers.get('x-royal-proxy');
   const gateway = response.headers.get('x-royal-gateway');
-  recordMetric(action, { ms, status: response.status, ok: response.ok && proxy === 'cloudflare-edge', proxy, gateway, started_epoch_ms: startedEpochMs, ended_epoch_ms: Date.now() });
+  const serverTiming = parseServerTiming(response.headers.get('server-timing'));
+  recordMetric(action, {
+    ms,
+    status: response.status,
+    ok: response.ok && proxy === 'cloudflare-edge',
+    proxy,
+    gateway,
+    server_timing_ms: serverTiming,
+    started_epoch_ms: startedEpochMs,
+    ended_epoch_ms: Date.now(),
+  });
   const body = await readBody(response);
   if (proxy !== 'cloudflare-edge') throw new Error(`${action} did not route through Cloudflare (status ${response.status}, proxy ${proxy}): ${JSON.stringify(body).slice(0, 400)}`);
   if (!response.ok) throw new Error(`${action} failed (${response.status}): ${JSON.stringify(body).slice(0, 500)}`);
@@ -301,6 +323,20 @@ function summarizeMetrics() {
     const latencies = entries.filter((entry) => Number.isFinite(entry.ms)).map((entry) => entry.ms);
     const statuses = {};
     for (const entry of entries) statuses[String(entry.status)] = (statuses[String(entry.status)] || 0) + 1;
+    const timingNames = new Set(entries.flatMap((entry) => Object.keys(entry.server_timing_ms || {})));
+    const serverTiming = {};
+    for (const name of timingNames) {
+      const values = entries
+        .map((entry) => entry.server_timing_ms?.[name])
+        .filter((value) => Number.isFinite(value));
+      serverTiming[name] = {
+        samples: values.length,
+        p50_ms: percentile(values, 0.50),
+        p95_ms: percentile(values, 0.95),
+        p99_ms: percentile(values, 0.99),
+        max_ms: values.length ? Math.round(Math.max(...values) * 100) / 100 : null,
+      };
+    }
     out[action] = {
       requests: entries.length,
       success: entries.filter((entry) => entry.ok).length,
@@ -310,6 +346,7 @@ function summarizeMetrics() {
       p99_ms: percentile(latencies, 0.99),
       max_ms: latencies.length ? Math.round(Math.max(...latencies) * 100) / 100 : null,
       statuses,
+      server_timing_ms: serverTiming,
     };
   }
   const submits = metrics.get('submit') || [];
