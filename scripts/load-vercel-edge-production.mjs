@@ -202,7 +202,7 @@ async function runUser(user, index) {
   const questions = Array.isArray(created?.questions) ? [...created.questions] : [];
   while (questions.length < ids.length) {
     const start = questions.length;
-    const count = Math.min(10, ids.length - start);
+    const count = Math.min(3, ids.length - start);
     const windowed = await exam(user, 'window', { p_session_id: sessionId, p_start: start, p_count: count });
     if (!Array.isArray(windowed) || windowed.length !== count) throw new Error(`user ${index}: window ${start}+${count} returned ${Array.isArray(windowed) ? windowed.length : 'non-array'}`);
     questions.push(...windowed);
