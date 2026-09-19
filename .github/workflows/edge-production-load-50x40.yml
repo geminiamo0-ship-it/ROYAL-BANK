@@ -1,4 +1,4 @@
-name: Production Edge Load 100x40
+name: Production Edge Load 250x40
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: royal-production-edge-load-100x40
+  group: royal-production-edge-load-250x40
   cancel-in-progress: false
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
       SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
       SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
       APP_URL: https://royal-bank-opal.vercel.app
-      LOAD_USER_COUNT: '100'
+      LOAD_USER_COUNT: '250'
       LOAD_QUESTION_COUNT: '40'
       LOAD_SETUP_CONCURRENCY: '1'
       LOAD_SETUP_PACING_MS: '1600'
@@ -39,12 +39,12 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_SECRET_KEY_PRODUCTION" || { echo 'SUPABASE_SECRET_KEY_PRODUCTION is missing'; exit 1; }
           node --check scripts/load-vercel-edge-production.mjs
-      - name: Run 100 authenticated users x 40 questions through Vercel to Cloudflare Edge
+      - name: Run 250 authenticated users x 40 questions through Vercel to Cloudflare Edge
         run: node scripts/load-vercel-edge-production.mjs
       - name: Upload sanitized load results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: production-edge-load-100x40
+          name: production-edge-load-250x40
           path: edge-load-results.json
           retention-days: 7
