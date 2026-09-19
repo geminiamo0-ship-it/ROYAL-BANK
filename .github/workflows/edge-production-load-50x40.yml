@@ -1,0 +1,51 @@
+name: Production Edge Load 50x40
+
+on:
+  push:
+    branches:
+      - ops/edge-load-50x40-20260919
+    paths:
+      - '.github/workflows/edge-production-load-50x40.yml'
+      - 'scripts/load-vercel-edge-production.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: royal-production-edge-load-50x40
+  cancel-in-progress: false
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
+      SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
+      APP_URL: https://royal-bank-opal.vercel.app
+      LOAD_USER_COUNT: '50'
+      LOAD_QUESTION_COUNT: '40'
+      LOAD_SETUP_CONCURRENCY: '5'
+      LOAD_SETUP_PACING_MS: '75'
+      LOAD_SYNC_TIMEOUT_MS: '60000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate production load harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_SECRET_KEY_PRODUCTION" || { echo 'SUPABASE_SECRET_KEY_PRODUCTION is missing'; exit 1; }
+          node --check scripts/load-vercel-edge-production.mjs
+      - name: Run 50 authenticated users x 40 questions through Vercel to Cloudflare Edge
+        run: node scripts/load-vercel-edge-production.mjs
+      - name: Upload sanitized load results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-edge-load-50x40
+          path: edge-load-results.json
+          retention-days: 7
