@@ -25,8 +25,8 @@ jobs:
       APP_URL: https://royal-bank-opal.vercel.app
       LOAD_USER_COUNT: '50'
       LOAD_QUESTION_COUNT: '40'
-      LOAD_SETUP_CONCURRENCY: '5'
-      LOAD_SETUP_PACING_MS: '75'
+      LOAD_SETUP_CONCURRENCY: '1'
+      LOAD_SETUP_PACING_MS: '1600'
       LOAD_SYNC_TIMEOUT_MS: '60000'
     steps:
       - uses: actions/checkout@v4
