@@ -1,6 +1,8 @@
 import 'server-only';
 
 import { createClient } from '@/lib/supabase/server';
+import { isPrivateR2Configured } from '@/lib/r2-private';
+import { readStaticLibraryArticle } from '@/lib/ui-static-r2';
 
 export interface LibraryArticleSummary {
   id: string;
@@ -93,6 +95,18 @@ interface LibraryArticleRpcPayload {
   };
 }
 
+interface LibraryAuthorizationRpcPayload {
+  article_id?: unknown;
+  access?: LibraryArticleRpcPayload['access'];
+}
+
+interface LibraryContentRpcPayload {
+  id?: unknown;
+  name?: unknown;
+  category?: unknown;
+  content_html?: unknown;
+}
+
 function ensureBankId(bankId: number): void {
   if (!Number.isInteger(bankId) || bankId <= 0) {
     throw new LibraryNotFoundError();
@@ -169,6 +183,59 @@ function nullableNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function parseAccess(access: LibraryArticleRpcPayload['access']): LibraryArticleAccessState {
+  if (!access) throw new LibraryNotFoundError();
+  return {
+    premium: access.premium === true,
+    trial: access.trial === true,
+    firstDisclosure: access.first_disclosure === true,
+    trialLimit: nullableNumber(access.trial_limit),
+    trialUsed: nullableNumber(access.trial_used),
+    trialRemaining: nullableNumber(access.trial_remaining),
+  };
+}
+
+function parseArticle(article: LibraryContentRpcPayload | undefined): LibraryArticleContent {
+  if (
+    !article ||
+    typeof article.id !== 'string' ||
+    typeof article.name !== 'string' ||
+    typeof article.content_html !== 'string'
+  ) {
+    throw new LibraryNotFoundError();
+  }
+  return {
+    id: article.id,
+    name: article.name,
+    category: typeof article.category === 'string' ? article.category : null,
+    contentHtml: article.content_html,
+  };
+}
+
+async function readLegacyLibraryArticle(
+  client: Awaited<ReturnType<typeof requireAuthenticatedClient>>,
+  bankId: number,
+  articleId: string,
+): Promise<LibraryArticleRead> {
+  const { data, error } = await client.rpc('get_library_article', {
+    p_bank_id: bankId,
+    p_article_id: articleId,
+  });
+  if (error) throw classifyRpcError(error.message);
+
+  const payload = (data ?? {}) as LibraryArticleRpcPayload;
+  return {
+    article: parseArticle(payload.article),
+    access: parseAccess(payload.access),
+  };
+}
+
+function rpcMissing(message: string | undefined, functionName: string): boolean {
+  const value = message || '';
+  return /function .* does not exist|could not find the function/i.test(value)
+    && value.toLowerCase().includes(functionName.toLowerCase());
+}
+
 export async function readLibraryArticle(
   bankId: number,
   articleId: string
@@ -179,43 +246,59 @@ export async function readLibraryArticle(
   }
 
   const client = await requireAuthenticatedClient();
-  const { data, error } = await client.rpc('get_library_article', {
+
+  // Until private R2 is configured, preserve the original one-RPC path rather
+  // than adding an authorization round trip with no cache benefit.
+  if (!isPrivateR2Configured()) {
+    return readLegacyLibraryArticle(client, bankId, articleId);
+  }
+
+  const authorization = await client.rpc('authorize_library_article_read', {
     p_bank_id: bankId,
     p_article_id: articleId,
   });
 
-  if (error) {
-    throw classifyRpcError(error.message);
+  if (authorization.error) {
+    if (rpcMissing(authorization.error.message, 'authorize_library_article_read')) {
+      return readLegacyLibraryArticle(client, bankId, articleId);
+    }
+    throw classifyRpcError(authorization.error.message);
   }
 
-  const payload = (data ?? {}) as LibraryArticleRpcPayload;
-  const article = payload.article;
-  const access = payload.access;
+  const authorizationPayload = (authorization.data ?? {}) as LibraryAuthorizationRpcPayload;
+  const access = parseAccess(authorizationPayload.access);
 
-  if (
-    !article ||
-    typeof article.id !== 'string' ||
-    typeof article.name !== 'string' ||
-    typeof article.content_html !== 'string' ||
-    !access
-  ) {
-    throw new LibraryNotFoundError();
+  const cached = await readStaticLibraryArticle(articleId);
+  if (cached) {
+    return {
+      article: {
+        id: cached.id,
+        name: cached.name,
+        category: cached.category,
+        contentHtml: cached.content_html,
+      },
+      access,
+    };
+  }
+
+  // R2 rollout/fetch failure is non-fatal. This fallback is disclosure-safe:
+  // the content-only RPC allows premium users or an already-disclosed trial
+  // article, so it cannot bypass the trial quota on its own.
+  const content = await client.rpc('get_library_article_content_authorized', {
+    p_bank_id: bankId,
+    p_article_id: articleId,
+  });
+
+  if (content.error) {
+    if (rpcMissing(content.error.message, 'get_library_article_content_authorized')) {
+      const legacy = await readLegacyLibraryArticle(client, bankId, articleId);
+      return { article: legacy.article, access };
+    }
+    throw classifyRpcError(content.error.message);
   }
 
   return {
-    article: {
-      id: article.id,
-      name: article.name,
-      category: typeof article.category === 'string' ? article.category : null,
-      contentHtml: article.content_html,
-    },
-    access: {
-      premium: access.premium === true,
-      trial: access.trial === true,
-      firstDisclosure: access.first_disclosure === true,
-      trialLimit: nullableNumber(access.trial_limit),
-      trialUsed: nullableNumber(access.trial_used),
-      trialRemaining: nullableNumber(access.trial_remaining),
-    },
+    article: parseArticle((content.data ?? {}) as LibraryContentRpcPayload),
+    access,
   };
 }

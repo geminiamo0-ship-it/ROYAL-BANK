@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,7 +21,6 @@ import {
   Undo2,
 } from 'lucide-react';
 import { ExamClock } from '@/components/exam/ExamClock';
-import { ExamReferenceRanges } from '@/components/exam/ExamReferenceRanges';
 import {
   ANNOTATION_COLOR_STORAGE_KEY,
   DEFAULT_ANNOTATION_COLOR,
@@ -59,6 +59,14 @@ interface ExamHeaderProps {
 
 type CalcOperator = '+' | '-' | '×' | '÷';
 type OpenPanel = 'marker' | 'reference' | 'calculator' | null;
+
+const LazyExamReferenceRanges = dynamic(
+  () => import('@/components/exam/ExamReferenceRanges').then((module) => module.ExamReferenceRanges),
+  {
+    ssr: false,
+    loading: () => <div className="min-w-[520px] py-6 text-center text-[11px] text-[#aeb6bc]">Loading reference ranges…</div>,
+  },
+);
 
 const COLOR_SWATCHES: readonly { color: AnnotationColor; label: string; hex: string }[] = [
   { color: 'yellow', label: 'Yellow', hex: '#ffd84d' },
@@ -397,7 +405,7 @@ export function ExamHeader({
           </ToolButton>
           {openPanel === 'reference' ? (
             <div className="absolute left-0 top-[36px] z-[90] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-4 shadow-2xl">
-              <ExamReferenceRanges />
+              <LazyExamReferenceRanges />
               <button type="button" onClick={() => setOpenPanel(null)} className="mt-3 rounded border border-[#5b6268] px-3 py-1.5 text-[#e7e7e7] hover:bg-[#3d444a]">Close</button>
             </div>
           ) : null}

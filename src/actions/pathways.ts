@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { readStaticCatalogRows } from '@/lib/ui-static-r2';
 import type { AccessResolution } from '@/types/catalog';
 
 export interface ActiveAccessGrant {
@@ -129,7 +130,16 @@ const emptyOverview: CatalogOverview = {
   commerce_lock_reason: null,
 };
 
-async function loadCatalogRows() {
+type CatalogRows = {
+  pathways: PathwayRow[];
+  banks: BankRow[];
+};
+
+const CATALOG_ROWS_MEMORY_TTL_MS = 10 * 60 * 1000;
+let catalogRowsMemoryCache: { value: CatalogRows; expiresAt: number } | null = null;
+let catalogRowsInFlight: Promise<CatalogRows> | null = null;
+
+async function loadCatalogRowsFromSupabase(): Promise<CatalogRows> {
   const supabase = await createClient();
   const [pathwaysResult, banksResult] = await Promise.all([
     supabase
@@ -151,6 +161,35 @@ async function loadCatalogRows() {
     pathways: (pathwaysResult.data || []) as PathwayRow[],
     banks: (banksResult.data || []) as BankRow[],
   };
+}
+
+async function loadCatalogRows(): Promise<CatalogRows> {
+  const now = Date.now();
+  if (catalogRowsMemoryCache && catalogRowsMemoryCache.expiresAt > now) {
+    return catalogRowsMemoryCache.value;
+  }
+  if (catalogRowsInFlight) return catalogRowsInFlight;
+
+  const request = (async () => {
+    const r2 = await readStaticCatalogRows();
+    const value: CatalogRows = r2
+      ? {
+          pathways: r2.pathways as PathwayRow[],
+          banks: r2.banks as BankRow[],
+        }
+      : await loadCatalogRowsFromSupabase();
+
+    catalogRowsMemoryCache = {
+      value,
+      expiresAt: Date.now() + CATALOG_ROWS_MEMORY_TTL_MS,
+    };
+    return value;
+  })().finally(() => {
+    if (catalogRowsInFlight === request) catalogRowsInFlight = null;
+  });
+
+  catalogRowsInFlight = request;
+  return request;
 }
 
 async function loadCatalogOverview(): Promise<CatalogOverview> {
