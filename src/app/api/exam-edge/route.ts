@@ -134,7 +134,8 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   const requestStarted = performance.now();
-  let authUserMs = 0;
+  let authClaimsMs = 0;
+  let authFreshUserMs = 0;
   let upstreamMs = 0;
   const requestId = crypto.randomUUID();
   const routing = edgeRouteMode(request);
@@ -155,6 +156,32 @@ export async function POST(request: Request): Promise<Response> {
     return response;
   }
 
+  let rawBody: string;
+  try {
+    rawBody = await request.text();
+  } catch {
+    const response = jsonError(400, 'INVALID_REQUEST', 'Invalid request body.');
+    response.headers.set('x-royal-request-id', requestId);
+    return response;
+  }
+
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+    const response = jsonError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
+    response.headers.set('x-royal-request-id', requestId);
+    return response;
+  }
+
+  let action: string | null = null;
+  try {
+    const parsed = JSON.parse(rawBody) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const candidate = (parsed as Record<string, unknown>).action;
+      if (typeof candidate === 'string') action = candidate;
+    }
+  } catch {
+    // The Worker owns full request validation and returns the canonical 400.
+  }
+
   const supabase = await createClient();
   const callerToken = bearerToken(request);
   let accessToken = callerToken;
@@ -172,47 +199,64 @@ export async function POST(request: Request): Promise<Response> {
     return response;
   }
 
-  const authUserStarted = performance.now();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser(accessToken);
-  authUserMs = performance.now() - authUserStarted;
-  if (userError || !user) {
+  // Verify the signed access token locally (cached JWKS for asymmetric projects)
+  // instead of making a network getUser() call on every exam action. Cloudflare
+  // independently verifies the same JWT again before touching the user's DO.
+  const authClaimsStarted = performance.now();
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(accessToken);
+  authClaimsMs = performance.now() - authClaimsStarted;
+  const claims = claimsData?.claims as Record<string, unknown> | undefined;
+  const userId = typeof claims?.sub === 'string' ? claims.sub : '';
+  const userRole = typeof claims?.role === 'string' ? claims.role : '';
+  const userEmail = typeof claims?.email === 'string' ? claims.email : '';
+  const appMetadata =
+    claims?.app_metadata && typeof claims.app_metadata === 'object' && !Array.isArray(claims.app_metadata)
+      ? claims.app_metadata as Record<string, unknown>
+      : null;
+
+  if (claimsError || !userId || userRole !== 'authenticated') {
     const response = jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
-  if (routing.canaryMode === PRODUCTION_SMOKE_CANARY_VALUE && !user.email?.endsWith('@load.invalid')) {
+
+  if (routing.canaryMode === PRODUCTION_SMOKE_CANARY_VALUE && !userEmail.endsWith('@load.invalid')) {
     const response = jsonError(403, 'EDGE_CANARY_NOT_ALLOWED', 'This account is not enabled for the Edge canary.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
   if (
     routing.canaryMode === PRODUCTION_ROLLOUT_CANARY_VALUE &&
-    !isInProductionEdgeRollout(user.id)
+    !isInProductionEdgeRollout(userId)
   ) {
     const response = jsonError(403, 'EDGE_ROLLOUT_NOT_ALLOWED', 'This account is not in the Edge rollout cohort.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
-  if (user.app_metadata?.must_change_password === true) {
+
+  // Prepare is the security/entitlement boundary for a new exam. Refresh the
+  // user record here so an admin-issued password-change requirement is observed
+  // before a new session can be prepared. Hot exam actions use the verified JWT
+  // and the already-authorized per-user Durable Object session.
+  if (action === 'prepare') {
+    const authFreshUserStarted = performance.now();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(accessToken);
+    authFreshUserMs = performance.now() - authFreshUserStarted;
+    if (userError || !user || user.id !== userId) {
+      const response = jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
+      response.headers.set('x-royal-request-id', requestId);
+      return response;
+    }
+    if (user.app_metadata?.must_change_password === true) {
+      const response = jsonError(403, 'PASSWORD_CHANGE_REQUIRED', 'Change your password before continuing.');
+      response.headers.set('x-royal-request-id', requestId);
+      return response;
+    }
+  } else if (appMetadata?.must_change_password === true) {
     const response = jsonError(403, 'PASSWORD_CHANGE_REQUIRED', 'Change your password before continuing.');
-    response.headers.set('x-royal-request-id', requestId);
-    return response;
-  }
-
-  let rawBody: string;
-  try {
-    rawBody = await request.text();
-  } catch {
-    const response = jsonError(400, 'INVALID_REQUEST', 'Invalid request body.');
-    response.headers.set('x-royal-request-id', requestId);
-    return response;
-  }
-
-  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
-    const response = jsonError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
     response.headers.set('x-royal-request-id', requestId);
     return response;
   }
@@ -258,12 +302,13 @@ export async function POST(request: Request): Promise<Response> {
 
   const upstreamTiming = headers.get('server-timing');
   const proxyTiming = [
-    `vercel_auth_user;dur=${authUserMs.toFixed(2)}`,
+    `vercel_auth_claims;dur=${authClaimsMs.toFixed(2)}`,
+    `vercel_auth_fresh_user;dur=${authFreshUserMs.toFixed(2)}`,
     `vercel_upstream;dur=${upstreamMs.toFixed(2)}`,
     `vercel_total;dur=${(performance.now() - requestStarted).toFixed(2)}`,
   ].join(', ');
   headers.set('server-timing', upstreamTiming ? `${upstreamTiming}, ${proxyTiming}` : proxyTiming);
-  headers.set('x-royal-proxy-timing-version', '1');
+  headers.set('x-royal-proxy-timing-version', '2');
 
   return new Response(responseBody, {
     status: upstream.status,
