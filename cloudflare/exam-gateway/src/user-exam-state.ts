@@ -24,6 +24,7 @@ const PREPARED_ACCESS_GRANT_TTL_MS = 2 * 60 * 1000;
 const CHECKPOINT_VERSION_THRESHOLD = 25;
 const CHECKPOINT_IDLE_FLUSH_MS = 15 * 60 * 1000;
 const CHECKPOINT_FAST_FLUSH_MS = 250;
+const ANNOTATION_IDLE_SYNC_MS = 30_000;
 
 export type SessionRow = {
   id: string;
@@ -196,7 +197,7 @@ export class UserExamState extends DurableObject<Env> {
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
         );
-        INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '3');
+        INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '4');
 
         CREATE TABLE IF NOT EXISTS sessions (
           id TEXT PRIMARY KEY,
@@ -284,6 +285,27 @@ export class UserExamState extends DurableObject<Env> {
           sent_at_ms INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_unsent ON outbox(sent_at_ms, created_at_ms);
+
+        CREATE TABLE IF NOT EXISTS annotation_questions (
+          question_id INTEGER PRIMARY KEY,
+          version INTEGER NOT NULL DEFAULT 0,
+          hydrated INTEGER NOT NULL DEFAULT 0,
+          dirty INTEGER NOT NULL DEFAULT 0,
+          cleared INTEGER NOT NULL DEFAULT 0,
+          updated_at_ms INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS annotation_surfaces (
+          question_id INTEGER NOT NULL,
+          surface TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          strokes_json TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          updated_at_ms INTEGER NOT NULL,
+          PRIMARY KEY (question_id, surface)
+        );
+        CREATE INDEX IF NOT EXISTS idx_annotation_questions_dirty
+          ON annotation_questions(dirty, updated_at_ms);
       `);
     } else {
       let schemaVersion = sql
@@ -297,7 +319,32 @@ export class UserExamState extends DurableObject<Env> {
         `);
         schemaVersion = '3';
       }
-      if (schemaVersion !== '3') {
+      if (schemaVersion === '3') {
+        sql.exec(`
+          CREATE TABLE IF NOT EXISTS annotation_questions (
+            question_id INTEGER PRIMARY KEY,
+            version INTEGER NOT NULL DEFAULT 0,
+            hydrated INTEGER NOT NULL DEFAULT 0,
+            dirty INTEGER NOT NULL DEFAULT 0,
+            cleared INTEGER NOT NULL DEFAULT 0,
+            updated_at_ms INTEGER NOT NULL DEFAULT 0
+          );
+          CREATE TABLE IF NOT EXISTS annotation_surfaces (
+            question_id INTEGER NOT NULL,
+            surface TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            strokes_json TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            PRIMARY KEY (question_id, surface)
+          );
+          CREATE INDEX IF NOT EXISTS idx_annotation_questions_dirty
+            ON annotation_questions(dirty, updated_at_ms);
+          UPDATE metadata SET value = '4' WHERE key = 'schema_version';
+        `);
+        schemaVersion = '4';
+      }
+      if (schemaVersion !== '4') {
         throw new Error(`UNSUPPORTED_V2_DO_SCHEMA_VERSION:${String(schemaVersion ?? 'missing')}`);
       }
     }
@@ -460,6 +507,214 @@ export class UserExamState extends DurableObject<Env> {
     ).map((row) => Number(row.question_id));
   }
 
+  private assertSessionQuestion(sessionId: string, questionId: number): void {
+    this.session(sessionId);
+    const belongs = this.one<{ present: number }>(
+      'SELECT 1 AS present FROM session_questions WHERE session_id = ? AND question_id = ? LIMIT 1',
+      sessionId,
+      questionId,
+    );
+    if (!belongs) {
+      throw new GatewayError(400, 'QUESTION_NOT_IN_SESSION', 'Question does not belong to session.');
+    }
+  }
+
+  private annotationRecords(questionId: number): Array<Record<string, unknown>> {
+    return this.all<{
+      surface: string;
+      content_hash: string;
+      strokes_json: string;
+      version: number;
+      updated_at_ms: number;
+    }>(
+      `SELECT surface, content_hash, strokes_json, version, updated_at_ms
+       FROM annotation_surfaces
+       WHERE question_id = ?
+       ORDER BY surface`,
+      questionId,
+    ).map((row) => ({
+      surface: String(row.surface),
+      content_hash: String(row.content_hash),
+      strokes: JSON.parse(String(row.strokes_json)) as unknown,
+      version: Number(row.version),
+      updated_at: new Date(Number(row.updated_at_ms)).toISOString(),
+    }));
+  }
+
+  private annotationsGet(args: Record<string, unknown>): Record<string, unknown> {
+    const sessionId = String(args.p_session_id);
+    const questionId = Number(args.p_question_id);
+    this.assertSessionQuestion(sessionId, questionId);
+    const state = this.one<{
+      hydrated: number;
+      version: number;
+      cleared: number;
+    }>(
+      'SELECT hydrated, version, cleared FROM annotation_questions WHERE question_id = ?',
+      questionId,
+    );
+    return {
+      question_id: questionId,
+      hydrated: Number(state?.hydrated || 0) === 1,
+      version: Number(state?.version || 0),
+      cleared: Number(state?.cleared || 0) === 1,
+      records: this.annotationRecords(questionId),
+    };
+  }
+
+  private annotationsBatch(args: Record<string, unknown>): Record<string, unknown> {
+    const sessionId = String(args.p_session_id);
+    const questionId = Number(args.p_question_id);
+    const updates = args.p_updates as Array<Record<string, unknown>>;
+    const seed = args.p_seed === true;
+    this.assertSessionQuestion(sessionId, questionId);
+
+    this.ctx.storage.transactionSync(() => {
+      const current = this.one<{
+        version: number;
+        hydrated: number;
+        dirty: number;
+      }>(
+        'SELECT version, hydrated, dirty FROM annotation_questions WHERE question_id = ?',
+        questionId,
+      );
+
+      // Seeding is only for one-time migration of existing Supabase marks into
+      // the DO. Never let a late seed overwrite already-hot DO state.
+      if (seed && Number(current?.hydrated || 0) === 1) return;
+
+      const nowMs = Date.now();
+      const nextVersion = seed
+        ? Math.max(1, Number(current?.version || 0))
+        : Number(current?.version || 0) + 1;
+
+      for (const update of updates) {
+        this.ctx.storage.sql.exec(
+          `INSERT INTO annotation_surfaces(
+             question_id, surface, content_hash, strokes_json, version, updated_at_ms
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(question_id, surface) DO UPDATE SET
+             content_hash = excluded.content_hash,
+             strokes_json = excluded.strokes_json,
+             version = excluded.version,
+             updated_at_ms = excluded.updated_at_ms`,
+          questionId,
+          String(update.surface),
+          String(update.content_hash),
+          JSON.stringify(update.strokes),
+          nextVersion,
+          nowMs,
+        );
+      }
+
+      this.ctx.storage.sql.exec(
+        `INSERT INTO annotation_questions(question_id, version, hydrated, dirty, cleared, updated_at_ms)
+         VALUES (?, ?, 1, ?, 0, ?)
+         ON CONFLICT(question_id) DO UPDATE SET
+           version = excluded.version,
+           hydrated = 1,
+           dirty = CASE WHEN excluded.dirty = 1 THEN 1 ELSE annotation_questions.dirty END,
+           cleared = 0,
+           updated_at_ms = excluded.updated_at_ms`,
+        questionId,
+        nextVersion,
+        seed ? 0 : 1,
+        nowMs,
+      );
+    });
+
+    if (!seed) this.scheduleOutboxAlarm(ANNOTATION_IDLE_SYNC_MS);
+    return this.annotationsGet(args);
+  }
+
+  private annotationsClear(args: Record<string, unknown>): Record<string, unknown> {
+    const sessionId = String(args.p_session_id);
+    const questionId = Number(args.p_question_id);
+    this.assertSessionQuestion(sessionId, questionId);
+
+    this.ctx.storage.transactionSync(() => {
+      const current = this.one<{ version: number }>(
+        'SELECT version FROM annotation_questions WHERE question_id = ?',
+        questionId,
+      );
+      const nextVersion = Number(current?.version || 0) + 1;
+      const nowMs = Date.now();
+
+      this.ctx.storage.sql.exec('DELETE FROM annotation_surfaces WHERE question_id = ?', questionId);
+      this.ctx.storage.sql.exec(
+        `INSERT INTO annotation_questions(question_id, version, hydrated, dirty, cleared, updated_at_ms)
+         VALUES (?, ?, 1, 1, 1, ?)
+         ON CONFLICT(question_id) DO UPDATE SET
+           version = excluded.version,
+           hydrated = 1,
+           dirty = 1,
+           cleared = 1,
+           updated_at_ms = excluded.updated_at_ms`,
+        questionId,
+        nextVersion,
+        nowMs,
+      );
+    });
+
+    this.scheduleOutboxAlarm(ANNOTATION_IDLE_SYNC_MS);
+    return this.annotationsGet(args);
+  }
+
+  private dirtyAnnotationQuestions(): Array<{
+    question_id: number;
+    version: number;
+    cleared: number;
+    updated_at_ms: number;
+  }> {
+    return this.all<{
+      question_id: number;
+      version: number;
+      cleared: number;
+      updated_at_ms: number;
+    }>(
+      `SELECT question_id, version, cleared, updated_at_ms
+       FROM annotation_questions
+       WHERE dirty = 1
+       ORDER BY updated_at_ms, question_id
+       LIMIT 10`,
+    );
+  }
+
+  private stageDirtyAnnotations(): number {
+    let staged = 0;
+    for (const candidate of this.dirtyAnnotationQuestions()) {
+      this.ctx.storage.transactionSync(() => {
+        const current = this.one<{
+          version: number;
+          dirty: number;
+          cleared: number;
+          updated_at_ms: number;
+        }>(
+          'SELECT version, dirty, cleared, updated_at_ms FROM annotation_questions WHERE question_id = ?',
+          Number(candidate.question_id),
+        );
+        if (!current || Number(current.dirty) !== 1) return;
+
+        const questionId = Number(candidate.question_id);
+        const version = Number(current.version);
+        this.insertOutbox('annotation.checkpoint', null, version, {
+          schema_version: 1,
+          question_id: questionId,
+          version,
+          cleared: Number(current.cleared) === 1,
+          records: this.annotationRecords(questionId),
+        });
+        this.ctx.storage.sql.exec(
+          'UPDATE annotation_questions SET dirty = 0 WHERE question_id = ? AND version = ?',
+          questionId,
+          version,
+        );
+        staged += 1;
+      });
+    }
+    return staged;
+  }
+
   private touchSession(sessionId: string): void {
     this.ctx.storage.sql.exec(
       'UPDATE sessions SET last_active_at_ms = ? WHERE id = ? AND completed_at IS NULL',
@@ -518,6 +773,16 @@ export class UserExamState extends DurableObject<Env> {
     );
 
     let target = pending ? now + Math.max(0, delayMs) : Number.POSITIVE_INFINITY;
+    const dirtyAnnotation = this.one<{ updated_at_ms: number }>(
+      'SELECT updated_at_ms FROM annotation_questions WHERE dirty = 1 ORDER BY updated_at_ms LIMIT 1',
+    );
+    if (dirtyAnnotation) {
+      target = Math.min(
+        target,
+        Math.max(now, Number(dirtyAnnotation.updated_at_ms) + ANNOTATION_IDLE_SYNC_MS),
+      );
+    }
+
     for (const session of this.dirtyCheckpointSessions()) {
       const versionGap = Number(session.version) - Number(session.checkpoint_version);
       const checkpointDueAt = versionGap >= CHECKPOINT_VERSION_THRESHOLD
@@ -1231,6 +1496,7 @@ export class UserExamState extends DurableObject<Env> {
         version: nextVersion,
       });
     });
+    this.stageDirtyAnnotations();
     return { ok: true, session_id: session.id, suspended: true };
   }
 
@@ -1267,6 +1533,7 @@ export class UserExamState extends DurableObject<Env> {
     const completed = session.completed_at
       ? session
       : this.finalizeSession(session.id, this.deadlineExpired(session) ? 'deadline' : 'user');
+    this.stageDirtyAnnotations();
     return {
       ok: true,
       session_id: completed.id,
@@ -1277,6 +1544,7 @@ export class UserExamState extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     this.stageDueCheckpoints();
+    this.stageDirtyAnnotations();
 
     const pending = this.all<{
       event_id: string;
@@ -1377,6 +1645,12 @@ export class UserExamState extends DurableObject<Env> {
         return this.feedback(input.args, input.action);
       case 'flag':
         return this.setFlag(input.args);
+      case 'annotationsGet':
+        return this.annotationsGet(input.args);
+      case 'annotationsBatch':
+        return this.annotationsBatch(input.args);
+      case 'annotationsClear':
+        return this.annotationsClear(input.args);
       case 'suspend':
         return this.suspend(input.args);
       case 'resume':
