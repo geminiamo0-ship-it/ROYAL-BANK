@@ -3,7 +3,7 @@ name: Production Edge Checkpoint A-B 250x40
 on:
   push:
     branches:
-      - ops/edge-load-50x40-20260919
+      - ops/edge-load-500x40-20260919
     paths:
       - '.github/workflows/edge-production-load-50x40.yml'
       - 'scripts/load-vercel-edge-production.mjs'
