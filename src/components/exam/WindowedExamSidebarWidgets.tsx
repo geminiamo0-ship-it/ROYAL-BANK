@@ -2,11 +2,13 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { Check, Flag, X } from 'lucide-react';
 import type { ExamClientAnswer, ExamClientQuestion } from '@/types/exam';
 
 interface WindowedExamSidebarWidgetsProps {
   answers: Record<number, ExamClientAnswer>;
   answeredCount: number;
+  flaggedQuestionIds: Set<number>;
   bankId: number;
   currentIndex: number;
   isTimedMode: boolean;
@@ -32,6 +34,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export function WindowedExamSidebarWidgets({
   answers,
   answeredCount,
+  flaggedQuestionIds,
   bankId,
   currentIndex,
   isTimedMode,
@@ -106,38 +109,38 @@ export function WindowedExamSidebarWidgets({
             )}
 
             <div className="mt-4 border-t border-[#30363b] pt-4">
-              <div className="mx-auto w-[72px] space-y-2 text-left">
+              <div className="mx-auto w-[92px] space-y-2 text-left">
                 {statusQuestionIds.map((questionId, index) => {
                   const answer = answers[questionId];
-                  const standardStatus = !answer
-                    ? '-'
-                    : answer.isCorrect === true
-                      ? 'OK'
-                      : answer.isCorrect === false
-                        ? 'X'
-                        : '…';
+                  const isFlagged = flaggedQuestionIds.has(questionId);
 
                   return (
-                    <div key={questionId} className="grid grid-cols-[20px_1fr] items-center gap-5 text-[13px]">
+                    <div
+                      key={questionId}
+                      className="grid grid-cols-[20px_20px_16px] items-center gap-2 text-[13px]"
+                    >
                       <span className={index === currentIndex ? 'font-semibold text-[#b993ff]' : 'font-semibold text-[#a8adb2]'}>
                         {index + 1}
                       </span>
+
                       {isTimedMode ? (
                         <span className={answer ? 'text-[#7fc5ff]' : 'text-[#8a8f95]'}>
-                          {answer ? '•' : '-'}
+                          {answer ? '•' : '–'}
                         </span>
+                      ) : !answer ? (
+                        <span className="text-[#8a8f95]">–</span>
+                      ) : answer.isCorrect === true ? (
+                        <Check className="h-4 w-4 stroke-[2.5] text-[#42c86e]" aria-label="Correct" />
+                      ) : answer.isCorrect === false ? (
+                        <X className="h-4 w-4 stroke-[2.5] text-[#ff4054]" aria-label="Incorrect" />
                       ) : (
-                        <span className={
-                          !answer
-                            ? 'text-[#8a8f95]'
-                            : answer.isCorrect === true
-                              ? 'text-[#42c86e]'
-                              : answer.isCorrect === false
-                                ? 'text-[#ff253c]'
-                                : 'text-[#a8adb2]'
-                        }>
-                          {standardStatus}
-                        </span>
+                        <span className="text-[#a8adb2]">…</span>
+                      )}
+
+                      {isFlagged ? (
+                        <Flag className="h-3.5 w-3.5 fill-[#d7a6ff] text-[#d7a6ff]" aria-label="Flagged" />
+                      ) : (
+                        <span aria-hidden="true" />
                       )}
                     </div>
                   );

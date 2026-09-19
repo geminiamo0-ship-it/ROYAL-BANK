@@ -11,15 +11,27 @@ export const ANNOTATION_COLOR_STORAGE_KEY = 'royal.exam.annotationColor';
 
 export type AnnotationPoint = readonly [number, number];
 
-export interface AnnotationStroke {
+export interface AnnotationInkStroke {
   id: string;
+  // "highlighter" is retained for backward compatibility with marks created
+  // before text-range highlighting was introduced.
   tool: 'pencil' | 'highlighter';
   width: number;
   points: AnnotationPoint[];
-  // Optional for backward compatibility with marks saved before color support.
-  // Legacy strokes render as DEFAULT_ANNOTATION_COLOR.
   color?: AnnotationColor;
 }
+
+export interface AnnotationTextHighlight {
+  id: string;
+  tool: 'text-highlight';
+  start: number;
+  end: number;
+  color?: AnnotationColor;
+  // A short quote is diagnostic only. Character offsets + content hash are authoritative.
+  quote?: string;
+}
+
+export type AnnotationStroke = AnnotationInkStroke | AnnotationTextHighlight;
 
 export interface StoredQuestionAnnotation {
   surface: AnnotationSurface;
@@ -32,6 +44,8 @@ export interface StoredQuestionAnnotation {
 export const MAX_ANNOTATION_STROKES = 500;
 export const MAX_POINTS_PER_STROKE = 2000;
 export const MAX_TOTAL_ANNOTATION_POINTS = 25000;
+export const MAX_TEXT_HIGHLIGHT_OFFSET = 250000;
+export const MAX_TEXT_HIGHLIGHT_QUOTE = 1000;
 export const MAX_ANNOTATION_PAYLOAD_BYTES = 262144;
 
 export function isAnnotationSurface(value: unknown): value is AnnotationSurface {
@@ -50,12 +64,45 @@ function isFiniteUnitNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
+export function isTextHighlight(value: AnnotationStroke): value is AnnotationTextHighlight {
+  return value.tool === 'text-highlight';
+}
+
+export function isInkAnnotationStroke(value: AnnotationStroke): value is AnnotationInkStroke {
+  return value.tool === 'pencil' || value.tool === 'highlighter';
+}
+
 export function isValidAnnotationStroke(value: unknown): value is AnnotationStroke {
   if (!value || typeof value !== 'object') return false;
-  const stroke = value as Partial<AnnotationStroke>;
-  if (typeof stroke.id !== 'string' || stroke.id.length < 1 || stroke.id.length > 80) return false;
-  if (stroke.tool !== 'pencil' && stroke.tool !== 'highlighter') return false;
-  if (stroke.color !== undefined && !isAnnotationColor(stroke.color)) return false;
+  const mark = value as Partial<AnnotationStroke> & Record<string, unknown>;
+
+  if (typeof mark.id !== 'string' || mark.id.length < 1 || mark.id.length > 80) return false;
+  if (mark.color !== undefined && !isAnnotationColor(mark.color)) return false;
+
+  if (mark.tool === 'text-highlight') {
+    const start = Number(mark.start);
+    const end = Number(mark.end);
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      end <= start ||
+      end > MAX_TEXT_HIGHLIGHT_OFFSET
+    ) {
+      return false;
+    }
+    if (
+      mark.quote !== undefined &&
+      (typeof mark.quote !== 'string' || mark.quote.length > MAX_TEXT_HIGHLIGHT_QUOTE)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  if (mark.tool !== 'pencil' && mark.tool !== 'highlighter') return false;
+
+  const stroke = mark as Partial<AnnotationInkStroke>;
   if (typeof stroke.width !== 'number' || !Number.isFinite(stroke.width) || stroke.width < 0.5 || stroke.width > 48) {
     return false;
   }
@@ -77,8 +124,10 @@ export function isValidAnnotationStrokes(value: unknown): value is AnnotationStr
   let totalPoints = 0;
   for (const stroke of value) {
     if (!isValidAnnotationStroke(stroke)) return false;
-    totalPoints += stroke.points.length;
-    if (totalPoints > MAX_TOTAL_ANNOTATION_POINTS) return false;
+    if (isInkAnnotationStroke(stroke)) {
+      totalPoints += stroke.points.length;
+      if (totalPoints > MAX_TOTAL_ANNOTATION_POINTS) return false;
+    }
   }
 
   try {
@@ -144,6 +193,7 @@ export function simplifyAnnotationPoints(
 }
 
 export function distanceToStroke(point: AnnotationPoint, stroke: AnnotationStroke): number {
+  if (!isInkAnnotationStroke(stroke)) return Number.POSITIVE_INFINITY;
   if (stroke.points.length === 0) return Number.POSITIVE_INFINITY;
   if (stroke.points.length === 1) {
     return Math.hypot(point[0] - stroke.points[0][0], point[1] - stroke.points[0][1]);

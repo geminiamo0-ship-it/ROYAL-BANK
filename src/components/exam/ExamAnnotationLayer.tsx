@@ -7,12 +7,16 @@ import {
   createAnnotationStrokeId,
   distanceToStroke,
   isAnnotationColor,
+  isInkAnnotationStroke,
+  isTextHighlight,
   sha256Hex,
   simplifyAnnotationPoints,
   type AnnotationColor,
+  type AnnotationInkStroke,
   type AnnotationPoint,
   type AnnotationStroke,
   type AnnotationSurface,
+  type AnnotationTextHighlight,
   type AnnotationTool,
   type StoredQuestionAnnotation,
 } from '@/lib/exam-annotations';
@@ -32,12 +36,33 @@ interface ExamAnnotationLayerProps {
     contentHash: string,
     strokeId: string,
   ) => void;
+  onUpdateStroke: (
+    surface: AnnotationSurface,
+    contentHash: string,
+    stroke: AnnotationStroke,
+  ) => void;
 }
 
 interface TouchScrollState {
   pointerId: number;
   lastY: number;
   scrollElement: HTMLElement | null;
+}
+
+interface HighlightRect {
+  key: string;
+  markId: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  color: AnnotationColor;
+}
+
+interface HighlightMenuState {
+  markId: string;
+  left: number;
+  top: number;
 }
 
 const PENCIL_COLORS: Record<AnnotationColor, string> = {
@@ -49,7 +74,6 @@ const PENCIL_COLORS: Record<AnnotationColor, string> = {
 };
 
 const HIGHLIGHTER_COLORS: Record<AnnotationColor, string> = {
-  // Keep the original yellow highlighter appearance exactly as before.
   yellow: 'rgba(255, 226, 94, 0.42)',
   red: 'rgba(255, 77, 90, 0.36)',
   blue: 'rgba(77, 163, 255, 0.36)',
@@ -57,12 +81,19 @@ const HIGHLIGHTER_COLORS: Record<AnnotationColor, string> = {
   purple: 'rgba(178, 124, 255, 0.36)',
 };
 
+const HIGHLIGHT_MENU_COLORS: readonly AnnotationColor[] = [
+  'yellow',
+  'red',
+  'blue',
+  'green',
+  'purple',
+];
+
 function clampUnit(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
 function canDrawWithPointer(event: React.PointerEvent<SVGSVGElement>): boolean {
-  // Touch is reserved for scrolling. Pens/styli and the primary mouse button annotate.
   if (event.pointerType === 'touch') return false;
   if (event.pointerType === 'mouse') return event.button === 0;
   if (event.pointerType === 'pen') return event.button === 0 || event.button === 5;
@@ -123,6 +154,79 @@ function pencilPath(points: AnnotationPoint[]): string {
   return path;
 }
 
+function contentRootFor(layer: HTMLElement | null): HTMLElement | null {
+  const parent = layer?.parentElement;
+  if (!parent) return null;
+  return parent.querySelector<HTMLElement>('[data-annotation-content="true"]');
+}
+
+function offsetWithin(root: HTMLElement, node: Node, offset: number): number | null {
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(root);
+    range.setEnd(node, offset);
+    return range.toString().length;
+  } catch {
+    return null;
+  }
+}
+
+function textBoundaryAt(root: HTMLElement, targetOffset: number): { node: Text; offset: number } | null {
+  if (targetOffset < 0) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let consumed = 0;
+  let lastText: Text | null = null;
+
+  while (walker.nextNode()) {
+    const textNode = walker.currentNode as Text;
+    lastText = textNode;
+    const next = consumed + textNode.data.length;
+    if (targetOffset <= next) {
+      return {
+        node: textNode,
+        offset: Math.max(0, Math.min(textNode.data.length, targetOffset - consumed)),
+      };
+    }
+    consumed = next;
+  }
+
+  if (lastText && targetOffset === consumed) {
+    return { node: lastText, offset: lastText.data.length };
+  }
+  return null;
+}
+
+function rangeForHighlight(root: HTMLElement, mark: AnnotationTextHighlight): Range | null {
+  const start = textBoundaryAt(root, mark.start);
+  const end = textBoundaryAt(root, mark.end);
+  if (!start || !end) return null;
+
+  try {
+    const range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    return range.collapsed ? null : range;
+  } catch {
+    return null;
+  }
+}
+
+function selectedTextOffsets(root: HTMLElement): { start: number; end: number; quote: string } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+
+  const start = offsetWithin(root, range.startContainer, range.startOffset);
+  const end = offsetWithin(root, range.endContainer, range.endOffset);
+  if (start == null || end == null || end <= start) return null;
+
+  const quote = range.toString();
+  if (!quote.trim()) return null;
+  return { start, end, quote: quote.slice(0, 1000) };
+}
+
 export function ExamAnnotationLayer({
   surface,
   contentFingerprint,
@@ -130,13 +234,24 @@ export function ExamAnnotationLayer({
   record,
   onAppendStroke,
   onEraseStroke,
+  onUpdateStroke,
 }: ExamAnnotationLayerProps) {
   const [contentHash, setContentHash] = useState<string | null>(null);
-  const [inProgress, setInProgress] = useState<AnnotationStroke | null>(null);
-  const inProgressRef = useRef<AnnotationStroke | null>(null);
+  const [inProgress, setInProgress] = useState<AnnotationInkStroke | null>(null);
+  const [highlightRects, setHighlightRects] = useState<HighlightRect[]>([]);
+  const [highlightMenu, setHighlightMenu] = useState<HighlightMenuState | null>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const inProgressRef = useRef<AnnotationInkStroke | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const touchScrollRef = useRef<TouchScrollState | null>(null);
   const erasedStrokeIdsRef = useRef(new Set<string>());
+  const selectionTimerRef = useRef<number | null>(null);
+  const longPressRef = useRef<{
+    timer: number;
+    pointerId: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,12 +274,124 @@ export function ExamAnnotationLayer({
     touchScrollRef.current = null;
     inProgressRef.current = null;
     setInProgress(null);
+    setHighlightMenu(null);
     erasedStrokeIdsRef.current.clear();
   }, [tool]);
 
-  const visibleStrokes = contentHash && record?.contentHash === contentHash ? record.strokes : [];
+  const visibleMarks = contentHash && record?.contentHash === contentHash ? record.strokes : [];
+  const textHighlights = visibleMarks.filter(isTextHighlight);
+  const visibleInk = visibleMarks.filter(isInkAnnotationStroke);
   const hasStaleRecord = Boolean(contentHash && record && record.contentHash !== contentHash && record.strokes.length > 0);
   const strictInkMode = tool === 'pencil' || tool === 'eraser';
+
+  const rebuildHighlightRects = useCallback(() => {
+    const layer = layerRef.current;
+    const parent = layer?.parentElement;
+    const root = contentRootFor(layer);
+    if (!layer || !parent || !root || !contentHash) {
+      setHighlightRects([]);
+      return;
+    }
+
+    const parentRect = parent.getBoundingClientRect();
+    const next: HighlightRect[] = [];
+
+    for (const mark of textHighlights) {
+      const range = rangeForHighlight(root, mark);
+      if (!range) continue;
+
+      [...range.getClientRects()].forEach((rect, index) => {
+        if (rect.width <= 0 || rect.height <= 0) return;
+        next.push({
+          key: `${mark.id}:${index}`,
+          markId: mark.id,
+          left: rect.left - parentRect.left,
+          top: rect.top - parentRect.top,
+          width: rect.width,
+          height: rect.height,
+          color: mark.color || DEFAULT_ANNOTATION_COLOR,
+        });
+      });
+    }
+
+    setHighlightRects(next);
+  }, [contentHash, textHighlights]);
+
+  useEffect(() => {
+    const root = contentRootFor(layerRef.current);
+    const parent = layerRef.current?.parentElement;
+    if (!root || !parent) {
+      setHighlightRects([]);
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(rebuildHighlightRects);
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(rebuildHighlightRects)
+      : null;
+    observer?.observe(root);
+    observer?.observe(parent);
+    window.addEventListener('resize', rebuildHighlightRects);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', rebuildHighlightRects);
+    };
+  }, [rebuildHighlightRects]);
+
+  const commitTextSelection = useCallback(() => {
+    if (tool !== 'highlighter' || !contentHash) return;
+    const root = contentRootFor(layerRef.current);
+    if (!root) return;
+
+    const selected = selectedTextOffsets(root);
+    if (!selected) return;
+
+    const mark: AnnotationTextHighlight = {
+      id: createAnnotationStrokeId(),
+      tool: 'text-highlight',
+      start: selected.start,
+      end: selected.end,
+      color: readPreferredAnnotationColor(),
+      quote: selected.quote,
+    };
+
+    onAppendStroke(surface, contentHash, mark);
+    window.getSelection()?.removeAllRanges();
+    setHighlightMenu(null);
+  }, [contentHash, onAppendStroke, surface, tool]);
+
+  useEffect(() => {
+    if (tool !== 'highlighter') return;
+
+    const scheduleFromSelection = () => {
+      if (selectionTimerRef.current != null) window.clearTimeout(selectionTimerRef.current);
+      selectionTimerRef.current = window.setTimeout(() => {
+        selectionTimerRef.current = null;
+        commitTextSelection();
+      }, 650);
+    };
+
+    const finishPointerSelection = (event: PointerEvent) => {
+      const root = contentRootFor(layerRef.current);
+      if (!root || !(event.target instanceof Node) || !root.contains(event.target)) return;
+      if (selectionTimerRef.current != null) window.clearTimeout(selectionTimerRef.current);
+      selectionTimerRef.current = window.setTimeout(() => {
+        selectionTimerRef.current = null;
+        commitTextSelection();
+      }, event.pointerType === 'touch' ? 180 : 20);
+    };
+
+    document.addEventListener('selectionchange', scheduleFromSelection);
+    document.addEventListener('pointerup', finishPointerSelection, true);
+    return () => {
+      document.removeEventListener('selectionchange', scheduleFromSelection);
+      document.removeEventListener('pointerup', finishPointerSelection, true);
+      if (selectionTimerRef.current != null) window.clearTimeout(selectionTimerRef.current);
+      selectionTimerRef.current = null;
+    };
+  }, [commitTextSelection, tool]);
 
   const toPoint = useCallback((event: React.PointerEvent<SVGSVGElement>): AnnotationPoint => (
     pointFromClient(event.currentTarget, event.clientX, event.clientY)
@@ -175,7 +402,7 @@ export function ExamAnnotationLayer({
     const rect = target.getBoundingClientRect();
     const threshold = Math.max(0.009, 14 / Math.max(1, Math.min(rect.width, rect.height)));
 
-    const hit = [...visibleStrokes]
+    const hit = [...visibleInk]
       .reverse()
       .find((stroke) => (
         !erasedStrokeIdsRef.current.has(stroke.id)
@@ -185,14 +412,11 @@ export function ExamAnnotationLayer({
     if (!hit) return;
     erasedStrokeIdsRef.current.add(hit.id);
     onEraseStroke(surface, contentHash, hit.id);
-  }, [contentHash, onEraseStroke, surface, visibleStrokes]);
+  }, [contentHash, onEraseStroke, surface, visibleInk]);
 
   const handlePointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (!tool || !contentHash) return;
+    if (!tool || tool === 'highlighter' || !contentHash) return;
 
-    // Pencil/Eraser are strict ink modes. CSS touch-action is disabled for these modes
-    // so the browser cannot steal a vertical stylus stroke and turn it into scrolling.
-    // Finger input is handled separately below and scrolls the nearest exam scroller.
     if (event.pointerType === 'touch') {
       if (!strictInkMode) return;
 
@@ -209,8 +433,6 @@ export function ExamAnnotationLayer({
 
     if (!canDrawWithPointer(event)) return;
 
-    // A pen/mouse drawing pointer is owned by Royal until pointer-up. In strict pencil
-    // mode this works together with touch-action:none, so even I/t/l/1 strokes stay ink.
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerIdRef.current = event.pointerId;
@@ -222,10 +444,10 @@ export function ExamAnnotationLayer({
       return;
     }
 
-    const stroke: AnnotationStroke = {
+    const stroke: AnnotationInkStroke = {
       id: createAnnotationStrokeId(),
-      tool,
-      width: tool === 'highlighter' ? 16 : 2.5,
+      tool: 'pencil',
+      width: 2.5,
       points: [point],
       color: readPreferredAnnotationColor(),
     };
@@ -247,7 +469,7 @@ export function ExamAnnotationLayer({
       return;
     }
 
-    if (!tool || pointerIdRef.current !== event.pointerId) return;
+    if (!tool || tool === 'highlighter' || pointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
 
     if (tool === 'eraser') {
@@ -258,27 +480,24 @@ export function ExamAnnotationLayer({
     const current = inProgressRef.current;
     if (!current || current.points.length >= 2000) return;
 
-    // Pencil gets the browser's coalesced stylus samples when available. This captures
-    // the real curve between rendered pointer events without changing Highlighter feel.
     const nativeEvent = event.nativeEvent;
-    const samples = tool === 'pencil' && typeof nativeEvent.getCoalescedEvents === 'function'
+    const samples = typeof nativeEvent.getCoalescedEvents === 'function'
       ? nativeEvent.getCoalescedEvents()
       : [nativeEvent];
     const sourceSamples = samples.length > 0 ? samples : [nativeEvent];
     const nextPoints = [...current.points];
     let previous = nextPoints[nextPoints.length - 1];
-    const minimumDistance = tool === 'pencil' ? 0.0003 : 0.0008;
 
     for (const sample of sourceSamples) {
       if (nextPoints.length >= 2000) break;
       const point = pointFromClient(event.currentTarget, sample.clientX, sample.clientY);
-      if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) < minimumDistance) continue;
+      if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 0.0003) continue;
       nextPoints.push(point);
       previous = point;
     }
 
     if (nextPoints.length === current.points.length) return;
-    const next: AnnotationStroke = { ...current, points: nextPoints };
+    const next: AnnotationInkStroke = { ...current, points: nextPoints };
     inProgressRef.current = next;
     setInProgress(next);
   }, [eraseAt, toPoint, tool]);
@@ -319,10 +538,7 @@ export function ExamAnnotationLayer({
       points = [[x, y], [clampUnit(x + 0.0001), clampUnit(y + 0.0001)]];
     }
 
-    // Pencil keeps more of the captured handwriting geometry; Highlighter keeps the
-    // previous simplification behavior.
-    const tolerance = current.tool === 'pencil' ? 0.0005 : 0.0015;
-    const simplified = simplifyAnnotationPoints(points, tolerance).slice(0, 2000);
+    const simplified = simplifyAnnotationPoints(points, 0.0005).slice(0, 2000);
     onAppendStroke(surface, contentHash, { ...current, points: simplified });
   }, [contentHash, onAppendStroke, surface, tool]);
 
@@ -339,27 +555,127 @@ export function ExamAnnotationLayer({
     erasedStrokeIdsRef.current.clear();
   }, []);
 
-  const renderStrokes = inProgress ? [...visibleStrokes, inProgress] : visibleStrokes;
+  const openHighlightMenu = useCallback((markId: string, rect: HighlightRect) => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    const width = layer.clientWidth;
+    const height = layer.clientHeight;
+    setHighlightMenu({
+      markId,
+      left: Math.max(4, Math.min(width - 190, rect.left)),
+      top: Math.max(4, Math.min(height - 48, rect.top + rect.height + 5)),
+    });
+  }, []);
+
+  const beginHighlightLongPress = useCallback((
+    event: React.PointerEvent<HTMLButtonElement>,
+    rect: HighlightRect,
+  ) => {
+    if (event.pointerType !== 'touch') return;
+    if (longPressRef.current) window.clearTimeout(longPressRef.current.timer);
+    const timer = window.setTimeout(() => {
+      openHighlightMenu(rect.markId, rect);
+      longPressRef.current = null;
+    }, 450);
+    longPressRef.current = {
+      timer,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+  }, [openHighlightMenu]);
+
+  const moveHighlightLongPress = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const state = longPressRef.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    if (Math.hypot(event.clientX - state.x, event.clientY - state.y) > 8) {
+      window.clearTimeout(state.timer);
+      longPressRef.current = null;
+    }
+  }, []);
+
+  const endHighlightLongPress = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const state = longPressRef.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    window.clearTimeout(state.timer);
+    longPressRef.current = null;
+  }, []);
+
+  const activeHighlight = highlightMenu
+    ? textHighlights.find((mark) => mark.id === highlightMenu.markId) || null
+    : null;
+  const renderInk = inProgress ? [...visibleInk, inProgress] : visibleInk;
 
   return (
-    <>
+    <div ref={layerRef} className="pointer-events-none absolute inset-0 z-20">
+      {highlightRects.map((rect) => (
+        <button
+          key={rect.key}
+          type="button"
+          tabIndex={tool === 'highlighter' ? 0 : -1}
+          aria-label="Edit text highlight"
+          className={`absolute rounded-[2px] border-0 p-0 ${tool === 'highlighter' ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}`}
+          style={{
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            background: HIGHLIGHTER_COLORS[rect.color],
+            touchAction: 'pan-y',
+          }}
+          onClick={() => openHighlightMenu(rect.markId, rect)}
+          onPointerDown={(event) => beginHighlightLongPress(event, rect)}
+          onPointerMove={moveHighlightLongPress}
+          onPointerUp={endHighlightLongPress}
+          onPointerCancel={endHighlightLongPress}
+        />
+      ))}
+
+      {activeHighlight && highlightMenu && contentHash ? (
+        <div
+          className="pointer-events-auto absolute z-40 flex items-center gap-1.5 rounded-[6px] border border-[#5e666d] bg-[#2f353a] px-2 py-1.5 shadow-2xl"
+          style={{ left: highlightMenu.left, top: highlightMenu.top }}
+          role="dialog"
+          aria-label="Highlight options"
+        >
+          {HIGHLIGHT_MENU_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              aria-label={`Change highlight to ${color}`}
+              className={`h-5 w-5 rounded-full border ${(activeHighlight.color || DEFAULT_ANNOTATION_COLOR) === color ? 'border-white ring-1 ring-white/60' : 'border-[#707880]'}`}
+              style={{ backgroundColor: PENCIL_COLORS[color] }}
+              onClick={() => {
+                onUpdateStroke(surface, contentHash, { ...activeHighlight, color });
+                setHighlightMenu(null);
+              }}
+            />
+          ))}
+          <span className="mx-0.5 h-5 w-px bg-[#555d64]" />
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-[10px] font-semibold text-[#ff9da5] hover:bg-[#53373a]"
+            onClick={() => {
+              onEraseStroke(surface, contentHash, activeHighlight.id);
+              setHighlightMenu(null);
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      ) : null}
+
       <svg
-        className={`absolute inset-0 z-20 h-full w-full ${tool ? 'pointer-events-auto cursor-crosshair' : 'pointer-events-none'}`}
+        className={`absolute inset-0 h-full w-full ${strictInkMode ? 'pointer-events-auto cursor-crosshair' : 'pointer-events-none'}`}
         viewBox="0 0 1000 1000"
         preserveAspectRatio="none"
-        style={{
-          touchAction: strictInkMode
-            ? 'none'
-            : tool === 'highlighter'
-              ? 'pan-y pinch-zoom'
-              : 'auto',
-        }}
+        style={{ touchAction: strictInkMode ? 'none' : 'auto' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={finishStroke}
         onPointerCancel={cancelStroke}
       >
-        {renderStrokes.map((stroke) => {
+        {renderInk.map((stroke) => {
           const strokeColor = stroke.color || DEFAULT_ANNOTATION_COLOR;
           if (stroke.tool === 'pencil') {
             return (
@@ -396,6 +712,6 @@ export function ExamAnnotationLayer({
           Saved marks hidden: content changed
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

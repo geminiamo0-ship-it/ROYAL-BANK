@@ -48,6 +48,11 @@ interface WindowedExamQuestionPaneProps {
     contentHash: string,
     strokeId: string,
   ) => void;
+  onUpdateAnnotationStroke: (
+    surface: AnnotationSurface,
+    contentHash: string,
+    stroke: AnnotationStroke,
+  ) => void;
   onSelectOption: (questionId: number, option: ExamClientOption) => void;
   onToggleStrikeOut: (optionId: number) => void;
   onSubmitAnswer: () => void;
@@ -81,6 +86,7 @@ export function WindowedExamQuestionPane({
   annotationRecords,
   onAppendAnnotationStroke,
   onEraseAnnotationStroke,
+  onUpdateAnnotationStroke,
   onSelectOption,
   onToggleStrikeOut,
   onSubmitAnswer,
@@ -97,6 +103,7 @@ export function WindowedExamQuestionPane({
     <section className="min-w-0 pb-10">
       <div className="relative">
         <div
+          data-annotation-content="true"
           className={`pm-question-stem select-text text-[16px] leading-[1.55] text-white ${
             showClues ? 'pm-show-clues' : 'pm-hide-clues'
           }`}
@@ -109,22 +116,26 @@ export function WindowedExamQuestionPane({
           record={annotationRecords.stem}
           onAppendStroke={onAppendAnnotationStroke}
           onEraseStroke={onEraseAnnotationStroke}
+          onUpdateStroke={onUpdateAnnotationStroke}
         />
       </div>
 
       <div className="relative">
-        <AnswerOptionList
-          isAnswered={isAnswered}
-          isTimedMode={isTimedMode}
-          pendingSelectionId={selectedOptionId}
-          question={question}
-          struckOutOptionIds={struckOutOptionIds}
-          submittedAnswer={submittedAnswer}
-          correctOptionId={correctOptionId}
-          optionPercentages={optionPercentages}
-          onSelectOption={onSelectOption}
-          onToggleStrikeOut={onToggleStrikeOut}
-        />
+        <div data-annotation-content="true">
+          <AnswerOptionList
+            isAnswered={isAnswered}
+            isTimedMode={isTimedMode}
+            pendingSelectionId={selectedOptionId}
+            question={question}
+            struckOutOptionIds={struckOutOptionIds}
+            submittedAnswer={submittedAnswer}
+            correctOptionId={correctOptionId}
+            optionPercentages={optionPercentages}
+            annotationTextMode={annotationTool === 'highlighter'}
+            onSelectOption={onSelectOption}
+            onToggleStrikeOut={onToggleStrikeOut}
+          />
+        </div>
         <ExamAnnotationLayer
           surface="options"
           contentFingerprint={optionsFingerprint}
@@ -132,6 +143,7 @@ export function WindowedExamQuestionPane({
           record={annotationRecords.options}
           onAppendStroke={onAppendAnnotationStroke}
           onEraseStroke={onEraseAnnotationStroke}
+          onUpdateStroke={onUpdateAnnotationStroke}
         />
       </div>
 
@@ -184,7 +196,11 @@ export function WindowedExamQuestionPane({
                 <h2 className="mb-5 text-[16px] font-semibold text-[#23a7ff]">{question.topic}</h2>
               ) : null}
               {hasFeedback ? (
-                <div dangerouslySetInnerHTML={{ __html: explanationHtml }} />
+                <div
+                  data-annotation-content="true"
+                  className="select-text"
+                  dangerouslySetInnerHTML={{ __html: explanationHtml }}
+                />
               ) : (
                 <div className="py-4 text-[#80868b]">
                   <div className="animate-pulse">
@@ -211,6 +227,7 @@ export function WindowedExamQuestionPane({
                 record={annotationRecords.explanation}
                 onAppendStroke={onAppendAnnotationStroke}
                 onEraseStroke={onEraseAnnotationStroke}
+                onUpdateStroke={onUpdateAnnotationStroke}
               />
             ) : null}
           </div>

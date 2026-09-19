@@ -14,7 +14,6 @@ import {
   Lightbulb,
   Maximize2,
   Minimize2,
-  MousePointer2,
   Pencil,
   Redo2,
   Trash2,
@@ -238,6 +237,7 @@ export function ExamHeader({
 }: ExamHeaderProps) {
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
   const [annotationColor, setAnnotationColor] = useState<AnnotationColor>(DEFAULT_ANNOTATION_COLOR);
+  const [lastDrawingTool, setLastDrawingTool] = useState<Extract<AnnotationTool, 'pencil' | 'highlighter'>>('pencil');
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -261,7 +261,16 @@ export function ExamHeader({
   };
 
   const chooseAnnotationTool = (tool: AnnotationTool) => {
+    if (tool === 'pencil' || tool === 'highlighter') setLastDrawingTool(tool);
     onAnnotationToolChange(tool);
+  };
+
+  const toggleMarkerMode = () => {
+    if (annotationTool) {
+      onAnnotationToolChange(null);
+    } else {
+      onAnnotationToolChange(lastDrawingTool);
+    }
   };
 
   const chooseAnnotationColor = (color: AnnotationColor) => {
@@ -317,6 +326,31 @@ export function ExamHeader({
         </div>
 
         <div className="flex items-center justify-end gap-3">
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => togglePanel('reference')}
+              className={`inline-flex items-center gap-1 text-[12px] transition-colors ${
+                openPanel === 'reference' ? 'text-white' : 'text-[#cf95ff] hover:text-white'
+              }`}
+              title="Reference ranges"
+            >
+              <span>Reference ranges</span>
+              <ChevronDown className="h-3 w-3" />
+            </button>
+            {openPanel === 'reference' ? (
+              <div className="absolute right-0 top-[28px] z-[100] max-w-[calc(100vw-2rem)] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-4 shadow-2xl">
+                <LazyExamReferenceRanges />
+                <button
+                  type="button"
+                  onClick={() => setOpenPanel(null)}
+                  className="mt-3 rounded border border-[#5b6268] px-3 py-1.5 text-[#e7e7e7] hover:bg-[#3d444a]"
+                >
+                  Close
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button type="button" onClick={onSuspend} className="text-[12px] text-[#cf95ff] hover:text-white">
             {isReviewMode ? 'Exit review' : 'Suspend'}
           </button>
@@ -328,121 +362,136 @@ export function ExamHeader({
         </div>
       </div>
 
-      <div className="mx-auto mt-2 flex max-w-[1240px] flex-wrap items-center gap-2 overflow-visible border-t border-[#3f4348] pt-2">
-        <div className="relative shrink-0">
-          <ToolButton
-            active={Boolean(annotationTool) || openPanel === 'marker'}
-            disabled={annotationLoading}
-            onClick={() => togglePanel('marker')}
-            title="Marker tools"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            <span>{annotationTool ? `Marker: ${annotationTool}` : 'Marker'}</span>
-            <ChevronDown className="h-3 w-3" />
-          </ToolButton>
+      <div className="relative mx-auto mt-2 max-w-[1240px] overflow-visible border-t border-[#3f4348] pt-2">
+        <div className="flex flex-wrap items-center justify-center gap-2 overflow-visible">
+          <div className="relative shrink-0">
+            <ToolButton
+              active={Boolean(annotationTool) || openPanel === 'marker'}
+              disabled={annotationLoading}
+              onClick={() => togglePanel('marker')}
+              title="Marker tools"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              <span>
+                {annotationTool === 'highlighter'
+                  ? 'Marker: Highlight'
+                  : annotationTool === 'pencil'
+                    ? 'Marker: Pencil'
+                    : annotationTool === 'eraser'
+                      ? 'Marker: Eraser'
+                      : 'Marker'}
+              </span>
+              <ChevronDown className="h-3 w-3" />
+            </ToolButton>
 
-          {openPanel === 'marker' ? (
-            <div className="absolute left-0 top-[36px] z-[90] w-[250px] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-2 shadow-2xl">
-              <div className="grid grid-cols-3 gap-1.5">
-                <button type="button" onClick={() => chooseAnnotationTool('pencil')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'pencil' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Pencil className="h-4 w-4" />Pencil</button>
-                <button type="button" onClick={() => chooseAnnotationTool('highlighter')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'highlighter' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Highlighter className="h-4 w-4" />Highlight</button>
-                <button type="button" onClick={() => chooseAnnotationTool('eraser')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'eraser' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Eraser className="h-4 w-4" />Eraser</button>
-              </div>
+            {openPanel === 'marker' ? (
+              <div className="absolute left-0 top-[36px] z-[90] w-[250px] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-2 shadow-2xl">
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button type="button" onClick={() => chooseAnnotationTool('pencil')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'pencil' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Pencil className="h-4 w-4" />Pencil</button>
+                  <button type="button" onClick={() => chooseAnnotationTool('highlighter')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'highlighter' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Highlighter className="h-4 w-4" />Highlight</button>
+                  <button type="button" onClick={() => chooseAnnotationTool('eraser')} className={`flex flex-col items-center gap-1 rounded px-2 py-2 text-[11px] ${annotationTool === 'eraser' ? 'bg-[#57502b] text-[#fff0a3]' : 'bg-[#3b4248] hover:bg-[#464e55]'}`}><Eraser className="h-4 w-4" />Eraser</button>
+                </div>
 
-              <div className="mt-2 border-t border-[#4c5359] pt-2">
-                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9fa6ac]">Color</div>
-                <div className="flex items-center gap-2">
-                  {COLOR_SWATCHES.map((swatch) => (
-                    <button
-                      key={swatch.color}
-                      type="button"
-                      onClick={() => chooseAnnotationColor(swatch.color)}
-                      aria-label={`${swatch.label} annotation color`}
-                      title={swatch.label}
-                      className={`h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ${
-                        annotationColor === swatch.color
-                          ? 'border-white ring-2 ring-[#8a9095] ring-offset-1 ring-offset-[#30363b]'
-                          : 'border-[#6c7379]'
-                      }`}
-                      style={{ backgroundColor: swatch.hex }}
-                    />
-                  ))}
+                <div className="mt-2 border-t border-[#4c5359] pt-2">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9fa6ac]">Color</div>
+                  <div className="flex items-center gap-2">
+                    {COLOR_SWATCHES.map((swatch) => (
+                      <button
+                        key={swatch.color}
+                        type="button"
+                        onClick={() => chooseAnnotationColor(swatch.color)}
+                        aria-label={`${swatch.label} annotation color`}
+                        title={swatch.label}
+                        className={`h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ${
+                          annotationColor === swatch.color
+                            ? 'border-white ring-2 ring-[#8a9095] ring-offset-1 ring-offset-[#30363b]'
+                            : 'border-[#6c7379]'
+                        }`}
+                        style={{ backgroundColor: swatch.hex }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-2 grid grid-cols-3 gap-1.5 border-t border-[#4c5359] pt-2">
+                  <button type="button" disabled={!canUndoAnnotation} onClick={onUndoAnnotation} className="flex items-center justify-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] disabled:opacity-35"><Undo2 className="h-3.5 w-3.5" />Undo</button>
+                  <button type="button" disabled={!canRedoAnnotation} onClick={onRedoAnnotation} className="flex items-center justify-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] disabled:opacity-35"><Redo2 className="h-3.5 w-3.5" />Redo</button>
+                  <button type="button" onClick={onClearAnnotations} className="flex items-center justify-center gap-1 rounded bg-[#543334] px-2 py-2 text-[11px] text-[#ffd6d6] hover:bg-[#603b3c]"><Trash2 className="h-3.5 w-3.5" />Clear</button>
                 </div>
               </div>
-
-              <div className="mt-2 grid grid-cols-3 gap-1.5 border-t border-[#4c5359] pt-2">
-                <button type="button" disabled={!canUndoAnnotation} onClick={onUndoAnnotation} className="flex items-center justify-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] disabled:opacity-35"><Undo2 className="h-3.5 w-3.5" />Undo</button>
-                <button type="button" disabled={!canRedoAnnotation} onClick={onRedoAnnotation} className="flex items-center justify-center gap-1 rounded bg-[#3b4248] px-2 py-2 text-[11px] disabled:opacity-35"><Redo2 className="h-3.5 w-3.5" />Redo</button>
-                <button type="button" onClick={onClearAnnotations} className="flex items-center justify-center gap-1 rounded bg-[#543334] px-2 py-2 text-[11px] text-[#ffd6d6] hover:bg-[#603b3c]"><Trash2 className="h-3.5 w-3.5" />Clear</button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        <ToolButton active={isFullscreen} onClick={onToggleFullscreen} title="Toggle full screen">
-          {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          <span>Full screen</span>
-        </ToolButton>
-
-        <ToolButton active={isFlagged} onClick={onToggleFlag} title="Flag question">
-          <Flag className={`h-3.5 w-3.5 ${isFlagged ? 'fill-current' : ''}`} />
-          <span>{isFlagged ? 'Flagged' : 'Flag'}</span>
-        </ToolButton>
-
-        <ToolButton
-          disabled={!annotationTool}
-          onClick={() => onAnnotationToolChange(null)}
-          title="Exit marker mode and restore normal question controls"
-        >
-          <MousePointer2 className="h-3.5 w-3.5" />
-          <span>Exit marker</span>
-        </ToolButton>
-
-        <div className="relative shrink-0">
-          <ToolButton active={openPanel === 'reference'} onClick={() => togglePanel('reference')} title="Reference ranges">
-            <span>Reference ranges</span>
-            <ChevronDown className="h-3 w-3" />
-          </ToolButton>
-          {openPanel === 'reference' ? (
-            <div className="absolute left-0 top-[36px] z-[90] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-4 shadow-2xl">
-              <LazyExamReferenceRanges />
-              <button type="button" onClick={() => setOpenPanel(null)} className="mt-3 rounded border border-[#5b6268] px-3 py-1.5 text-[#e7e7e7] hover:bg-[#3d444a]">Close</button>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="relative shrink-0">
-          <ToolButton active={openPanel === 'calculator'} onClick={() => togglePanel('calculator')} title="Calculator">
-            <Calculator className="h-3.5 w-3.5" />
-            <span>Calculator</span>
-          </ToolButton>
-          {openPanel === 'calculator' ? (
-            <div className="absolute left-0 top-[36px] z-[90] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-3 shadow-2xl">
-              <MiniCalculator />
-              <button type="button" onClick={() => setOpenPanel(null)} className="mt-3 w-full rounded border border-[#5b6268] py-1.5 text-[11px] text-[#e7e7e7] hover:bg-[#3d444a]">Close calculator</button>
-            </div>
-          ) : null}
-        </div>
-
-        <ToolButton active={showClues} onClick={onToggleClues} title="Toggle clues">
-          <Lightbulb className={`h-3.5 w-3.5 ${showClues ? 'fill-current' : ''}`} />
-          <span>{showClues ? 'Clues on' : 'Clues'}</span>
-        </ToolButton>
-
-        {isReviewMode ? (
-          <div className="inline-flex h-[30px] shrink-0 items-center gap-2 rounded-[4px] border border-[#745b91] bg-[#3a3045] px-3 text-[12px] text-[#d9b7ff]">
-            <Eye className="h-3.5 w-3.5" />
-            <span>Read only</span>
+            ) : null}
           </div>
-        ) : (
-          <ExamClock
-            startedAtMs={clockStartedAtMs}
-            deadlineAtMs={clockDeadlineAtMs}
-            serverClockOffsetMs={serverClockOffsetMs}
-          />
-        )}
 
-        <div className="ml-auto shrink-0 px-1 text-[10px] text-[#92999f]">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={Boolean(annotationTool)}
+            onClick={toggleMarkerMode}
+            disabled={annotationLoading}
+            title={annotationTool ? 'Turn marker mode off' : `Turn ${lastDrawingTool} mode on`}
+            className={`inline-flex h-[30px] shrink-0 items-center gap-2 rounded-full border px-2.5 text-[10px] font-semibold transition-colors disabled:opacity-35 ${
+              annotationTool
+                ? 'border-[#e5c64b] bg-[#514718] text-[#fff0a3]'
+                : 'border-[#5a5f64] bg-[#33383c] text-[#b9c0c6]'
+            }`}
+          >
+            <span
+              className={`relative h-[16px] w-[28px] rounded-full transition-colors ${
+                annotationTool ? 'bg-[#d9bd42]' : 'bg-[#555d64]'
+              }`}
+            >
+              <span
+                className={`absolute top-[2px] h-[12px] w-[12px] rounded-full bg-white transition-transform ${
+                  annotationTool ? 'translate-x-[14px]' : 'translate-x-[2px]'
+                }`}
+              />
+            </span>
+            <span>{annotationTool ? 'On' : 'Off'}</span>
+          </button>
+
+          <ToolButton active={isFullscreen} onClick={onToggleFullscreen} title="Toggle full screen">
+            {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            <span>Full screen</span>
+          </ToolButton>
+
+          <ToolButton active={isFlagged} onClick={onToggleFlag} title="Flag question">
+            <Flag className={`h-3.5 w-3.5 ${isFlagged ? 'fill-current' : ''}`} />
+            <span>{isFlagged ? 'Flagged' : 'Flag'}</span>
+          </ToolButton>
+
+          <ToolButton active={showClues} onClick={onToggleClues} title="Toggle clues">
+            <Lightbulb className={`h-3.5 w-3.5 ${showClues ? 'fill-current' : ''}`} />
+            <span>{showClues ? 'Clues on' : 'Clues'}</span>
+          </ToolButton>
+
+          {isReviewMode ? (
+            <div className="inline-flex h-[30px] shrink-0 items-center gap-2 rounded-[4px] border border-[#745b91] bg-[#3a3045] px-3 text-[12px] text-[#d9b7ff]">
+              <Eye className="h-3.5 w-3.5" />
+              <span>Read only</span>
+            </div>
+          ) : (
+            <ExamClock
+              startedAtMs={clockStartedAtMs}
+              deadlineAtMs={clockDeadlineAtMs}
+              serverClockOffsetMs={serverClockOffsetMs}
+            />
+          )}
+
+          <div className="relative shrink-0">
+            <ToolButton active={openPanel === 'calculator'} onClick={() => togglePanel('calculator')} title="Calculator">
+              <Calculator className="h-3.5 w-3.5" />
+              <span>Calculator</span>
+            </ToolButton>
+            {openPanel === 'calculator' ? (
+              <div className="absolute right-0 top-[36px] z-[90] rounded-[6px] border border-[#5a6066] bg-[#30363b] p-3 shadow-2xl">
+                <MiniCalculator />
+                <button type="button" onClick={() => setOpenPanel(null)} className="mt-3 w-full rounded border border-[#5b6268] py-1.5 text-[11px] text-[#e7e7e7] hover:bg-[#3d444a]">Close calculator</button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="pointer-events-none absolute right-1 top-[12px] hidden shrink-0 text-[10px] text-[#92999f] 2xl:block">
           {annotationLoading ? 'Loading marks…' : annotationSaving ? 'Saving marks…' : 'Marks saved'}
         </div>
       </div>

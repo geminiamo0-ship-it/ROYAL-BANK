@@ -158,6 +158,7 @@ export function WindowedExamPageClient({
     canRedo: canRedoAnnotation,
     appendStroke: appendAnnotationStroke,
     eraseStroke: eraseAnnotationStroke,
+    updateStroke: updateAnnotationStroke,
     undo: undoAnnotation,
     redo: redoAnnotation,
     clearAll: clearAllAnnotations,
@@ -449,14 +450,11 @@ export function WindowedExamPageClient({
   const handleExplanationClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     const bookmarkButton = target.closest('[data-concept-bookmark]');
-    const deepDiveButton = target.closest('[data-concept-deep-dive]');
 
     if (bookmarkButton) {
       event.preventDefault();
       void toggleConceptBookmark(conceptHtml);
-      return;
     }
-    if (deepDiveButton) event.preventDefault();
   };
 
   return (
@@ -571,6 +569,7 @@ export function WindowedExamPageClient({
               annotationRecords={annotationRecords}
               onAppendAnnotationStroke={appendAnnotationStroke}
               onEraseAnnotationStroke={eraseAnnotationStroke}
+              onUpdateAnnotationStroke={updateAnnotationStroke}
               onSelectOption={selectOption}
               onToggleStrikeOut={toggleStrikeOut}
               onSubmitAnswer={() => submitAnswer(currentQ.id)}
@@ -589,6 +588,7 @@ export function WindowedExamPageClient({
             <WindowedExamSidebarWidgets
               answers={answers}
               answeredCount={answeredCount}
+              flaggedQuestionIds={flaggedQuestionIds}
               bankId={bankId}
               currentIndex={currentIndex}
               isTimedMode={isFeedbackLockedMode}
