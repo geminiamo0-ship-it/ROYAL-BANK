@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ANNOTATION_COLOR_STORAGE_KEY,
   DEFAULT_ANNOTATION_COLOR,
@@ -20,6 +20,11 @@ import {
   type AnnotationTool,
   type StoredQuestionAnnotation,
 } from '@/lib/exam-annotations';
+import {
+  contentRootFor,
+  rangeForHighlight,
+  selectedTextOffsets,
+} from '@/lib/exam-annotation-text-ranges';
 
 interface ExamAnnotationLayerProps {
   surface: AnnotationSurface;
@@ -154,79 +159,6 @@ function pencilPath(points: AnnotationPoint[]): string {
   return path;
 }
 
-function contentRootFor(layer: HTMLElement | null): HTMLElement | null {
-  const parent = layer?.parentElement;
-  if (!parent) return null;
-  return parent.querySelector<HTMLElement>('[data-annotation-content="true"]');
-}
-
-function offsetWithin(root: HTMLElement, node: Node, offset: number): number | null {
-  try {
-    const range = document.createRange();
-    range.selectNodeContents(root);
-    range.setEnd(node, offset);
-    return range.toString().length;
-  } catch {
-    return null;
-  }
-}
-
-function textBoundaryAt(root: HTMLElement, targetOffset: number): { node: Text; offset: number } | null {
-  if (targetOffset < 0) return null;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let consumed = 0;
-  let lastText: Text | null = null;
-
-  while (walker.nextNode()) {
-    const textNode = walker.currentNode as Text;
-    lastText = textNode;
-    const next = consumed + textNode.data.length;
-    if (targetOffset <= next) {
-      return {
-        node: textNode,
-        offset: Math.max(0, Math.min(textNode.data.length, targetOffset - consumed)),
-      };
-    }
-    consumed = next;
-  }
-
-  if (lastText && targetOffset === consumed) {
-    return { node: lastText, offset: lastText.data.length };
-  }
-  return null;
-}
-
-function rangeForHighlight(root: HTMLElement, mark: AnnotationTextHighlight): Range | null {
-  const start = textBoundaryAt(root, mark.start);
-  const end = textBoundaryAt(root, mark.end);
-  if (!start || !end) return null;
-
-  try {
-    const range = document.createRange();
-    range.setStart(start.node, start.offset);
-    range.setEnd(end.node, end.offset);
-    return range.collapsed ? null : range;
-  } catch {
-    return null;
-  }
-}
-
-function selectedTextOffsets(root: HTMLElement): { start: number; end: number; quote: string } | null {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
-
-  const range = selection.getRangeAt(0);
-  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
-
-  const start = offsetWithin(root, range.startContainer, range.startOffset);
-  const end = offsetWithin(root, range.endContainer, range.endOffset);
-  if (start == null || end == null || end <= start) return null;
-
-  const quote = range.toString();
-  if (!quote.trim()) return null;
-  return { start, end, quote: quote.slice(0, 1000) };
-}
-
 export function ExamAnnotationLayer({
   surface,
   contentFingerprint,
@@ -278,9 +210,18 @@ export function ExamAnnotationLayer({
     erasedStrokeIdsRef.current.clear();
   }, [tool]);
 
-  const visibleMarks = contentHash && record?.contentHash === contentHash ? record.strokes : [];
-  const textHighlights = visibleMarks.filter(isTextHighlight);
-  const visibleInk = visibleMarks.filter(isInkAnnotationStroke);
+  const visibleMarks = useMemo<AnnotationStroke[]>(
+    () => (contentHash && record?.contentHash === contentHash ? record.strokes : []),
+    [contentHash, record],
+  );
+  const textHighlights = useMemo(
+    () => visibleMarks.filter(isTextHighlight),
+    [visibleMarks],
+  );
+  const visibleInk = useMemo(
+    () => visibleMarks.filter(isInkAnnotationStroke),
+    [visibleMarks],
+  );
   const hasStaleRecord = Boolean(contentHash && record && record.contentHash !== contentHash && record.strokes.length > 0);
   const strictInkMode = tool === 'pencil' || tool === 'eraser';
 
