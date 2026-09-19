@@ -669,15 +669,28 @@ export class UserExamState extends DurableObject<Env> {
     if (bankAccessGranted !== true) {
       throw new GatewayError(403, 'QUESTION_BANK_ACCESS_DENIED', 'Question bank access denied.');
     }
+
+    const prepareStarted = performance.now();
+    const edgeTiming: Record<string, number> = {};
+
+    const releaseStarted = performance.now();
     const active = await getActiveRelease(this.env);
+    edgeTiming.do_release = performance.now() - releaseStarted;
+
+    const indexStarted = performance.now();
     const index = await getBankSelectionIndex(this.env, active, bankId);
+    edgeTiming.do_index = performance.now() - indexStarted;
+
     this.preparedAccessGrants.set(bankId, Date.now() + PREPARED_ACCESS_GRANT_TTL_MS);
+    edgeTiming.do_prepare_total = performance.now() - prepareStarted;
+
     return {
       ok: true,
       prepared: true,
       bank_id: bankId,
       release_id: active.release_id,
       question_count: index.questions.length,
+      __edge_timing: edgeTiming,
     };
   }
 
