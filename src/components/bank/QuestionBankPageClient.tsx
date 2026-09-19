@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useMemo, useState, useTransition } from 'react';
+import React, { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, Search } from 'lucide-react';
 import { QuestionBankCategoriesPanel } from '@/components/bank/QuestionBankCategoriesPanel';
 import { QuestionBankControls } from '@/components/bank/QuestionBankControls';
 import { startExamSession } from '@/lib/exam-launch';
+import { prepareExamBankAccessDirect } from '@/lib/exam-client-api';
 import {
   getCountForSelection,
   getSelectionLabel,
@@ -40,6 +41,15 @@ export function QuestionBankPageClient({
   const [questionCount, setQuestionCount] = useState(40);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    // Start the authoritative bank entitlement check while the student is
+    // choosing filters so the Start button does not pay that latency.
+    void prepareExamBankAccessDirect(bankId).catch(() => {
+      // Create remains fail-closed and will revalidate if this speculative
+      // prewarm fails or expires.
+    });
+  }, [bankId]);
 
   const filteredCategories = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
