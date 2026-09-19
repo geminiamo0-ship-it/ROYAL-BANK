@@ -1,5 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
-import { isInProductionEdgeRollout } from '@/lib/exam-edge-rollout';
+import {
+  isInProductionEdgeRollout,
+  productionEdgeCutoverEnabled,
+} from '@/lib/exam-edge-rollout';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'dub1';
@@ -42,7 +45,8 @@ function jsonError(status: number, code: string, message: string): Response {
 function edgeRouteMode(request: Request): EdgeRouteMode {
   const migrationPreview =
     process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_GIT_COMMIT_REF === MIGRATION_BRANCH;
-  const explicitlyEnabled = process.env.ROYAL_EXAM_EDGE_ENABLED === 'true';
+  const productionCutover = productionEdgeCutoverEnabled();
+  const explicitlyEnabled = productionCutover || process.env.ROYAL_EXAM_EDGE_ENABLED === 'true';
   const canaryHeader = process.env.VERCEL_ENV === 'production'
     ? request.headers.get(INTERNAL_CANARY_HEADER)
     : null;
@@ -58,7 +62,11 @@ function edgeRouteMode(request: Request): EdgeRouteMode {
     : rolloutCanary
       ? PRODUCTION_ROLLOUT_CANARY_VALUE
       : null;
-  const fallbackUrl = migrationPreview ? DEV_EDGE_URL : canaryMode ? PROD_EDGE_URL : '';
+  const fallbackUrl = migrationPreview
+    ? DEV_EDGE_URL
+    : productionCutover || canaryMode
+      ? PROD_EDGE_URL
+      : '';
   const raw = process.env.ROYAL_EXAM_EDGE_URL?.trim() || fallbackUrl;
   if (!raw) return { mode: 'misconfigured' };
 
