@@ -195,7 +195,7 @@ function buildConceptControlsHtml(isConceptBookmarked: boolean, detailsBodyHtml:
     ? `<details class="pm-inline-concept-details"><summary>View Concept Explanation</summary><div class="pm-inline-concept-details-body">${detailsBodyHtml}</div></details>`
     : '';
 
-  return `<div class="pm-inline-concept-actions"><button type="button" data-concept-bookmark="true" aria-pressed="${isConceptBookmarked ? 'true' : 'false'}">${isConceptBookmarked ? 'Bookmarked' : 'Bookmark concept'}</button>${conceptDetailsHtml}<button type="button" data-concept-deep-dive="true">Deep dive &rsaquo;</button></div>`;
+  return `<div class="pm-inline-concept-actions"><button type="button" data-concept-bookmark="true" aria-pressed="${isConceptBookmarked ? 'true' : 'false'}">${isConceptBookmarked ? 'Bookmarked' : 'Bookmark concept'}</button>${conceptDetailsHtml}</div>`;
 }
 
 function transformEmbeddedConceptBlocks(html: string, isConceptBookmarked: boolean) {
