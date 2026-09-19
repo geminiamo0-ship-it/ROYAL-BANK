@@ -365,6 +365,64 @@ export async function setQuestionFlagDirect(questionId: number, flagged: boolean
   });
 }
 
+type RawSuspendResult = {
+  ok?: boolean;
+  session_id?: string;
+  suspended?: boolean;
+  completed?: boolean;
+};
+
+async function requestExamSuspend(sessionId: string, keepalive = false): Promise<Response> {
+  return fetch('/api/exam', {
+    method: 'POST',
+    cache: 'no-store',
+    credentials: 'same-origin',
+    keepalive,
+    headers: { 'content-type': 'application/json' },
+    signal: keepalive ? undefined : AbortSignal.timeout(10_000),
+    body: JSON.stringify({
+      action: 'suspend',
+      args: { p_session_id: sessionId },
+    }),
+  });
+}
+
+export async function suspendExamSessionDirect(sessionId: string): Promise<void> {
+  const response = await requestExamSuspend(sessionId);
+  const raw = await response.text();
+  let payload: unknown = null;
+  if (raw) {
+    try {
+      payload = JSON.parse(raw) as unknown;
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (!response.ok) {
+    const record = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload as Record<string, unknown>
+      : null;
+    const nested = record?.error && typeof record.error === 'object' && !Array.isArray(record.error)
+      ? record.error as Record<string, unknown>
+      : null;
+    const message =
+      (typeof nested?.message === 'string' && nested.message) ||
+      (typeof record?.message === 'string' && record.message) ||
+      `Unable to suspend the block (${response.status}).`;
+    throw new Error(message);
+  }
+
+  const result = payload as RawSuspendResult | null;
+  if (!result || (result.suspended !== true && result.completed !== true && result.ok !== true)) {
+    throw new Error('Suspend confirmation was not returned.');
+  }
+}
+
+export function suspendExamSessionBestEffort(sessionId: string): void {
+  void requestExamSuspend(sessionId, true).catch(() => undefined);
+}
+
 export async function completeExamSessionDirect(sessionId: string): Promise<void> {
   await callExamGateway<unknown, 'complete'>('complete', { p_session_id: sessionId });
 }
