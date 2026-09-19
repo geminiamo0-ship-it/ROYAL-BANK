@@ -13,6 +13,7 @@ interface AnswerOptionListProps {
   submittedAnswer?: ExamClientAnswer;
   correctOptionId: number | null;
   optionPercentages: Record<number, number>;
+  annotationTextMode?: boolean;
   onSelectOption: (questionId: number, option: ExamClientOption) => void;
   onToggleStrikeOut: (optionId: number) => void;
 }
@@ -26,6 +27,7 @@ export function AnswerOptionList({
   submittedAnswer,
   correctOptionId,
   optionPercentages,
+  annotationTextMode = false,
   onSelectOption,
   onToggleStrikeOut,
 }: AnswerOptionListProps) {
@@ -78,27 +80,46 @@ export function AnswerOptionList({
             ) : null}
 
             <div className={`relative z-10 flex min-h-[44px] items-center gap-3 px-3 py-[10px] text-[14px] ${rowClassName}`}>
-              <button
-                type="button"
-                onClick={() => canEdit && onSelectOption(question.id, option)}
-                disabled={!canEdit}
-                className="flex min-w-0 flex-1 items-center gap-4 text-left text-white disabled:cursor-default"
-              >
-                <span
-                  className={`flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full border ${
-                    isSelected ? 'border-white' : 'border-[#d8d8d8]'
-                  }`}
+              {annotationTextMode ? (
+                <div className="flex min-w-0 flex-1 cursor-text select-text items-center gap-4 text-left text-white">
+                  <span
+                    className={`flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full border ${
+                      isSelected ? 'border-white' : 'border-[#d8d8d8]'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {isSelected && (!showFeedback || isTimedMode) ? (
+                      <span className="h-[8px] w-[8px] rounded-full bg-white" />
+                    ) : null}
+                  </span>
+                  <span
+                    className={`min-w-0 flex-1 select-text ${isStruck ? 'line-through' : ''}`}
+                    dangerouslySetInnerHTML={{ __html: option.text_html }}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => canEdit && onSelectOption(question.id, option)}
+                  disabled={!canEdit}
+                  className="flex min-w-0 flex-1 items-center gap-4 text-left text-white disabled:cursor-default"
                 >
-                  {isSelected && (!showFeedback || isTimedMode) ? (
-                    <span className="h-[8px] w-[8px] rounded-full bg-white" />
-                  ) : null}
-                </span>
+                  <span
+                    className={`flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full border ${
+                      isSelected ? 'border-white' : 'border-[#d8d8d8]'
+                    }`}
+                  >
+                    {isSelected && (!showFeedback || isTimedMode) ? (
+                      <span className="h-[8px] w-[8px] rounded-full bg-white" />
+                    ) : null}
+                  </span>
 
-                <span
-                  className={`min-w-0 flex-1 ${isStruck ? 'line-through' : ''}`}
-                  dangerouslySetInnerHTML={{ __html: option.text_html }}
-                />
-              </button>
+                  <span
+                    className={`min-w-0 flex-1 ${isStruck ? 'line-through' : ''}`}
+                    dangerouslySetInnerHTML={{ __html: option.text_html }}
+                  />
+                </button>
+              )}
 
               {showFeedback ? (
                 <span className="rounded-full bg-[#7f8790] px-2 py-[2px] text-[11px] font-semibold text-white">
@@ -109,7 +130,11 @@ export function AnswerOptionList({
                   type="button"
                   onClick={() => onToggleStrikeOut(option.id)}
                   className={`flex h-[20px] w-[20px] items-center justify-center text-[#f1f1f1] ${
-                    isStruck ? 'text-[#ff707c]' : 'opacity-0 group-hover:opacity-100'
+                    annotationTextMode
+                      ? 'pointer-events-none opacity-0'
+                      : isStruck
+                        ? 'text-[#ff707c]'
+                        : 'opacity-0 group-hover:opacity-100'
                   }`}
                   title="Strike out option"
                 >
