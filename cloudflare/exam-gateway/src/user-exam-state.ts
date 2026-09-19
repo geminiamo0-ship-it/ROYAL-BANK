@@ -21,6 +21,9 @@ const QUESTION_DAILY_LIMIT = 650;
 const QUESTION_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_NEW_QUESTIONS_PER_WINDOW = 3;
 const PREPARED_ACCESS_GRANT_TTL_MS = 2 * 60 * 1000;
+const CHECKPOINT_VERSION_THRESHOLD = 25;
+const CHECKPOINT_IDLE_FLUSH_MS = 15 * 60 * 1000;
+const CHECKPOINT_FAST_FLUSH_MS = 250;
 
 export type SessionRow = {
   id: string;
@@ -37,6 +40,8 @@ export type SessionRow = {
   completed_at: string | null;
   total_questions: number;
   version: number;
+  checkpoint_version: number;
+  checkpointed_at_ms: number;
   last_active_at_ms: number;
   final_snapshot_json: string | null;
 };
@@ -191,7 +196,7 @@ export class UserExamState extends DurableObject<Env> {
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
         );
-        INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '2');
+        INSERT OR IGNORE INTO metadata(key, value) VALUES ('schema_version', '3');
 
         CREATE TABLE IF NOT EXISTS sessions (
           id TEXT PRIMARY KEY,
@@ -208,6 +213,8 @@ export class UserExamState extends DurableObject<Env> {
           completed_at TEXT,
           total_questions INTEGER NOT NULL,
           version INTEGER NOT NULL DEFAULT 1,
+          checkpoint_version INTEGER NOT NULL DEFAULT 1,
+          checkpointed_at_ms INTEGER NOT NULL DEFAULT 0,
           last_active_at_ms INTEGER NOT NULL,
           final_snapshot_json TEXT
         );
@@ -279,10 +286,18 @@ export class UserExamState extends DurableObject<Env> {
         CREATE INDEX IF NOT EXISTS idx_outbox_unsent ON outbox(sent_at_ms, created_at_ms);
       `);
     } else {
-      const schemaVersion = sql
+      let schemaVersion = sql
         .exec<{ value: string }>("SELECT value FROM metadata WHERE key = 'schema_version' LIMIT 1")
         .toArray()[0]?.value;
-      if (schemaVersion !== '2') {
+      if (schemaVersion === '2') {
+        sql.exec(`
+          ALTER TABLE sessions ADD COLUMN checkpoint_version INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE sessions ADD COLUMN checkpointed_at_ms INTEGER NOT NULL DEFAULT 0;
+          UPDATE metadata SET value = '3' WHERE key = 'schema_version';
+        `);
+        schemaVersion = '3';
+      }
+      if (schemaVersion !== '3') {
         throw new Error(`UNSUPPORTED_V2_DO_SCHEMA_VERSION:${String(schemaVersion ?? 'missing')}`);
       }
     }
@@ -482,21 +497,96 @@ export class UserExamState extends DurableObject<Env> {
     this.ctx.waitUntil(
       Promise.resolve()
         .then(() => this.ensureOutboxAlarm(delayMs))
-        .catch((error) => console.error('Failed to schedule V2 outbox alarm', error)),
+        .catch((error) => console.error('Failed to schedule V2 sync alarm', error)),
     );
   }
 
+  private dirtyCheckpointSessions(): Array<Pick<SessionRow, 'id' | 'version' | 'checkpoint_version' | 'last_active_at_ms'>> {
+    return this.all<Pick<SessionRow, 'id' | 'version' | 'checkpoint_version' | 'last_active_at_ms'> & Record<string, SqlStorageValue>>(
+      `SELECT id, version, checkpoint_version, last_active_at_ms
+       FROM sessions
+       WHERE completed_at IS NULL
+         AND suspended_at IS NULL
+         AND version > checkpoint_version`,
+    ) as Array<Pick<SessionRow, 'id' | 'version' | 'checkpoint_version' | 'last_active_at_ms'>>;
+  }
+
   private async ensureOutboxAlarm(delayMs = 1_000): Promise<void> {
+    const now = Date.now();
     const pending = this.one<{ present: number }>(
       'SELECT 1 AS present FROM outbox WHERE sent_at_ms IS NULL LIMIT 1',
     );
-    if (!pending) return;
 
-    const target = Date.now() + Math.max(0, delayMs);
+    let target = pending ? now + Math.max(0, delayMs) : Number.POSITIVE_INFINITY;
+    for (const session of this.dirtyCheckpointSessions()) {
+      const versionGap = Number(session.version) - Number(session.checkpoint_version);
+      const checkpointDueAt = versionGap >= CHECKPOINT_VERSION_THRESHOLD
+        ? now + CHECKPOINT_FAST_FLUSH_MS
+        : Number(session.last_active_at_ms) + CHECKPOINT_IDLE_FLUSH_MS;
+      target = Math.min(target, Math.max(now, checkpointDueAt));
+    }
+
+    if (!Number.isFinite(target)) return;
     const current = await this.ctx.storage.getAlarm();
     if (current == null || current > target) {
       await this.ctx.storage.setAlarm(target);
     }
+  }
+
+  private checkpointAnswers(sessionId: string, revealCorrectness: boolean): Array<Record<string, unknown>> {
+    return (this.all<AnswerRow & Record<string, SqlStorageValue>>(
+      'SELECT * FROM answers WHERE session_id = ? ORDER BY answered_at, question_id',
+      sessionId,
+    ) as AnswerRow[]).map((answer) => ({
+      question_id: Number(answer.question_id),
+      selected_option_id: Number(answer.selected_option_id),
+      is_correct: revealCorrectness ? Boolean(answer.is_correct) : null,
+      time_spent_seconds: Math.max(0, Number(answer.time_spent_seconds)),
+      revision: Math.max(1, Number(answer.revision)),
+      answered_at: answer.answered_at,
+    }));
+  }
+
+  private checkpointPayload(session: SessionRow): Record<string, unknown> {
+    return {
+      schema_version: 1,
+      session_id: session.id,
+      bank_id: Number(session.bank_id),
+      session_type: session.session_type,
+      version: Number(session.version),
+      answers: this.checkpointAnswers(session.id, trainingMode(session.session_type)),
+    };
+  }
+
+  private stageDueCheckpoints(nowMs = Date.now()): number {
+    let staged = 0;
+    for (const candidate of this.dirtyCheckpointSessions()) {
+      const versionGap = Number(candidate.version) - Number(candidate.checkpoint_version);
+      const idleForMs = nowMs - Number(candidate.last_active_at_ms);
+      if (versionGap < CHECKPOINT_VERSION_THRESHOLD && idleForMs < CHECKPOINT_IDLE_FLUSH_MS) continue;
+
+      this.ctx.storage.transactionSync(() => {
+        const current = this.session(candidate.id);
+        if (
+          current.completed_at ||
+          current.suspended_at ||
+          Number(current.version) <= Number(current.checkpoint_version)
+        ) {
+          return;
+        }
+
+        const version = Number(current.version);
+        this.insertOutbox('session.checkpoint', current.id, version, this.checkpointPayload(current));
+        this.ctx.storage.sql.exec(
+          'UPDATE sessions SET checkpoint_version = ?, checkpointed_at_ms = ? WHERE id = ?',
+          version,
+          nowMs,
+          current.id,
+        );
+        staged += 1;
+      });
+    }
+    return staged;
   }
 
   private finalizeSession(sessionId: string, reason: 'user' | 'deadline'): SessionRow {
@@ -577,10 +667,13 @@ export class UserExamState extends DurableObject<Env> {
 
       this.ctx.storage.sql.exec(
         `UPDATE sessions
-         SET completed_at = ?, suspended_at = NULL, version = ?, last_active_at_ms = ?, final_snapshot_json = ?
+         SET completed_at = ?, suspended_at = NULL, version = ?, checkpoint_version = ?,
+             checkpointed_at_ms = ?, last_active_at_ms = ?, final_snapshot_json = ?
          WHERE id = ? AND completed_at IS NULL`,
         completedAt,
         nextVersion,
+        nextVersion,
+        Date.now(),
         Date.now(),
         JSON.stringify(snapshot),
         current.id,
@@ -611,9 +704,11 @@ export class UserExamState extends DurableObject<Env> {
         if (!current.completed_at && current.suspended_at) {
           const nextVersion = Number(current.version) + 1;
           this.ctx.storage.sql.exec(
-            'UPDATE sessions SET suspended_at = NULL, last_active_at_ms = ?, version = ? WHERE id = ?',
+            'UPDATE sessions SET suspended_at = NULL, last_active_at_ms = ?, version = ?, checkpoint_version = ?, checkpointed_at_ms = ? WHERE id = ?',
             Date.now(),
             nextVersion,
+            nextVersion,
+            Date.now(),
             current.id,
           );
           this.insertOutbox('session.resumed', current.id, nextVersion, {
@@ -1041,19 +1136,14 @@ export class UserExamState extends DurableObject<Env> {
         JSON.stringify(result),
         Date.now(),
       );
-      this.insertOutbox(training ? 'answer.finalized' : 'answer.saved', currentSession.id, nextVersion, {
-        session_id: currentSession.id,
-        question_id: questionId,
-        selected_option_id: selectedOptionId,
-        is_correct: training ? isCorrect : null,
-        time_spent_seconds: Number(args.p_time_spent_seconds),
-        revision,
-        version: nextVersion,
-      });
       return result;
     });
 
     session = this.session(session.id);
+    const checkpointGap = Number(session.version) - Number(session.checkpoint_version);
+    this.scheduleOutboxAlarm(
+      checkpointGap >= CHECKPOINT_VERSION_THRESHOLD ? CHECKPOINT_FAST_FLUSH_MS : CHECKPOINT_IDLE_FLUSH_MS,
+    );
     return response;
   }
 
@@ -1121,16 +1211,23 @@ export class UserExamState extends DurableObject<Env> {
       if (current.completed_at || current.suspended_at) return;
       const nextVersion = Number(current.version) + 1;
       const suspendedAt = new Date().toISOString();
+      const nowMs = Date.now();
+      const answers = this.checkpointAnswers(current.id, trainingMode(current.session_type));
       this.ctx.storage.sql.exec(
-        'UPDATE sessions SET suspended_at = ?, version = ?, last_active_at_ms = ? WHERE id = ?',
+        'UPDATE sessions SET suspended_at = ?, version = ?, checkpoint_version = ?, checkpointed_at_ms = ?, last_active_at_ms = ? WHERE id = ?',
         suspendedAt,
         nextVersion,
-        Date.now(),
+        nextVersion,
+        nowMs,
+        nowMs,
         current.id,
       );
       this.insertOutbox('session.suspended', current.id, nextVersion, {
         session_id: current.id,
+        bank_id: Number(current.bank_id),
+        session_type: current.session_type,
         suspended_at: suspendedAt,
+        answers,
         version: nextVersion,
       });
     });
@@ -1150,8 +1247,10 @@ export class UserExamState extends DurableObject<Env> {
       if (current.completed_at || !current.suspended_at) return;
       const nextVersion = Number(current.version) + 1;
       this.ctx.storage.sql.exec(
-        'UPDATE sessions SET suspended_at = NULL, version = ?, last_active_at_ms = ? WHERE id = ?',
+        'UPDATE sessions SET suspended_at = NULL, version = ?, checkpoint_version = ?, checkpointed_at_ms = ?, last_active_at_ms = ? WHERE id = ?',
         nextVersion,
+        nextVersion,
+        Date.now(),
         Date.now(),
         current.id,
       );
@@ -1177,6 +1276,8 @@ export class UserExamState extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    this.stageDueCheckpoints();
+
     const pending = this.all<{
       event_id: string;
       session_id: string | null;
@@ -1192,7 +1293,10 @@ export class UserExamState extends DurableObject<Env> {
        LIMIT 10`,
     );
 
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+      await this.ensureOutboxAlarm();
+      return;
+    }
     const userId = this.ctx.id.name;
     if (!userId) {
       console.error('V2 outbox cannot resolve named Durable Object user id');
@@ -1241,10 +1345,7 @@ export class UserExamState extends DurableObject<Env> {
       );
     });
 
-    const more = this.one<{ present: number }>(
-      'SELECT 1 AS present FROM outbox WHERE sent_at_ms IS NULL LIMIT 1',
-    );
-    if (more) await this.ctx.storage.setAlarm(Date.now() + 100);
+    await this.ensureOutboxAlarm(100);
   }
 
   async handle(input: InternalGatewayRequest): Promise<unknown> {
