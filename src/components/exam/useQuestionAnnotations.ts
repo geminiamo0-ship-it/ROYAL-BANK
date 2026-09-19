@@ -333,13 +333,6 @@ export function useQuestionAnnotations(questionId: number | null, sessionId = ''
     state.saveChain = state.saveChain.catch(() => undefined).then(run);
     await state.saveChain;
 
-    if (ANNOTATION_SURFACES.some((surface) => Boolean(state.pending[surface]))) {
-      if (state.timer != null) window.clearTimeout(state.timer);
-      state.timer = window.setTimeout(() => {
-        state.timer = null;
-        void persistQuestion(targetQuestionId).catch(() => undefined);
-      }, ANNOTATION_BATCH_DEBOUNCE_MS);
-    }
   }, [getState, persistRecovery, sessionId, syncActiveError]);
 
   const schedulePersist = useCallback((targetQuestionId: number) => {
