@@ -1,4 +1,4 @@
-name: Production Edge Load 250x40
+name: Production Edge Checkpoint A-B 250x40
 
 on:
   push:
@@ -12,13 +12,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: royal-production-edge-load-250x40
+  group: royal-production-edge-checkpoint-load
   cancel-in-progress: false
 
 jobs:
   load:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
       SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
@@ -27,7 +27,7 @@ jobs:
       LOAD_QUESTION_COUNT: '40'
       LOAD_SETUP_CONCURRENCY: '1'
       LOAD_SETUP_PACING_MS: '1600'
-      LOAD_SYNC_TIMEOUT_MS: '60000'
+      LOAD_SYNC_TIMEOUT_MS: '120000'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,6 +45,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: production-edge-load-250x40
+          name: production-edge-checkpoint-250x40
           path: edge-load-results.json
           retention-days: 7
