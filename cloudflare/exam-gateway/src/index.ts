@@ -15,7 +15,7 @@ function json(value: unknown, status = 200): Response {
   });
 }
 
-function addCreateTiming(
+function addExamTiming(
   response: Response,
   values: {
     jwtVerifyMs: number;
@@ -88,6 +88,7 @@ export default {
     }
     const parsed = parseGatewayRequest(body);
     if (!parsed) return json({ error: { code: 'INVALID_REQUEST', message: 'Invalid request.' } }, 400);
+    const timedAction = parsed.action === 'create' || parsed.action === 'prepare';
 
     let bankAccessGranted: boolean | undefined;
     if (parsed.action === 'prepare') {
@@ -95,7 +96,15 @@ export default {
       bankAccessGranted = await userCanAccessBank(env, token, Number(parsed.args.p_bank_id));
       bankAccessMs = performance.now() - accessStarted;
       if (!bankAccessGranted) {
-        return json({ error: { code: 'QUESTION_BANK_ACCESS_DENIED', message: 'Question bank access denied.' } }, 403);
+        return addExamTiming(
+          json({ error: { code: 'QUESTION_BANK_ACCESS_DENIED', message: 'Question bank access denied.' } }, 403),
+          {
+            jwtVerifyMs,
+            bankAccessMs,
+            durableObjectMs,
+            totalMs: performance.now() - requestStarted,
+          },
+        );
       }
     }
 
@@ -118,8 +127,8 @@ export default {
       const record = error as { code?: unknown; status?: unknown; message?: unknown; overloaded?: unknown };
       if (record.overloaded === true) {
         const response = json({ error: { code: 'EDGE_OVERLOADED', message: 'Exam service is busy.' } }, 503);
-        return parsed.action === 'create'
-          ? addCreateTiming(response, {
+        return timedAction
+          ? addExamTiming(response, {
               jwtVerifyMs,
               bankAccessMs,
               durableObjectMs,
@@ -139,8 +148,8 @@ export default {
         });
       }
       const response = json({ error: { code, message: safeMessage } }, status);
-      return parsed.action === 'create'
-        ? addCreateTiming(response, {
+      return timedAction
+        ? addExamTiming(response, {
             jwtVerifyMs,
             bankAccessMs,
             durableObjectMs,
@@ -159,7 +168,7 @@ export default {
         const granted = await userCanAccessBank(env, token, Number(parsed.args.p_bank_id));
         bankAccessMs += performance.now() - accessStarted;
         if (!granted) {
-          return addCreateTiming(
+          return addExamTiming(
             json({ error: { code: 'QUESTION_BANK_ACCESS_DENIED', message: 'Question bank access denied.' } }, 403),
             {
               jwtVerifyMs,
@@ -180,7 +189,7 @@ export default {
     }
 
     let doPhases: Record<string, number> | undefined;
-    if (parsed.action === 'create' && result && typeof result === 'object' && !Array.isArray(result)) {
+    if (timedAction && result && typeof result === 'object' && !Array.isArray(result)) {
       const record = result as Record<string, unknown>;
       const rawTiming = record.__edge_timing;
       if (rawTiming && typeof rawTiming === 'object' && !Array.isArray(rawTiming)) {
@@ -191,11 +200,15 @@ export default {
         );
       }
       delete record.__edge_timing;
+
+      if (parsed.action === 'prepare' && typeof doPhases?.do_prepare_total === 'number') {
+        doPhases.do_dispatch_overhead = Math.max(0, durableObjectMs - doPhases.do_prepare_total);
+      }
     }
 
     const response = json(result);
-    return parsed.action === 'create'
-      ? addCreateTiming(response, {
+    return timedAction
+      ? addExamTiming(response, {
           jwtVerifyMs,
           bankAccessMs,
           durableObjectMs,

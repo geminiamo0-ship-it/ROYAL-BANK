@@ -133,6 +133,9 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const requestStarted = performance.now();
+  let authUserMs = 0;
+  let upstreamMs = 0;
   const requestId = crypto.randomUUID();
   const routing = edgeRouteMode(request);
 
@@ -169,10 +172,12 @@ export async function POST(request: Request): Promise<Response> {
     return response;
   }
 
+  const authUserStarted = performance.now();
   const {
     data: { user },
     error: userError,
   } = await supabase.auth.getUser(accessToken);
+  authUserMs = performance.now() - authUserStarted;
   if (userError || !user) {
     const response = jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
     response.headers.set('x-royal-request-id', requestId);
@@ -216,6 +221,7 @@ export async function POST(request: Request): Promise<Response> {
   upstreamUrl.pathname = `${upstreamUrl.pathname}/exam`.replace(/\/+/g, '/');
 
   let upstream: Response;
+  const upstreamStarted = performance.now();
   try {
     upstream = await fetch(upstreamUrl, {
       method: 'POST',
@@ -237,6 +243,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const responseBody = await upstream.text();
+  upstreamMs = performance.now() - upstreamStarted;
   const headers = new Headers({
     'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -248,6 +255,15 @@ export async function POST(request: Request): Promise<Response> {
     const value = upstream.headers.get(headerName);
     if (value) headers.set(headerName, value);
   }
+
+  const upstreamTiming = headers.get('server-timing');
+  const proxyTiming = [
+    `vercel_auth_user;dur=${authUserMs.toFixed(2)}`,
+    `vercel_upstream;dur=${upstreamMs.toFixed(2)}`,
+    `vercel_total;dur=${(performance.now() - requestStarted).toFixed(2)}`,
+  ].join(', ');
+  headers.set('server-timing', upstreamTiming ? `${upstreamTiming}, ${proxyTiming}` : proxyTiming);
+  headers.set('x-royal-proxy-timing-version', '1');
 
   return new Response(responseBody, {
     status: upstream.status,
