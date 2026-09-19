@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ExamGatewayAction } from '@/types/exam-gateway';
 
 export const EXAM_RPC_BY_ACTION: Record<ExamGatewayAction, string> = {
+  prepare: 'can_access_question_bank',
   create: 'create_exam_session_bootstrap_idempotent_v3',
   bootstrap: 'get_exam_session_bootstrap_v3',
   window: 'get_exam_session_window',
@@ -39,6 +40,12 @@ const questionSelection = z.enum([
   'flagged_only',
   'suspended_only',
 ]);
+
+const prepareArgsSchema = z
+  .object({
+    p_bank_id: positiveId,
+  })
+  .strict();
 
 const createArgsSchema = z
   .object({
@@ -101,6 +108,7 @@ const flagArgsSchema = z
   .strict();
 
 const ARGS_SCHEMA_BY_ACTION = {
+  prepare: prepareArgsSchema,
   create: createArgsSchema,
   bootstrap: sessionArgsSchema,
   window: windowArgsSchema,
