@@ -1,8 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { StudyPlanWizardClient } from '@/components/bank/StudyPlanWizardClient';
 import {
-  getStudyPlanCatalog,
-  getStudyPlanDashboard,
+  getStudyPlanPageData,
   StudyPlanAccessError,
   StudyPlanAuthenticationError,
   type StudyPlanCatalog,
@@ -25,10 +24,7 @@ export default async function StudyPlanCreatePage({
   let catalog: StudyPlanCatalog;
   let dashboard: StudyPlanDashboard;
   try {
-    [catalog, dashboard] = await Promise.all([
-      getStudyPlanCatalog(parsedBankId),
-      getStudyPlanDashboard(parsedBankId),
-    ]);
+    ({ catalog, dashboard } = await getStudyPlanPageData(parsedBankId));
   } catch (error) {
     if (error instanceof StudyPlanAuthenticationError) {
       redirect(`/login?redirect=/bank/${parsedBankId}/study-plan/create`);
