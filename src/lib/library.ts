@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createClient } from '@/lib/supabase/server';
 import { isPrivateR2Configured } from '@/lib/r2-private';
-import { readStaticLibraryArticle } from '@/lib/ui-static-r2';
+import { readStaticLibraryArticle, readStaticLibraryCatalog } from '@/lib/ui-static-r2';
 
 export interface LibraryArticleSummary {
   id: string;
@@ -78,6 +78,13 @@ interface LibraryListRpcRow {
   trial_remaining: number | null;
 }
 
+interface LibraryCatalogAccessPayload {
+  premium_access?: unknown;
+  trial_limit?: unknown;
+  trial_remaining?: unknown;
+  disclosed_article_ids?: unknown;
+}
+
 interface LibraryArticleRpcPayload {
   article?: {
     id?: unknown;
@@ -136,34 +143,21 @@ function classifyRpcError(message: string | undefined): Error {
   return new LibraryAccessError();
 }
 
-async function requireAuthenticatedClient() {
-  const client = await createClient();
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-
-  if (!user) {
-    throw new LibraryAuthenticationError();
-  }
-
-  return client;
+async function createLibraryClient() {
+  // Library RPCs are the authorization boundary; avoid an extra auth.getUser()
+  // request before every catalog/article call.
+  return createClient();
 }
 
-export async function getLibraryCatalog(bankId: number): Promise<LibraryCatalog> {
-  ensureBankId(bankId);
-  const client = await requireAuthenticatedClient();
-
-  const { data, error } = await client.rpc('list_library_articles', {
-    p_bank_id: bankId,
-  });
-
-  if (error) {
-    throw classifyRpcError(error.message);
-  }
+async function getLegacyLibraryCatalog(
+  client: Awaited<ReturnType<typeof createLibraryClient>>,
+  bankId: number,
+): Promise<LibraryCatalog> {
+  const { data, error } = await client.rpc('list_library_articles', { p_bank_id: bankId });
+  if (error) throw classifyRpcError(error.message);
 
   const rows = (Array.isArray(data) ? data : []) as LibraryListRpcRow[];
   const first = rows[0];
-
   return {
     bankId,
     articles: rows.map((row) => ({
@@ -174,8 +168,48 @@ export async function getLibraryCatalog(bankId: number): Promise<LibraryCatalog>
     })),
     premiumAccess: first?.premium_access === true,
     trialLimit: typeof first?.trial_limit === 'number' ? first.trial_limit : null,
-    trialRemaining:
-      typeof first?.trial_remaining === 'number' ? first.trial_remaining : null,
+    trialRemaining: typeof first?.trial_remaining === 'number' ? first.trial_remaining : null,
+  };
+}
+
+export async function getLibraryCatalog(bankId: number): Promise<LibraryCatalog> {
+  ensureBankId(bankId);
+  const client = await createLibraryClient();
+
+  const [staticCatalog, accessResult] = await Promise.all([
+    readStaticLibraryCatalog(bankId),
+    client.rpc('get_library_catalog_access_state', { p_bank_id: bankId }),
+  ]);
+
+  if (accessResult.error) {
+    if (rpcMissing(accessResult.error.message, 'get_library_catalog_access_state')) {
+      return getLegacyLibraryCatalog(client, bankId);
+    }
+    throw classifyRpcError(accessResult.error.message);
+  }
+
+  if (!staticCatalog) {
+    return getLegacyLibraryCatalog(client, bankId);
+  }
+
+  const access = (accessResult.data ?? {}) as LibraryCatalogAccessPayload;
+  const disclosedIds = new Set(
+    Array.isArray(access.disclosed_article_ids)
+      ? access.disclosed_article_ids.filter((value): value is string => typeof value === 'string')
+      : [],
+  );
+
+  return {
+    bankId,
+    articles: staticCatalog.articles.map((article) => ({
+      id: article.id,
+      name: article.name,
+      category: article.category,
+      isDisclosed: disclosedIds.has(article.id),
+    })),
+    premiumAccess: access.premium_access === true,
+    trialLimit: nullableNumber(access.trial_limit),
+    trialRemaining: nullableNumber(access.trial_remaining),
   };
 }
 
@@ -213,7 +247,7 @@ function parseArticle(article: LibraryContentRpcPayload | undefined): LibraryArt
 }
 
 async function readLegacyLibraryArticle(
-  client: Awaited<ReturnType<typeof requireAuthenticatedClient>>,
+  client: Awaited<ReturnType<typeof createLibraryClient>>,
   bankId: number,
   articleId: string,
 ): Promise<LibraryArticleRead> {
@@ -245,7 +279,7 @@ export async function readLibraryArticle(
     throw new LibraryNotFoundError();
   }
 
-  const client = await requireAuthenticatedClient();
+  const client = await createLibraryClient();
 
   // Until private R2 is configured, preserve the original one-RPC path rather
   // than adding an authorization round trip with no cache benefit.
