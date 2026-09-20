@@ -165,18 +165,11 @@ async function seedUser(user, index) {
       p_question_selection: 'all',
     });
     const sessionId = created?.session?.id;
-    const windowToken = created?.window_access_token;
-    if (typeof sessionId !== 'string' || typeof windowToken !== 'string') {
-      throw new Error('create returned invalid session');
-    }
-    const windowRows = await examRequest(user, 'window', {
-      p_session_id: sessionId,
-      p_start: 0,
-      p_count: 1,
-    }, windowToken);
-    const question = Array.isArray(windowRows) ? windowRows[0] : null;
+    const question = Array.isArray(created?.questions) ? created.questions[0] : null;
     const option = question?.options?.[0];
-    if (!question?.id || !option?.id) throw new Error('window returned no usable question');
+    if (typeof sessionId !== 'string' || !question?.id || !option?.id) {
+      throw new Error('create returned no usable Edge question');
+    }
     await examRequest(user, 'submit', {
       p_request_id: crypto.randomUUID(),
       p_session_id: sessionId,
@@ -193,13 +186,15 @@ async function seedUser(user, index) {
       ms: +(performance.now() - started).toFixed(1),
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'seed_error';
     report.seed.failed += 1;
     report.seed.rows.push({
       index,
       ok: false,
       ms: +(performance.now() - started).toFixed(1),
-      error: error instanceof Error ? error.message : 'seed_error',
+      error: message,
     });
+    console.log('PAGE_LOAD_SEED_FAILURE ' + JSON.stringify({ index, error: message }));
   }
   save();
 }
