@@ -199,6 +199,23 @@ async function loadCatalogOverview(): Promise<CatalogOverview> {
   return data as CatalogOverview;
 }
 
+export async function getCatalogDashboardData(): Promise<{
+  pathways: PathwayDetail[];
+  globalCatalog: GlobalCatalogState;
+}> {
+  const [{ pathways, banks }, overview] = await Promise.all([loadCatalogRows(), loadCatalogOverview()]);
+  return {
+    pathways: pathways.map((pathway) => buildPathway(pathway, banks, overview)),
+    globalCatalog: {
+      accessState: overview.global?.access || emptyAccess,
+      catalogAvailable: overview.global?.catalog_available === true,
+      commerceLocked: overview.commerce_locked === true,
+      commerceLockReason: overview.commerce_lock_reason || null,
+    },
+  };
+}
+
+
 function buildPathway(pathway: PathwayRow, bankRows: BankRow[], overview: CatalogOverview): PathwayDetail {
   const matchingBanks = bankRows
     .filter((bank) => bank.pathway_id === pathway.id)
