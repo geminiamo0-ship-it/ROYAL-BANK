@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import { ArrowRight, CheckCircle2, Infinity } from 'lucide-react';
 import { logout, getCurrentUser } from '@/actions/auth';
-import { getCatalogPathways, getGlobalCatalogState } from '@/actions/pathways';
+import { getCatalogDashboardData } from '@/actions/pathways';
 import UpgradeModalTrigger from '@/components/business/UpgradeModalTrigger';
 import { getRoyalSupportTelegramUrl } from '@/lib/royal-support';
 
@@ -35,11 +35,11 @@ export default async function DashboardPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const query = await searchParams;
-  const [user, pathways, globalCatalog] = await Promise.all([
+  const [user, catalogData] = await Promise.all([
     getCurrentUser(),
-    getCatalogPathways(),
-    getGlobalCatalogState(),
+    getCatalogDashboardData(),
   ]);
+  const { pathways, globalCatalog } = catalogData;
   const isStaff = user?.role === 'admin' || user?.role === 'support';
   const supportUrl = getRoyalSupportTelegramUrl();
   const autoOpenGlobal = String(Array.isArray(query.upgradeGlobal) ? query.upgradeGlobal[0] : query.upgradeGlobal) === '1';
