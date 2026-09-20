@@ -190,6 +190,17 @@ const [pathways, bankCatalog, libraryArticles] = await Promise.all([
   fetchAll('library_articles', 'id,name,category,topic,content_html', 'id.asc'),
 ]);
 
+const libraryMappings = await fetchAll(
+  'question_bank_library_articles',
+  'question_bank_id,article_id,display_order',
+  'question_bank_id.asc,display_order.asc,article_id.asc',
+);
+const [contentTopics, questionTopics, topicLibraryArticles] = await Promise.all([
+  fetchAll('content_topics', 'id,question_bank_id,name,category,display_order', 'question_bank_id.asc,display_order.asc,id.asc'),
+  fetchAll('question_topics', 'question_bank_id,question_id,topic_id', 'question_bank_id.asc,topic_id.asc,question_id.asc'),
+  fetchAll('topic_library_articles', 'question_bank_id,topic_id,article_id,is_primary,display_order', 'question_bank_id.asc,topic_id.asc,display_order.asc,article_id.asc'),
+]);
+
 if (questions.length === 0 || options.length === 0 || memberships.length === 0) {
   throw new Error('Refusing release: Production export is unexpectedly empty');
 }
@@ -343,6 +354,97 @@ await mapConcurrent(libraryArticles, async (article) => {
     articleRaw,
   );
 });
+
+const libraryById = new Map(libraryArticles.map((article) => [String(article.id), article]));
+for (const bank of bankCatalog) {
+  const bankId = Number(bank.id);
+  const mapped = libraryMappings
+    .filter((row) => Number(row.question_bank_id) === bankId)
+    .map((row) => {
+      const article = libraryById.get(String(row.article_id));
+      if (!article) return null;
+      return {
+        id: String(article.id),
+        name: String(article.name ?? ''),
+        category: article.category == null ? null : String(article.category),
+        display_order: Number(row.display_order ?? 0),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) =>
+      a.display_order - b.display_order
+      || String(a.category ?? '').localeCompare(String(b.category ?? ''))
+      || a.name.localeCompare(b.name)
+      || a.id.localeCompare(b.id)
+    )
+    .map(({ display_order, ...article }) => article);
+
+  await putMutable(
+    `${UI_ROOT}/library/catalogs/${bankId}.json`,
+    JSON.stringify({ schema_version: 1, bank_id: bankId, articles: mapped }),
+  );
+}
+
+const questionCountsByTopic = new Map();
+for (const row of questionTopics) {
+  const key = `${Number(row.question_bank_id)}:${Number(row.topic_id)}`;
+  questionCountsByTopic.set(key, (questionCountsByTopic.get(key) || 0) + 1);
+}
+
+const primaryArticleByTopic = new Map();
+for (const row of [...topicLibraryArticles].sort((a, b) =>
+  Number(b.is_primary === true) - Number(a.is_primary === true)
+  || Number(a.display_order ?? 0) - Number(b.display_order ?? 0)
+  || String(a.article_id).localeCompare(String(b.article_id))
+)) {
+  const key = `${Number(row.question_bank_id)}:${Number(row.topic_id)}`;
+  if (!primaryArticleByTopic.has(key)) primaryArticleByTopic.set(key, String(row.article_id));
+}
+
+for (const bank of bankCatalog) {
+  const bankId = Number(bank.id);
+  const topics = contentTopics
+    .filter((topic) => Number(topic.question_bank_id) === bankId)
+    .map((topic) => {
+      const key = `${bankId}:${Number(topic.id)}`;
+      return {
+        id: Number(topic.id),
+        name: String(topic.name ?? ''),
+        category: String(topic.category ?? 'General') || 'General',
+        display_order: Number(topic.display_order ?? 0),
+        question_count: Number(questionCountsByTopic.get(key) || 0),
+        article_id: primaryArticleByTopic.get(key) || null,
+      };
+    })
+    .filter((topic) => topic.question_count > 0);
+
+  const categories = new Map();
+  for (const topic of topics) {
+    const list = categories.get(topic.category) || [];
+    list.push(topic);
+    categories.set(topic.category, list);
+  }
+
+  const categoryPayload = [...categories.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, rows]) => ({
+      name,
+      topic_count: rows.length,
+      topics: rows
+        .sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name) || a.id - b.id)
+        .map(({ category, display_order, ...topic }) => topic),
+    }));
+
+  await putMutable(
+    `${UI_ROOT}/study-plan/catalogs/${bankId}.json`,
+    JSON.stringify({
+      schema_version: 1,
+      bank_id: bankId,
+      topic_count: topics.length,
+      categories: categoryPayload,
+    }),
+  );
+}
 
 const activeRaw = JSON.stringify({
   schema_version: 1,
