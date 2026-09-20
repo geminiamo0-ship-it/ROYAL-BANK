@@ -1,7 +1,6 @@
 import 'server-only';
 
 import { createClient } from '@/lib/supabase/server';
-import { readStaticStudyPlanCatalog } from '@/lib/ui-static-r2';
 
 export type StudyPlanMissedStrategy = 'next_free_day' | 'redistribute';
 export type StudyPlanPeriodMode = 'pause' | 'reduced';
@@ -248,54 +247,33 @@ function parsePlan(value: unknown): ActiveStudyPlan | null {
   };
 }
 
-async function rpcClient() {
-  // Study Plan RPCs enforce auth/access themselves. Avoid a separate
-  // auth.getUser() request before every read/write.
-  return createClient();
+async function authenticatedClient() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new StudyPlanAuthenticationError();
+  return supabase;
 }
 
-async function getCatalogWithFallback(
-  supabase: Awaited<ReturnType<typeof rpcClient>>,
-  bankId: number,
-  staticCatalog: Awaited<ReturnType<typeof readStaticStudyPlanCatalog>>,
-): Promise<StudyPlanCatalog> {
-  if (staticCatalog) return parseCatalog(staticCatalog, bankId);
-
+export async function getStudyPlanCatalog(bankId: number): Promise<StudyPlanCatalog> {
+  const supabase = await authenticatedClient();
   const { data, error } = await supabase.rpc('get_study_plan_catalog', { p_bank_id: bankId });
   if (error) throw classifyError(error.message);
   return parseCatalog(data, bankId);
 }
 
-export async function getStudyPlanPageData(bankId: number): Promise<{
-  dashboard: StudyPlanDashboard;
-  catalog: StudyPlanCatalog;
-}> {
-  const supabase = await rpcClient();
-  const [dashboardResult, staticCatalog] = await Promise.all([
-    supabase.rpc('get_study_plan_dashboard_light', { p_bank_id: bankId }),
-    readStaticStudyPlanCatalog(bankId),
-  ]);
-
-  if (dashboardResult.error) throw classifyError(dashboardResult.error.message);
-  const payload = asRecord(dashboardResult.data);
-  const catalog = await getCatalogWithFallback(supabase, bankId, staticCatalog);
-
-  return {
-    dashboard: {
-      bankId: asNumber(payload.bank_id, bankId),
-      plan: parsePlan(payload.plan),
-      catalog,
-    },
-    catalog,
-  };
-}
-
-export async function getStudyPlanCatalog(bankId: number): Promise<StudyPlanCatalog> {
-  return (await getStudyPlanPageData(bankId)).catalog;
-}
-
 export async function getStudyPlanDashboard(bankId: number): Promise<StudyPlanDashboard> {
-  return (await getStudyPlanPageData(bankId)).dashboard;
+  const supabase = await authenticatedClient();
+  const { data, error } = await supabase.rpc('get_study_plan_dashboard', { p_bank_id: bankId });
+  if (error) throw classifyError(error.message);
+
+  const payload = asRecord(data);
+  return {
+    bankId: asNumber(payload.bank_id, bankId),
+    plan: parsePlan(payload.plan),
+    catalog: payload.catalog ? parseCatalog(payload.catalog, bankId) : null,
+  };
 }
 
 function periodsToRpc(periods: StudyPlanPeriodInput[]) {
@@ -317,7 +295,7 @@ export async function createStudyPlanRecord(
   bankId: number,
   input: StudyPlanSettingsInput,
 ): Promise<string> {
-  const supabase = await rpcClient();
+  const supabase = await authenticatedClient();
   const { data, error } = await supabase.rpc('create_study_plan', {
     p_bank_id: bankId,
     p_start_date: input.startDate,
@@ -337,7 +315,7 @@ export async function updateStudyPlanRecord(
   planId: string,
   input: StudyPlanSettingsInput,
 ): Promise<void> {
-  const supabase = await rpcClient();
+  const supabase = await authenticatedClient();
   const { error } = await supabase.rpc('update_study_plan', {
     p_plan_id: planId,
     p_start_date: input.startDate,
@@ -352,13 +330,13 @@ export async function updateStudyPlanRecord(
 }
 
 export async function completeStudyPlanTask(taskId: number): Promise<void> {
-  const supabase = await rpcClient();
+  const supabase = await authenticatedClient();
   const { error } = await supabase.rpc('mark_study_plan_task_complete', { p_task_id: taskId });
   if (error) throw classifyError(error.message);
 }
 
 export async function linkStudyPlanSession(taskId: number, sessionId: string): Promise<void> {
-  const supabase = await rpcClient();
+  const supabase = await authenticatedClient();
   const { error } = await supabase.rpc('link_study_plan_session', {
     p_task_id: taskId,
     p_session_id: sessionId,
@@ -370,7 +348,7 @@ export async function rebalanceStudyPlanRecord(
   planId: string,
   strategy?: StudyPlanMissedStrategy,
 ): Promise<{ strategy: StudyPlanMissedStrategy; moved: number; fallback: boolean }> {
-  const supabase = await rpcClient();
+  const supabase = await authenticatedClient();
   const { data, error } = await supabase.rpc('rebalance_study_plan', {
     p_plan_id: planId,
     p_strategy: strategy ?? null,
