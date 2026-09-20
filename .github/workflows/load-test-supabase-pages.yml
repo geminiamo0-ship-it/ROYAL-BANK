@@ -3,7 +3,7 @@ name: Supabase-backed page load test
 on:
   push:
     branches:
-      - 'ops/page-supabase-load-*'
+      - main
     paths:
       - '.github/page-supabase-load-trigger'
       - '.github/workflows/load-test-supabase-pages.yml'
