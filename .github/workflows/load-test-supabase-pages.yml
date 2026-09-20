@@ -26,7 +26,7 @@ jobs:
     env:
       TARGET_URL: https://royal-bank-five.vercel.app
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
       LOAD_USER_COUNT: 60
       LOAD_AUTH_PACING_MS: 1400
