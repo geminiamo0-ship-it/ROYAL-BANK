@@ -60,6 +60,32 @@ export type StaticLibraryArticle = {
   content_html: string;
 };
 
+export type StaticLibraryCatalog = {
+  schema_version: 1;
+  bank_id: number;
+  articles: Array<{
+    id: string;
+    name: string;
+    category: string | null;
+  }>;
+};
+
+export type StaticStudyPlanCatalog = {
+  schema_version: 1;
+  bank_id: number;
+  topic_count: number;
+  categories: Array<{
+    name: string;
+    topic_count: number;
+    topics: Array<{
+      id: number;
+      name: string;
+      question_count: number;
+      article_id: string | null;
+    }>;
+  }>;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -142,6 +168,49 @@ export async function readStaticLibraryArticle(articleId: string): Promise<Stati
       return null;
     }
     return record as unknown as StaticLibraryArticle;
+  } catch {
+    return null;
+  }
+}
+
+
+export async function readStaticLibraryCatalog(bankId: number): Promise<StaticLibraryCatalog | null> {
+  if (!isPrivateR2Configured() || !Number.isSafeInteger(bankId) || bankId <= 0) return null;
+  try {
+    const raw = await readPrivateR2Json<unknown>(
+      `${UI_ROOT}/library/catalogs/${bankId}.json`,
+      { maxBytes: 1024 * 1024 },
+    );
+    const record = asRecord(raw);
+    if (
+      Number(record?.schema_version) !== 1 ||
+      Number(record?.bank_id) !== bankId ||
+      !Array.isArray(record?.articles)
+    ) {
+      return null;
+    }
+    return record as unknown as StaticLibraryCatalog;
+  } catch {
+    return null;
+  }
+}
+
+export async function readStaticStudyPlanCatalog(bankId: number): Promise<StaticStudyPlanCatalog | null> {
+  if (!isPrivateR2Configured() || !Number.isSafeInteger(bankId) || bankId <= 0) return null;
+  try {
+    const raw = await readPrivateR2Json<unknown>(
+      `${UI_ROOT}/study-plan/catalogs/${bankId}.json`,
+      { maxBytes: 1024 * 1024 },
+    );
+    const record = asRecord(raw);
+    if (
+      Number(record?.schema_version) !== 1 ||
+      Number(record?.bank_id) !== bankId ||
+      !Array.isArray(record?.categories)
+    ) {
+      return null;
+    }
+    return record as unknown as StaticStudyPlanCatalog;
   } catch {
     return null;
   }
