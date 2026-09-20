@@ -1,0 +1,55 @@
+name: Supabase-backed page load test
+
+on:
+  push:
+    branches:
+      - 'ops/page-supabase-load-*'
+    paths:
+      - '.github/page-supabase-load-trigger'
+      - '.github/workflows/load-test-supabase-pages.yml'
+      - 'scripts/page-load-run.mjs'
+      - 'scripts/exam-load-prepare.mjs'
+      - 'scripts/exam-load-cleanup.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: royal-supabase-page-production-load
+  cancel-in-progress: false
+
+jobs:
+  page-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      TARGET_URL: https://royal-bank-five.vercel.app
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_p3T4sz4VpnWVuhjFgT1kwQ_b3mWaoO9
+      LOAD_USER_COUNT: 60
+      LOAD_AUTH_PACING_MS: 1400
+      PAGE_LOAD_RATES: 2,5,10,20
+      PAGE_LOAD_DURATION_SECONDS: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prepare isolated authenticated users
+        run: node scripts/exam-load-prepare.mjs
+      - name: Load-test Supabase-backed pages
+        run: node scripts/page-load-run.mjs
+      - name: Cleanup isolated users
+        if: always()
+        run: node scripts/exam-load-cleanup.mjs
+      - name: Upload sanitized page measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-page-load-results
+          path: page-load-results.json
+          retention-days: 7
