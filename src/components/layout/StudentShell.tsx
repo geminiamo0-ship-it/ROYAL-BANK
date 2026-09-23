@@ -19,6 +19,7 @@ export function StudentShell({
 }: StudentShellProps) {
   const pathname = usePathname();
   const isExamRoute = pathname.startsWith('/exam/');
+  const isStudyPlanRoute = pathname.includes('/study-plan');
 
   if (isExamRoute) {
     return (
@@ -30,14 +31,14 @@ export function StudentShell({
   }
 
   return (
-    <div className="royal-app-shell flex min-h-screen bg-[#282828] text-white">
+    <div className={`royal-app-shell flex min-h-screen ${isStudyPlanRoute ? 'study-plan-shell' : 'bg-[#282828] text-white'}`}>
       <ExamRateLimitNotice />
       <PassMedicineSidebar currentPathwayName="MRCP Part 1" />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <StudentHeader userEmail={userEmail} userName={userName} />
 
-        <main className="flex-1 overflow-y-auto px-4 pb-8 pt-4">
+        <main className={isStudyPlanRoute ? 'study-plan-main flex-1 overflow-y-auto' : 'flex-1 overflow-y-auto px-4 pb-8 pt-4'}>
           {children}
         </main>
       </div>

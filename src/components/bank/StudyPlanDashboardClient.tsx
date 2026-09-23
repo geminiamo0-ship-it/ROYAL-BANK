@@ -2,18 +2,18 @@
 
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowRight,
+  BarChart3,
   BookOpen,
   CalendarDays,
   Check,
   CircleAlert,
-  Clock3,
   Pencil,
   Play,
   RefreshCw,
-  Sparkles,
+  Target,
 } from 'lucide-react';
 import {
   linkStudyPlanSessionAction,
@@ -24,6 +24,8 @@ import { startExamSession } from '@/lib/exam-launch';
 import { encodeTopicFilter } from '@/lib/topic-filters';
 import type { ActiveStudyPlan, StudyPlanDashboard, StudyPlanTask } from '@/lib/study-plan';
 
+const DAY_MS = 86_400_000;
+
 function localDateKey(date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -31,30 +33,86 @@ function localDateKey(date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+function dateFromKey(value: string): Date {
+  return new Date(`${value}T12:00:00`);
+}
+
+function addDays(value: string, amount: number): string {
+  const date = dateFromKey(value);
+  date.setDate(date.getDate() + amount);
+  return localDateKey(date);
+}
+
 function prettyDate(value: string): string {
-  const date = new Date(`${value}T12:00:00`);
-  return new Intl.DateTimeFormat('en', { weekday: 'short', month: 'short', day: 'numeric' }).format(date);
+  return new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(dateFromKey(value));
+}
+
+function monthLabel(date: Date): string {
+  return new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(date);
 }
 
 function planStatusCopy(status: ActiveStudyPlan['status']) {
-  if (status === 'behind') {
-    return { label: 'Behind', className: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/35 dark:text-rose-300' };
-  }
-  if (status === 'ahead') {
-    return { label: 'Ahead', className: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/35 dark:text-emerald-300' };
-  }
-  return { label: 'On track', className: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300' };
+  if (status === 'behind') return { label: 'Behind', tone: 'danger' };
+  if (status === 'ahead') return { label: 'Ahead', tone: 'success' };
+  return { label: 'On track', tone: 'success' };
 }
 
-function getUpcomingGroups(tasks: StudyPlanTask[], today: string): Array<[string, StudyPlanTask[]]> {
-  const grouped = new Map<string, StudyPlanTask[]>();
+function mondayOfWeek(value: string): string {
+  const date = dateFromKey(value);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return localDateKey(date);
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function buildCalendar(monthDate: Date): Array<{ key: string; day: number; currentMonth: boolean }> {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const first = new Date(year, month, 1, 12);
+  const mondayOffset = (first.getDay() + 6) % 7;
+  const start = new Date(year, month, 1 - mondayOffset, 12);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return {
+      key: localDateKey(date),
+      day: date.getDate(),
+      currentMonth: date.getMonth() === month,
+    };
+  });
+}
+
+function computeDayStreak(tasks: StudyPlanTask[], today: string): number {
+  const byDate = new Map<string, StudyPlanTask[]>();
   for (const task of tasks) {
-    if (task.scheduledDate < today || task.status === 'completed') continue;
-    const list = grouped.get(task.scheduledDate) ?? [];
-    list.push(task);
-    grouped.set(task.scheduledDate, list);
+    if (task.scheduledDate > today) continue;
+    const rows = byDate.get(task.scheduledDate) ?? [];
+    rows.push(task);
+    byDate.set(task.scheduledDate, rows);
   }
-  return Array.from(grouped.entries()).slice(0, 10);
+
+  let cursor = today;
+  if ((byDate.get(cursor) ?? []).some((task) => task.status !== 'completed')) {
+    cursor = addDays(cursor, -1);
+  }
+
+  let streak = 0;
+  for (let guard = 0; guard < 365; guard += 1) {
+    const rows = byDate.get(cursor);
+    if (!rows || rows.length === 0 || rows.some((task) => task.status !== 'completed')) break;
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
 }
 
 export function StudyPlanDashboardClient({
@@ -73,45 +131,30 @@ export function StudyPlanDashboardClient({
   if (!plan) {
     const topicCount = initialDashboard.catalog?.topicCount ?? 0;
     return (
-      <div className="mx-auto max-w-[1048px] pb-16">
-        <section className="overflow-hidden rounded-2xl border border-[#d8d1c2] bg-[#fffdf8] shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <div className="grid gap-8 px-6 py-9 md:grid-cols-[1.35fr_0.65fr] md:px-10 md:py-12">
-            <div>
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#d7c49a] bg-[#f5eddc] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6c5630] dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-300">
-                <Sparkles className="h-3.5 w-3.5" /> Preparation Progress
-              </div>
-              <h1 className="max-w-2xl text-3xl font-semibold tracking-[-0.04em] text-[#172238] dark:text-white sm:text-4xl">
-                Turn the whole bank into a plan you can actually finish.
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-                Royal schedules topics — not arbitrary question quotas — around your exam date, study week and university commitments.
-              </p>
-              <div className="mt-7 flex flex-wrap items-center gap-3">
-                <Link
-                  href={`/bank/${bankId}/study-plan/create`}
-                  aria-disabled={topicCount === 0}
-                  className={`inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold transition ${
-                    topicCount > 0
-                      ? 'bg-[#172238] text-white hover:bg-[#24324f] dark:bg-[#d6b76b] dark:text-slate-950 dark:hover:bg-[#e1c57f]'
-                      : 'pointer-events-none bg-slate-200 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
-                  }`}
-                >
-                  Create Study Plan <ArrowRight className="h-4 w-4" />
-                </Link>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {topicCount > 0 ? `${topicCount.toLocaleString()} topics ready to schedule` : 'Waiting for question topics to be uploaded'}
-                </span>
-              </div>
+      <div className="study-plan-premium study-plan-empty">
+        <section className="sp-empty-card">
+          <div>
+            <span className="sp-kicker">Study Plan</span>
+            <h1>Build a plan that finishes with you.</h1>
+            <p>
+              Royal schedules the bank by topic around your exam date, available study days and university commitments.
+            </p>
+            <div className="sp-empty-actions">
+              <Link
+                href={`/bank/${bankId}/study-plan/create`}
+                aria-disabled={topicCount === 0}
+                className={topicCount > 0 ? 'sp-primary-button' : 'sp-primary-button is-disabled'}
+              >
+                Create Study Plan
+              </Link>
+              <span>{topicCount.toLocaleString()} topics ready to schedule</span>
             </div>
-
-            <div className="rounded-2xl border border-[#e6dfd1] bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">How it works</p>
-              <div className="mt-4 space-y-4 text-sm text-slate-700 dark:text-slate-200">
-                <div className="flex gap-3"><span className="font-semibold text-[#a17c35]">01</span><span>Set your exam date and real study days.</span></div>
-                <div className="flex gap-3"><span className="font-semibold text-[#a17c35]">02</span><span>Pause or reduce load around university exams.</span></div>
-                <div className="flex gap-3"><span className="font-semibold text-[#a17c35]">03</span><span>Prioritise categories; Royal distributes the remaining topics.</span></div>
-              </div>
-            </div>
+          </div>
+          <div className="sp-empty-note">
+            <strong>Royal method</strong>
+            <span>Plan by topic.</span>
+            <span>Practice from the live QBank.</span>
+            <span>Rebalance when life gets in the way.</span>
           </div>
         </section>
       </div>
@@ -120,9 +163,39 @@ export function StudyPlanDashboardClient({
 
   const today = localDateKey();
   const todayTasks = plan.tasks.filter((task) => task.scheduledDate === today);
+  const visibleTodayTasks = todayTasks.slice(0, 3);
   const overdue = plan.tasks.filter((task) => task.status === 'pending' && task.scheduledDate < today);
-  const upcomingGroups = getUpcomingGroups(plan.tasks, today);
   const status = planStatusCopy(plan.status);
+  const remainingTopics = Math.max(0, plan.totalTopics - plan.completedTopics);
+  const examDaysRemaining = Math.max(0, Math.ceil((dateFromKey(plan.examDate).getTime() - dateFromKey(today).getTime()) / DAY_MS));
+
+  const totalBankQuestions =
+    initialDashboard.catalog?.categories.reduce(
+      (sum, category) => sum + category.topics.reduce((topicSum, topic) => topicSum + topic.questionCount, 0),
+      0,
+    ) ?? 0;
+  const qbankRemaining = Math.max(0, totalBankQuestions - plan.questionsPracticed);
+  const qbankRemainingPct = totalBankQuestions > 0 ? clampPercent((qbankRemaining / totalBankQuestions) * 100) : 0;
+
+  const weekStart = mondayOfWeek(today);
+  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const weekTasks = plan.tasks.filter((task) => task.scheduledDate >= weekStart && task.scheduledDate <= addDays(weekStart, 6));
+  const weekCompleted = weekTasks.filter((task) => task.status === 'completed').length;
+  const weeklyProgress = weekTasks.length > 0 ? clampPercent((weekCompleted / weekTasks.length) * 100) : 0;
+  const dayStreak = computeDayStreak(plan.tasks, today);
+
+  const monthDate = dateFromKey(today);
+  const calendarDays = buildCalendar(monthDate);
+  const taskMap = new Map<string, StudyPlanTask[]>();
+  for (const task of plan.tasks) {
+    const rows = taskMap.get(task.scheduledDate) ?? [];
+    rows.push(task);
+    taskMap.set(task.scheduledDate, rows);
+  }
+
+  const topCategories = [...plan.categories]
+    .sort((a, b) => (b.total - b.completed) - (a.total - a.completed))
+    .slice(0, 5);
 
   const markComplete = (task: StudyPlanTask) => {
     setBusyTaskId(task.id);
@@ -179,72 +252,80 @@ export function StudyPlanDashboardClient({
   };
 
   return (
-    <div className="mx-auto max-w-[1048px] space-y-5 pb-16 text-slate-900 dark:text-white">
-      <section className="rounded-2xl border border-[#ded6c7] bg-[#fffdf8] p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-7">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${status.className}`}>{status.label}</span>
-              <span className="text-xs text-slate-500 dark:text-slate-400">Exam {prettyDate(plan.examDate)}</span>
-            </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-[-0.035em] text-[#172238] dark:text-white">Preparation Progress</h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {plan.completedTopics.toLocaleString()} of {plan.totalTopics.toLocaleString()} topics completed
-            </p>
-          </div>
-          <Link
-            href={`/bank/${bankId}/study-plan/create?edit=1`}
-            className="inline-flex h-9 items-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            <Pencil className="h-3.5 w-3.5" /> Edit plan
+    <div className="study-plan-premium">
+      <header className="sp-page-header">
+        <div>
+          <h1>Study Plan</h1>
+          <p><strong>MRCP Part 1</strong><span>•</span>Exam in <strong>{examDaysRemaining} days</strong></p>
+        </div>
+        <div className="sp-header-right">
+          <blockquote>“A calmer mind. A brighter future.”</blockquote>
+          <Link href={`/bank/${bankId}/study-plan/create?edit=1`} className="sp-edit-button">
+            <Pencil aria-hidden="true" /> Edit plan
           </Link>
         </div>
-        <div className="mt-6 h-2 overflow-hidden rounded-full bg-[#ece7dc] dark:bg-slate-800">
-          <div className="h-full rounded-full bg-[#b58a3d] transition-all" style={{ width: `${Math.min(100, Math.max(0, plan.progress))}%` }} />
+      </header>
+
+      <section className="sp-progress-card">
+        <div className="sp-status-block">
+          <Target aria-hidden="true" />
+          <div>
+            <span className="sp-eyebrow">Plan status</span>
+            <span className={`sp-status-pill ${status.tone}`}>{status.label}</span>
+            <small>Keep the pace steady.</small>
+          </div>
         </div>
-        <div className="mt-2 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
-          <span>{plan.progress}% complete</span>
-          <span>{Math.max(0, plan.totalTopics - plan.completedTopics)} topics remaining</span>
+
+        <div className="sp-progress-block">
+          <div className="sp-progress-row">
+            <div className="sp-progress-copy">
+              <span>Topics completed</span>
+              <strong>{plan.completedTopics.toLocaleString()} <em>/ {plan.totalTopics.toLocaleString()}</em></strong>
+            </div>
+            <div className="sp-progress-track"><i style={{ width: `${clampPercent(plan.progress)}%` }} /></div>
+            <b>{clampPercent(plan.progress)}%</b>
+          </div>
+          <div className="sp-progress-row secondary">
+            <div className="sp-progress-copy">
+              <span>Question bank remaining</span>
+              <strong>{qbankRemaining.toLocaleString()} <em>questions</em></strong>
+            </div>
+            <div className="sp-progress-track"><i style={{ width: `${qbankRemainingPct}%` }} /></div>
+            <b>{qbankRemainingPct}% remaining</b>
+          </div>
+        </div>
+
+        <div className="sp-top-metrics">
+          <Metric value={remainingTopics.toLocaleString()} label="Topics remaining" />
+          <Metric value={todayTasks.filter((task) => task.status !== 'completed').length.toString()} label="Topics today" />
+          <Metric value={examDaysRemaining.toString()} label="Days remaining" />
         </div>
       </section>
 
-      {error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">{error}</div>
-      ) : null}
+      {error ? <div className="sp-error">{error}</div> : null}
 
       {overdue.length > 0 ? (
-        <section className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/25 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
-            <CircleAlert className="mt-0.5 h-4 w-4 text-amber-700 dark:text-amber-300" />
-            <div>
-              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">{overdue.length} overdue {overdue.length === 1 ? 'topic' : 'topics'}</p>
-              <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-300/80">
-                {plan.missedStrategy === 'next_free_day' ? 'Move them to the next empty study days; redistribute if none are available.' : 'Redistribute them across the remaining study days.'}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={rebalance}
-            disabled={isPending}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-amber-900 px-3 text-xs font-semibold text-white disabled:opacity-60 dark:bg-amber-300 dark:text-amber-950"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isPending ? 'animate-spin' : ''}`} /> Rebalance
+        <div className="sp-overdue">
+          <CircleAlert aria-hidden="true" />
+          <span><strong>{overdue.length} overdue {overdue.length === 1 ? 'topic' : 'topics'}</strong> — rebalance them across your remaining study days.</span>
+          <button type="button" onClick={rebalance} disabled={isPending}>
+            <RefreshCw className={isPending ? 'spin' : ''} /> Rebalance
           </button>
-        </section>
+        </div>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[1.55fr_0.75fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <Clock3 className="h-4 w-4 text-[#a17c35]" />
-              <h2 className="text-sm font-semibold">Today&apos;s Plan</h2>
+      <div className="sp-primary-grid">
+        <section className="sp-card sp-today-card">
+          <div className="sp-card-head">
+            <div>
+              <h2>Today</h2>
+              <p>{todayTasks.length} topics planned · Keep going.</p>
             </div>
-            <p className="mt-1 text-xs text-slate-500">{prettyDate(today)}</p>
+            <span>{prettyDate(today)}</span>
           </div>
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {todayTasks.length > 0 ? todayTasks.map((task) => (
+
+          <div className="sp-task-list">
+            {visibleTodayTasks.length > 0 ? visibleTodayTasks.map((task) => (
               <TaskRow
                 key={task.id}
                 bankId={bankId}
@@ -254,57 +335,130 @@ export function StudyPlanDashboardClient({
                 onComplete={() => markComplete(task)}
               />
             )) : (
-              <div className="px-5 py-9 text-center">
-                <Check className="mx-auto h-6 w-6 text-emerald-500" />
-                <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">No topics scheduled for today</p>
-                <p className="mt-1 text-xs text-slate-500">Use the space to review, catch up, or take the day off.</p>
+              <div className="sp-empty-today">
+                <Check />
+                <strong>No topics scheduled today</strong>
+                <span>Use the space to review or rest.</span>
               </div>
             )}
           </div>
+
+          <div className="sp-card-foot">
+            <span>{todayTasks.length > 3 ? `+${todayTasks.length - 3} more topic${todayTasks.length - 3 === 1 ? '' : 's'} today` : 'Stay consistent, not crowded.'}</span>
+          </div>
         </section>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-          <MetricCard label="Questions Practiced" value={plan.questionsPracticed.toLocaleString()} note="Across this question bank" icon={<Play className="h-4 w-4" />} />
-          <MetricCard label="QBank Accuracy" value={`${plan.qbankAccuracy}%`} note="From your answered questions" icon={<Check className="h-4 w-4" />} />
-        </div>
+        <section className="sp-card sp-week-card">
+          <div className="sp-card-head">
+            <div>
+              <h2>This Week</h2>
+              <p>{weekTasks.length} topics · {weekDays.filter((day) => (taskMap.get(day) ?? []).length === 0).length} rest days</p>
+            </div>
+            <span>Week view</span>
+          </div>
+
+          <div className="sp-week-strip">
+            {weekDays.map((day) => {
+              const tasks = taskMap.get(day) ?? [];
+              const completed = tasks.filter((task) => task.status === 'completed').length;
+              return (
+                <div key={day} className={`sp-week-day ${day === today ? 'today' : ''}`}>
+                  <b>{new Intl.DateTimeFormat('en', { weekday: 'short' }).format(dateFromKey(day))}</b>
+                  <span>{new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(dateFromKey(day))}</span>
+                  <div className="sp-week-ring">
+                    {tasks.length === 0 ? <i className="rest" /> : <i style={{ '--p': `${Math.round((completed / tasks.length) * 100)}%` } as CSSProperties} />}
+                  </div>
+                  <small>{tasks.length === 0 ? 'Rest' : `${completed}/${tasks.length}`}</small>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="sp-week-stats">
+            <MiniStat value={`${weekCompleted} / ${weekTasks.length}`} label="Topics this week" icon={<Target />} />
+            <MiniStat value={`${weeklyProgress}%`} label="Weekly target" icon={<BarChart3 />} />
+            <MiniStat value={dayStreak.toString()} label="Day streak" icon={<Check />} />
+          </div>
+          {overdue.length > 0 ? <div className="sp-week-overdue">{overdue.length} overdue topic{overdue.length === 1 ? '' : 's'}</div> : null}
+        </section>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <h2 className="text-sm font-semibold">Category progress</h2>
-          <div className="mt-4 space-y-4">
-            {plan.categories.map((category) => (
-              <div key={category.category}>
-                <div className="flex items-center justify-between gap-3 text-xs">
-                  <span className="font-medium text-slate-700 dark:text-slate-200">{category.category}</span>
-                  <span className="text-slate-400">{category.completed}/{category.total} topics</span>
-                </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                  <div className="h-full rounded-full bg-[#b58a3d]" style={{ width: `${Math.min(100, Math.max(0, category.progress))}%` }} />
-                </div>
+      <div className="sp-secondary-grid">
+        <section className="sp-card sp-subject-card">
+          <div className="sp-card-head">
+            <div>
+              <h2>Subject Progress</h2>
+              <p>Coverage across your plan.</p>
+            </div>
+            <span>Top priorities</span>
+          </div>
+          <div className="sp-subject-list">
+            {topCategories.map((category) => (
+              <div key={category.category} className="sp-subject-row">
+                <span title={category.category}>{category.category}</span>
+                <div className="sp-subject-track"><i style={{ width: `${clampPercent(category.progress)}%` }} /></div>
+                <strong>{category.completed}/{category.total}</strong>
+                <b>{clampPercent(category.progress)}%</b>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-[#a17c35]" /><h2 className="text-sm font-semibold">Calendar</h2></div>
-            <span className="text-[11px] text-slate-400">Upcoming</span>
+        <section className="sp-card sp-calendar-card">
+          <div className="sp-card-head">
+            <div>
+              <h2>Schedule</h2>
+              <p>Your study plan at a glance.</p>
+            </div>
+            <span>{monthLabel(monthDate)}</span>
           </div>
-          <div className="mt-4 space-y-3">
-            {upcomingGroups.length > 0 ? upcomingGroups.map(([date, tasks]) => (
-              <div key={date} className="flex gap-3 border-b border-slate-100 pb-3 last:border-0 dark:border-slate-800">
-                <div className="w-20 shrink-0 text-xs font-semibold text-slate-500">{date === today ? 'Today' : prettyDate(date)}</div>
-                <div className="min-w-0 space-y-1">
-                  {tasks.slice(0, 3).map((task) => <p key={task.id} className="truncate text-xs text-slate-700 dark:text-slate-200">{task.topic}</p>)}
-                  {tasks.length > 3 ? <p className="text-[11px] text-slate-400">+{tasks.length - 3} more</p> : null}
-                </div>
-              </div>
-            )) : <p className="py-6 text-center text-xs text-slate-400">No upcoming topics.</p>}
+
+          <div className="sp-calendar">
+            <div className="sp-calendar-weekdays">
+              {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day) => <span key={day}>{day}</span>)}
+            </div>
+            <div className="sp-calendar-grid">
+              {calendarDays.map((cell) => {
+                const tasks = taskMap.get(cell.key) ?? [];
+                const allCompleted = tasks.length > 0 && tasks.every((task) => task.status === 'completed');
+                const planned = tasks.length > 0 && !allCompleted;
+                const inPlan = cell.key >= plan.startDate && cell.key < plan.examDate;
+                const state = allCompleted ? 'completed' : planned ? 'planned' : inPlan ? 'rest' : 'none';
+                return (
+                  <div key={cell.key} className={`sp-calendar-day ${cell.currentMonth ? '' : 'muted'} ${cell.key === today ? 'selected' : ''}`}>
+                    <span>{cell.day}</span>
+                    <i className={state} />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="sp-calendar-legend">
+              <span><i className="completed" />Completed</span>
+              <span><i className="planned" />Planned</span>
+              <span><i className="rest" />Rest day</span>
+              <span><i className="none" />No study</span>
+            </div>
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+function Metric({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="sp-metric">
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function MiniStat({ value, label, icon }: { value: string; label: string; icon: ReactNode }) {
+  return (
+    <div className="sp-mini-stat">
+      {icon}
+      <div><strong>{value}</strong><span>{label}</span></div>
     </div>
   );
 }
@@ -323,57 +477,47 @@ function TaskRow({
   onComplete: () => void;
 }) {
   const completed = task.status === 'completed';
+
   return (
-    <div className="px-5 py-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className={`text-sm font-semibold ${completed ? 'text-slate-400 line-through' : 'text-slate-900 dark:text-white'}`}>{task.topic}</h3>
-            {completed ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/35 dark:text-emerald-300">Completed</span> : null}
-          </div>
-          <p className="mt-1 text-xs text-slate-500">{task.category} · {task.questionCount.toLocaleString()} linked questions</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {task.articleId ? (
-            <Link
-              href={`/bank/${bankId}/textbook/high-yield/${encodeURIComponent(task.articleId)}`}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
-            >
-              <BookOpen className="h-3.5 w-3.5" /> Study Topic
-            </Link>
-          ) : null}
-          {!completed ? (
-            <>
-              <button
-                type="button"
-                onClick={onStart}
-                disabled={busy || task.questionCount <= 0}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#172238] px-3 text-[11px] font-semibold text-white hover:bg-[#24324f] disabled:opacity-50 dark:bg-[#d6b76b] dark:text-slate-950"
-              >
-                <Play className="h-3.5 w-3.5" /> {busy ? 'Starting…' : 'Create Session'}
-              </button>
-              <button
-                type="button"
-                onClick={onComplete}
-                disabled={busy}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
-              >
-                <Check className="h-3.5 w-3.5" /> Mark Complete
-              </button>
-            </>
-          ) : null}
-        </div>
+    <div className={`sp-task-row ${completed ? 'completed' : ''}`}>
+      <button
+        type="button"
+        className="sp-task-check"
+        aria-label={completed ? 'Topic completed' : `Mark ${task.topic} complete`}
+        onClick={completed ? undefined : onComplete}
+        disabled={completed || busy}
+      >
+        {completed ? <Check /> : null}
+      </button>
+
+      <div className="sp-task-main">
+        <strong>{task.topic}</strong>
+        <div><span>{task.category}</span><small>{task.questionCount.toLocaleString()} questions</small></div>
+      </div>
+
+      <div className="sp-task-actions">
+        {task.articleId ? (
+          <Link
+            href={`/bank/${bankId}/textbook/high-yield/${encodeURIComponent(task.articleId)}`}
+            className="sp-study-button"
+          >
+            <BookOpen /> Study
+          </Link>
+        ) : (
+          <button className="sp-study-button" type="button" disabled><BookOpen /> Study</button>
+        )}
+
+        {!completed ? (
+          <button
+            type="button"
+            className="sp-practice-button"
+            onClick={onStart}
+            disabled={busy || task.questionCount <= 0}
+          >
+            <Play /> {busy ? 'Starting…' : 'Practice'}
+          </button>
+        ) : null}
       </div>
     </div>
-  );
-}
-
-function MetricCard({ label, value, note, icon }: { label: string; value: string; note: string; icon: React.ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-      <div className="flex items-center gap-2 text-slate-400">{icon}<span className="text-[11px] font-semibold uppercase tracking-[0.12em]">{label}</span></div>
-      <div className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-[#172238] dark:text-white">{value}</div>
-      <p className="mt-1 text-[11px] text-slate-400">{note}</p>
-    </section>
   );
 }
