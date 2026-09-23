@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   BarChart3,
@@ -365,7 +366,7 @@ export function StudyPlanDashboardClient({
                   <b>{new Intl.DateTimeFormat('en', { weekday: 'short' }).format(dateFromKey(day))}</b>
                   <span>{new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(dateFromKey(day))}</span>
                   <div className="sp-week-ring">
-                    {tasks.length === 0 ? <i className="rest" /> : <i style={{ '--p': `${Math.round((completed / tasks.length) * 100)}%` } as React.CSSProperties} />}
+                    {tasks.length === 0 ? <i className="rest" /> : <i style={{ '--p': `${Math.round((completed / tasks.length) * 100)}%` } as CSSProperties} />}
                   </div>
                   <small>{tasks.length === 0 ? 'Rest' : `${completed}/${tasks.length}`}</small>
                 </div>
@@ -453,7 +454,7 @@ function Metric({ value, label }: { value: string; label: string }) {
   );
 }
 
-function MiniStat({ value, label, icon }: { value: string; label: string; icon: React.ReactNode }) {
+function MiniStat({ value, label, icon }: { value: string; label: string; icon: ReactNode }) {
   return (
     <div className="sp-mini-stat">
       {icon}
