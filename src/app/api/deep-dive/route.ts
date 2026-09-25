@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getSupabaseServerConfig } from '@/lib/supabase/env';
 import { getRoyalSupportTelegramUrl } from '@/lib/royal-support';
 
 export const runtime = 'nodejs';
@@ -9,6 +10,8 @@ const MAX_BODY_BYTES = 8 * 1024;
 const EDGE_TIMEOUT_MS = 55_000;
 const DEV_EDGE_URL = 'https://royal-bank-v2-exam.geminiamo0.workers.dev';
 const PROD_EDGE_URL = 'https://royal-bank-exam-production.geminiamo0.workers.dev';
+const PROD_SUPABASE_PROJECT_REF = 'trnvsgenmzhyuayxxdoq';
+const DEV_SUPABASE_PROJECT_REF = 'dcttiqdrsvkufzjahjzw';
 
 function jsonError(status: number, code: string, message: string) {
   return Response.json(
@@ -24,7 +27,16 @@ function jsonError(status: number, code: string, message: string) {
 }
 
 function edgeBaseUrl(): URL | null {
-  const fallback = process.env.VERCEL_ENV === 'production' ? PROD_EDGE_URL : DEV_EDGE_URL;
+  const { url: supabaseUrl } = getSupabaseServerConfig();
+  const normalizedSupabaseUrl = supabaseUrl.toLowerCase();
+  const fallback =
+    normalizedSupabaseUrl.includes(PROD_SUPABASE_PROJECT_REF)
+      ? PROD_EDGE_URL
+      : normalizedSupabaseUrl.includes(DEV_SUPABASE_PROJECT_REF)
+        ? DEV_EDGE_URL
+        : process.env.VERCEL_ENV === 'production'
+          ? PROD_EDGE_URL
+          : DEV_EDGE_URL;
   const raw =
     process.env.ROYAL_DEEP_DIVE_EDGE_URL?.trim()
     || process.env.ROYAL_EXAM_EDGE_URL?.trim()
