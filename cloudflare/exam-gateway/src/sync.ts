@@ -38,6 +38,7 @@ async function syncAiUsageEvents(env: Env, secretKey: string, events: ExamSyncEv
     cache_hit: event.payload.cache_hit === true,
     input_tokens: numberOrZero(event.payload.input_tokens),
     output_tokens: numberOrZero(event.payload.output_tokens),
+    cost_usd: numberOrZero(event.payload.cost_usd),
     latency_ms: numberOrZero(event.payload.latency_ms),
     occurred_at: event.occurred_at,
   }));
