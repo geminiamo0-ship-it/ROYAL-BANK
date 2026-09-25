@@ -6,26 +6,31 @@ import {
   type RevisionR2Feedback,
   type RevisionR2Question,
 } from '@/lib/exam-r2-content';
-import { createClient } from '@/lib/supabase/server';
 import { requireSupabaseServerConfig } from '@/lib/supabase/env';
+import { createClient } from '@/lib/supabase/server';
 import { readStaticBankSelectionIndex } from '@/lib/ui-static-r2';
 
 export type RevisionStatusFilter = 'all' | 'incorrect' | 'correct' | 'flagged';
-export type RevisionSort = 'date' | 'alpha';
 export type RevisionDifficultyFilter = 'all' | '1' | '2' | '3';
 
 export interface RevisionFilters {
   status: RevisionStatusFilter;
   category: string | null;
+  topic: string | null;
   difficulty: RevisionDifficultyFilter;
   q: string;
-  sort: RevisionSort;
   page: number;
+}
+
+export interface RevisionTopicFilter {
+  name: string;
+  count: number;
 }
 
 export interface RevisionCategoryFilter {
   name: string;
   count: number;
+  topics: RevisionTopicFilter[];
 }
 
 export interface RevisionListItem {
@@ -88,6 +93,9 @@ type RevisionRpcRow = {
   test_session_id: string | null;
   content_release_id: string | null;
   source: 'legacy' | 'edge';
+  category: string | null;
+  topic: string | null;
+  difficulty: string | null;
 };
 
 type RevisionBaseRow = {
@@ -104,7 +112,7 @@ type RevisionBaseRow = {
   source: 'legacy' | 'edge';
 };
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 10;
 
 function plainText(html: string): string {
   return html
@@ -126,20 +134,19 @@ function clampPage(value: number): number {
 }
 
 export function normalizeRevisionFilters(
-  input: Partial<Record<'status' | 'category' | 'difficulty' | 'q' | 'sort' | 'page', string | string[] | undefined>>,
+  input: Partial<Record<'status' | 'category' | 'topic' | 'difficulty' | 'q' | 'page', string | string[] | undefined>>,
 ): RevisionFilters {
   const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
   const statusRaw = first(input.status);
   const difficultyRaw = first(input.difficulty);
-  const sortRaw = first(input.sort);
   const pageRaw = Number(first(input.page) || 1);
 
   return {
     status: statusRaw === 'incorrect' || statusRaw === 'correct' || statusRaw === 'flagged' ? statusRaw : 'all',
     category: first(input.category)?.trim() || null,
+    topic: first(input.topic)?.trim() || null,
     difficulty: difficultyRaw === '1' || difficultyRaw === '2' || difficultyRaw === '3' ? difficultyRaw : 'all',
     q: (first(input.q) || '').trim().slice(0, 120),
-    sort: sortRaw === 'alpha' ? 'alpha' : 'date',
     page: clampPage(pageRaw),
   };
 }
@@ -165,30 +172,22 @@ async function getRevisionBaseRows(bankId: number): Promise<RevisionBaseRow[]> {
     readStaticBankSelectionIndex(bankId),
   ]);
 
-  const metadata = new Map(
-    (selectionIndex?.questions || []).map((question) => [question.id, question]),
-  );
-
-  return rpcRows.map((row) => {
-    const questionId = Number(row.question_id);
-    const meta = metadata.get(questionId);
-    return {
-      questionId,
-      category: meta?.category || 'Uncategorized',
-      topic: meta?.topic || null,
-      difficulty: meta?.difficulty || '1',
-      selectedOptionId:
-        row.selected_option_id == null || !Number.isSafeInteger(Number(row.selected_option_id))
-          ? null
-          : Number(row.selected_option_id),
-      isCorrect: row.answer_state === 'correct',
-      isFlagged: row.is_flagged === true,
-      answeredAt: row.answered_at || '',
-      contentReleaseId: row.content_release_id || selectionIndex?.release_id || null,
-      testSessionId: row.test_session_id || null,
-      source: row.source === 'edge' ? 'edge' : 'legacy',
-    };
-  });
+  return rpcRows.map((row) => ({
+    questionId: Number(row.question_id),
+    category: row.category?.trim() || 'Uncategorized',
+    topic: row.topic?.trim() || null,
+    difficulty: row.difficulty?.trim() || '1',
+    selectedOptionId:
+      row.selected_option_id == null || !Number.isSafeInteger(Number(row.selected_option_id))
+        ? null
+        : Number(row.selected_option_id),
+    isCorrect: row.answer_state === 'correct',
+    isFlagged: row.is_flagged === true,
+    answeredAt: row.answered_at || '',
+    contentReleaseId: row.content_release_id || selectionIndex?.release_id || null,
+    testSessionId: row.test_session_id || null,
+    source: row.source === 'edge' ? 'edge' : 'legacy',
+  }));
 }
 
 function applyFilters(rows: RevisionBaseRow[], filters: RevisionFilters): RevisionBaseRow[] {
@@ -199,7 +198,9 @@ function applyFilters(rows: RevisionBaseRow[], filters: RevisionFilters): Revisi
     if (filters.status === 'incorrect' && row.isCorrect) return false;
     if (filters.status === 'flagged' && !row.isFlagged) return false;
     if (filters.category && row.category !== filters.category) return false;
+    if (filters.topic && row.topic !== filters.topic) return false;
     if (filters.difficulty !== 'all' && row.difficulty !== filters.difficulty) return false;
+
     if (query) {
       const haystack = `${row.topic || ''} ${row.category} ${row.questionId}`.toLocaleLowerCase();
       if (!haystack.includes(query)) return false;
@@ -208,10 +209,6 @@ function applyFilters(rows: RevisionBaseRow[], filters: RevisionFilters): Revisi
   });
 
   filtered.sort((a, b) => {
-    if (filters.sort === 'alpha') {
-      const first = (a.topic || a.category).localeCompare(b.topic || b.category);
-      return first || a.questionId - b.questionId;
-    }
     const aTime = Date.parse(a.answeredAt);
     const bTime = Date.parse(b.answeredAt);
     const time = (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
@@ -227,12 +224,11 @@ async function hydrateListItems(rows: RevisionBaseRow[]): Promise<RevisionListIt
     const preview = content?.text_html ? plainText(content.text_html) : '';
     return {
       ...row,
-      title: content?.topic || row.topic || `Question ${row.questionId}`,
+      title: row.topic || content?.topic || `Question ${row.questionId}`,
       preview: preview.length > 150 ? `${preview.slice(0, 147)}…` : preview,
     };
   }));
 }
-
 
 type EdgeReviewFeedback = {
   selected_option_id?: number | null;
@@ -276,6 +272,7 @@ async function getEdgeHistoricalAnswer(
     const payload = await response.json() as EdgeReviewFeedback;
     const selectedOptionId = Number(payload.selected_option_id);
     if (!Number.isSafeInteger(selectedOptionId) || selectedOptionId <= 0) return null;
+
     return {
       selectedOptionId,
       isCorrect: typeof payload.is_correct === 'boolean' ? payload.is_correct : null,
@@ -283,6 +280,29 @@ async function getEdgeHistoricalAnswer(
   } catch {
     return null;
   }
+}
+
+function buildCategoryFilters(rows: RevisionBaseRow[]): RevisionCategoryFilter[] {
+  const categories = new Map<string, { count: number; topics: Map<string, number> }>();
+
+  for (const row of rows) {
+    const existing = categories.get(row.category) ?? { count: 0, topics: new Map<string, number>() };
+    existing.count += 1;
+    if (row.topic) {
+      existing.topics.set(row.topic, (existing.topics.get(row.topic) || 0) + 1);
+    }
+    categories.set(row.category, existing);
+  }
+
+  return [...categories.entries()]
+    .map(([name, value]) => ({
+      name,
+      count: value.count,
+      topics: [...value.topics.entries()]
+        .map(([topicName, count]) => ({ name: topicName, count }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getRevisionIndex(bankId: number, filters: RevisionFilters): Promise<RevisionIndex> {
@@ -294,11 +314,6 @@ export async function getRevisionIndex(bankId: number, filters: RevisionFilters)
   const start = (page - 1) * PAGE_SIZE;
   const items = await hydrateListItems(filtered.slice(start, start + PAGE_SIZE));
 
-  const categoryCounts = new Map<string, number>();
-  for (const row of allRows) {
-    categoryCounts.set(row.category, (categoryCounts.get(row.category) || 0) + 1);
-  }
-
   return {
     totals: {
       answered: allRows.length,
@@ -306,9 +321,7 @@ export async function getRevisionIndex(bankId: number, filters: RevisionFilters)
       incorrect: allRows.filter((row) => !row.isCorrect).length,
       flagged: allRows.filter((row) => row.isFlagged).length,
     },
-    categories: [...categoryCounts.entries()]
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    categories: buildCategoryFilters(allRows),
     items,
     totalFiltered,
     page,
@@ -362,6 +375,9 @@ export async function getRevisionQuestion(
 
   return {
     ...row,
+    category: detailRow.category?.trim() || row.category,
+    topic: detailRow.topic?.trim() || row.topic,
+    difficulty: detailRow.difficulty?.trim() || row.difficulty,
     selectedOptionId,
     isCorrect,
     isFlagged: detailRow.is_flagged === true,
