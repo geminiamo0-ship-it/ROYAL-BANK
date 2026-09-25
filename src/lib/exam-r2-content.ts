@@ -25,7 +25,7 @@ export type ExamContentRelease = {
   prefix: string;
 };
 
-export type RevisionRevisionR2Question = {
+export type RevisionR2Question = {
   id: number;
   text_html: string;
   category: string;
@@ -41,7 +41,7 @@ export type RevisionRevisionR2Question = {
   }>;
 };
 
-export type RevisionRevisionR2Feedback = {
+export type RevisionR2Feedback = {
   question_id: number;
   correct_option_id: number;
   option_percentages: Record<string, number>;
