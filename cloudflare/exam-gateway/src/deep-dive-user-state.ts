@@ -367,7 +367,25 @@ export class DeepDiveUserState extends DurableObject<Env> {
         input.threadId,
       )?.count ?? 0,
     );
-    if (followups >= limits.followupLimit) {
+    const pendingRequests = Number(
+      this.one<{ count: number }>(
+        `SELECT COUNT(*) AS count
+         FROM message_requests
+         WHERE thread_id = ? AND assistant_response IS NULL`,
+        input.threadId,
+      )?.count ?? 0,
+    );
+
+    if (pendingRequests > 0) {
+      return {
+        ok: false,
+        code: 'DEEP_DIVE_MESSAGE_PENDING',
+        remainingFollowups: Math.max(0, limits.followupLimit - followups - pendingRequests),
+        followupLimit: limits.followupLimit,
+      };
+    }
+
+    if (followups + pendingRequests >= limits.followupLimit) {
       return {
         ok: false,
         code: 'DEEP_DIVE_FOLLOWUP_LIMIT',
