@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - architecture/cloudflare-exam-v2
       - feat/deep-dive-ai-v1
     paths:
