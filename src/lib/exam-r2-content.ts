@@ -193,7 +193,7 @@ async function hydrateQuestionRefs(
   return questions as RevisionR2Question[];
 }
 
-export async function hydrateExamRevisionR2QuestionIds(
+export async function hydrateExamR2QuestionIds(
   action: 'window' | 'reviewWindow',
   questionIds: number[],
   contentReleaseId: string | null,
