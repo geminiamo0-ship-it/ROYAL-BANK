@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamAnnotationLayer } from '@/components/exam/ExamAnnotationLayer';
 import { MedicalImageGallery } from '@/components/media/MedicalImageGallery';
+import { DeepDiveSheet } from '@/components/exam/DeepDiveSheet';
 import type {
   AnnotationStroke,
   AnnotationSurface,
@@ -18,6 +19,7 @@ import type {
 } from '@/types/exam';
 
 interface WindowedExamQuestionPaneProps {
+  sessionId: string;
   question: ExamClientQuestion;
   currentIndex: number;
   questionCount: number;
@@ -65,6 +67,7 @@ interface WindowedExamQuestionPaneProps {
 }
 
 export function WindowedExamQuestionPane({
+  sessionId,
   question,
   currentIndex,
   questionCount,
@@ -202,9 +205,12 @@ export function WindowedExamQuestionPane({
               className="pm-explanation-container text-[16px] leading-[1.7] text-white"
               onClick={onExplanationClick}
             >
-              {question.topic ? (
-                <h2 className="mb-5 text-[16px] font-semibold text-[#23a7ff]">{question.topic}</h2>
-              ) : null}
+              <div className="mb-5 flex items-center justify-between gap-3">
+                {question.topic ? (
+                  <h2 className="min-w-0 text-[16px] font-semibold text-[#23a7ff]">{question.topic}</h2>
+                ) : <span />}
+                {hasFeedback ? <DeepDiveSheet key={`${sessionId}:${question.id}`} sessionId={sessionId} questionId={question.id} /> : null}
+              </div>
               {hasFeedback ? (
                 <MedicalImageGallery>
                   <div

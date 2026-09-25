@@ -16,14 +16,55 @@ function assertSyncEvent(event: ExamSyncEvent): void {
   }
 }
 
-export async function syncExamEventsToSupabase(env: Env, events: ExamSyncEvent[]): Promise<number> {
+function numberOrZero(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+async function syncAiUsageEvents(env: Env, secretKey: string, events: ExamSyncEvent[]): Promise<number> {
   if (events.length === 0) return 0;
-  if (events.length > MAX_SYNC_BATCH) throw new Error(`Sync batch exceeds ${MAX_SYNC_BATCH} events.`);
-  for (const event of events) assertSyncEvent(event);
 
-  const secretKey = env.SUPABASE_SECRET_KEY?.trim();
-  if (!secretKey) throw new Error('SUPABASE_SECRET_KEY is not configured.');
+  const rows = events.map((event) => ({
+    event_id: event.event_id,
+    user_id: event.user_id,
+    session_id: event.session_id,
+    thread_id: typeof event.payload.thread_id === 'string' ? event.payload.thread_id : null,
+    question_id: Number.isSafeInteger(Number(event.payload.question_id))
+      ? Number(event.payload.question_id)
+      : null,
+    event_type: event.event_type,
+    model: typeof event.payload.model === 'string' ? event.payload.model : null,
+    prompt_version: typeof event.payload.prompt_version === 'string' ? event.payload.prompt_version : null,
+    cache_hit: event.payload.cache_hit === true,
+    input_tokens: numberOrZero(event.payload.input_tokens),
+    output_tokens: numberOrZero(event.payload.output_tokens),
+    cost_usd: numberOrZero(event.payload.cost_usd),
+    latency_ms: numberOrZero(event.payload.latency_ms),
+    occurred_at: event.occurred_at,
+  }));
 
+  const response = await fetch(`${normalizedSupabaseUrl(env)}/rest/v1/ai_usage_events?on_conflict=event_id`, {
+    method: 'POST',
+    headers: {
+      apikey: secretKey,
+      authorization: `Bearer ${secretKey}`,
+      'content-type': 'application/json',
+      accept: 'application/json',
+      prefer: 'resolution=ignore-duplicates,return=minimal',
+      'user-agent': 'royal-bank-ai-sync/1.0',
+    },
+    body: JSON.stringify(rows),
+  });
+
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500);
+    throw new Error(`AI usage sync failed (${response.status}): ${detail}`);
+  }
+  return rows.length;
+}
+
+async function syncExamHistoryEvents(env: Env, secretKey: string, events: ExamSyncEvent[]): Promise<number> {
+  if (events.length === 0) return 0;
   const response = await fetch(`${normalizedSupabaseUrl(env)}/rest/v1/rpc/ingest_edge_exam_sync_batch`, {
     method: 'POST',
     headers: {
@@ -45,4 +86,28 @@ export async function syncExamEventsToSupabase(env: Env, events: ExamSyncEvent[]
     throw new Error('Supabase sync returned an invalid result.');
   }
   return value;
+}
+
+export async function syncExamEventsToSupabase(env: Env, events: ExamSyncEvent[]): Promise<number> {
+  if (events.length === 0) return 0;
+  if (events.length > MAX_SYNC_BATCH) throw new Error(`Sync batch exceeds ${MAX_SYNC_BATCH} events.`);
+  for (const event of events) assertSyncEvent(event);
+
+  const secretKey = env.SUPABASE_SECRET_KEY?.trim();
+  if (!secretKey) throw new Error('SUPABASE_SECRET_KEY is not configured.');
+
+  const aiEvents = events.filter((event) => event.event_type.startsWith('ai.'));
+  const examEvents = events.filter((event) => !event.event_type.startsWith('ai.'));
+
+  // Exam history is correctness-critical and retains the queue retry semantics.
+  // AI telemetry is observability-only: never let an analytics write failure
+  // delay or replay exam history events.
+  const examCount = await syncExamHistoryEvents(env, secretKey, examEvents);
+  let aiCount = 0;
+  try {
+    aiCount = await syncAiUsageEvents(env, secretKey, aiEvents);
+  } catch (error) {
+    console.error('AI_USAGE_TELEMETRY_DROPPED', error);
+  }
+  return examCount + aiCount;
 }

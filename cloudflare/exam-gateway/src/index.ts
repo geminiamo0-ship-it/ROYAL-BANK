@@ -1,8 +1,12 @@
 import { userCanAccessBank, verifySupabaseAccessToken } from './auth';
 import { parseGatewayRequest } from './contracts';
+import { handleDeepDiveEntitlementAdmin, handleDeepDiveRequest } from './deep-dive-router';
 import type { ExamSyncEvent } from './env';
 import { syncExamEventsToSupabase } from './sync';
 export { UserExamState } from './user-exam-state';
+export { DeepDiveUserState } from './deep-dive-user-state';
+export { DeepDiveCache } from './deep-dive-cache';
+export { DeepDiveConfigState } from './deep-dive-config-state';
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, {
@@ -49,7 +53,7 @@ function bearer(request: Request): string | null {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const requestStarted = performance.now();
     let jwtVerifyMs = 0;
     let bankAccessMs = 0;
@@ -62,9 +66,18 @@ export default {
         service: env.SERVICE_NAME || 'royal-bank-exam',
         environment: env.APP_ENV,
         supabase_project_ref: env.SUPABASE_PROJECT_REF,
+        deep_dive: {
+          configured: Boolean(env.OPENROUTER_API_KEY?.trim()),
+          default_model: 'deepseek/deepseek-v4.1-flash',
+          version: 1,
+        },
       });
     }
-    if (request.method !== 'POST' || url.pathname !== '/exam') {
+    const isExamRequest = request.method === 'POST' && url.pathname === '/exam';
+    const isDeepDiveRequest = request.method === 'POST' && url.pathname === '/deep-dive';
+    const isDeepDiveAdminRequest =
+      request.method === 'POST' && url.pathname === '/deep-dive/admin/entitlement';
+    if (!isExamRequest && !isDeepDiveRequest && !isDeepDiveAdminRequest) {
       return json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
     }
 
@@ -78,6 +91,13 @@ export default {
       jwtVerifyMs = performance.now() - jwtStarted;
     } catch {
       return json({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required.' } }, 401);
+    }
+
+    if (isDeepDiveRequest) {
+      return handleDeepDiveRequest(request, env, userId, ctx);
+    }
+    if (isDeepDiveAdminRequest) {
+      return handleDeepDiveEntitlementAdmin(request, env, userId);
     }
 
     let body: unknown;
@@ -216,6 +236,18 @@ export default {
           doPhases,
         })
       : response;
+  },
+
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(
+      env.DEEP_DIVE_CONFIG.getByName('global').refreshFromSupabase().catch((error) => {
+        console.error('DEEP_DIVE_CONFIG_SCHEDULED_REFRESH_FAILED', error);
+      }),
+    );
   },
 
   async queue(batch: MessageBatch<ExamSyncEvent>, env: Env): Promise<void> {

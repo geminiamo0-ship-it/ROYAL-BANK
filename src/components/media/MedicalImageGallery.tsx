@@ -90,7 +90,14 @@ function MedicalImageViewer({
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
   const [magnifier, setMagnifier] = useState(false);
-  const [lens, setLens] = useState<{ x: number; y: number; px: number; py: number } | null>(null);
+  const [lens, setLens] = useState<{
+    x: number;
+    y: number;
+    px: number;
+    py: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [broken, setBroken] = useState(false);
 
   const current = images[index] || images[0];
@@ -153,6 +160,8 @@ function MedicalImageViewer({
       y: clientY - rect.top,
       px: ((clientX - rect.left) / Math.max(1, rect.width)) * 100,
       py: ((clientY - rect.top) / Math.max(1, rect.height)) * 100,
+      width: Math.max(1, rect.width),
+      height: Math.max(1, rect.height),
     });
   };
 
@@ -250,13 +259,12 @@ function MedicalImageViewer({
   };
 
   const lensStyle = useMemo(() => {
-    if (!lens || !imageRef.current || !current) return null;
-    const rect = imageRef.current.getBoundingClientRect();
+    if (!lens || !current) return null;
     return {
       left: lens.x - 82,
       top: lens.y - 82,
       backgroundImage: `url("${current.src.replace(/"/g, '%22')}")`,
-      backgroundSize: `${Math.max(1, rect.width) * 2.35}px ${Math.max(1, rect.height) * 2.35}px`,
+      backgroundSize: `${lens.width * 2.35}px ${lens.height * 2.35}px`,
       backgroundPosition: `${lens.px}% ${lens.py}%`,
     } as React.CSSProperties;
   }, [current, lens]);

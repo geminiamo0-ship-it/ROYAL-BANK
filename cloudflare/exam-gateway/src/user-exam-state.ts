@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { payloadHash } from './canonical';
 import type { InternalGatewayRequest, QuestionSelection, SessionType } from './contracts';
+import type { DeepDiveTrustedContext } from './deep-dive';
 import {
   getActiveRelease,
   getBankSelectionIndex,
@@ -1173,6 +1174,76 @@ export class UserExamState extends DurableObject<Env> {
       session_id: completed.id,
       completed_at: completed.completed_at,
       version: Number(completed.version),
+    };
+  }
+
+  async getDeepDiveContext(input: {
+    userId: string;
+    sessionId: string;
+    questionId: number;
+  }): Promise<DeepDiveTrustedContext> {
+    const objectUserId = this.ctx.id.name;
+    if (!objectUserId || objectUserId !== input.userId) {
+      throw new GatewayError(403, 'USER_SHARD_MISMATCH', 'Invalid user shard.');
+    }
+
+    const session = this.finalizeIfExpired(this.session(input.sessionId));
+    const completed = Boolean(session.completed_at);
+    const training = trainingMode(session.session_type);
+    if (!completed && !training) {
+      throw new GatewayError(403, 'FEEDBACK_LOCKED', 'Deep Dive is unavailable until End Block.');
+    }
+
+    const belongs = this.one<{ present: number }>(
+      'SELECT 1 AS present FROM session_questions WHERE session_id = ? AND question_id = ?',
+      session.id,
+      input.questionId,
+    );
+    if (!belongs) {
+      throw new GatewayError(400, 'QUESTION_NOT_IN_SESSION', 'Question does not belong to session.');
+    }
+
+    const answer = this.one<AnswerRow & Record<string, SqlStorageValue>>(
+      'SELECT * FROM answers WHERE session_id = ? AND question_id = ?',
+      session.id,
+      input.questionId,
+    ) as AnswerRow | null;
+    if (!answer) {
+      throw new GatewayError(409, 'QUESTION_NOT_ANSWERED', 'Answer the question before using Deep Dive.');
+    }
+
+    const [question, feedback] = await Promise.all([
+      getQuestion(this.env, session.release_prefix, input.questionId),
+      getFeedback(this.env, session.release_prefix, input.questionId),
+    ]);
+
+    const selectedOptionId = Number(answer.selected_option_id);
+    const correctOptionId = Number(feedback.correct_option_id);
+    if (!question.options.some((option) => option.id === selectedOptionId)) {
+      throw new GatewayError(409, 'DEEP_DIVE_SELECTED_OPTION_MISSING', 'Selected answer is unavailable.');
+    }
+    if (!question.options.some((option) => option.id === correctOptionId)) {
+      throw new GatewayError(409, 'DEEP_DIVE_CORRECT_OPTION_MISSING', 'Correct answer is unavailable.');
+    }
+
+    return {
+      sessionId: session.id,
+      questionId: input.questionId,
+      releaseId: session.release_id,
+      releasePrefix: session.release_prefix,
+      sessionType: session.session_type,
+      stemHtml: question.text_html || '',
+      options: question.options.map((option) => ({
+        id: Number(option.id),
+        text_html: option.text_html || '',
+        option_order: Number(option.option_order),
+      })),
+      selectedOptionId,
+      correctOptionId,
+      explanationHtml: feedback.explanation_html || '',
+      category: question.category || '',
+      topic: question.topic || null,
+      difficulty: question.difficulty || '',
     };
   }
 

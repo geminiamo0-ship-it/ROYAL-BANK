@@ -95,6 +95,19 @@ export async function updateSession(request: NextRequest) {
     return response;
   }
 
+  // Deep Dive uses the same cookie-backed Supabase session as the exam client.
+  // Forward the refreshed access token as a bearer header so API routes do not depend
+  // on a stale pre-refresh cookie snapshot inside the same request.
+  if (
+    pathname === '/api/deep-dive' ||
+    pathname === '/api/deep-dive/admin/entitlement'
+  ) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return forwardExamSession(session?.access_token || null);
+  }
+
   // /api/exam has its own fail-closed authentication boundary. The route verifies the
   // ES256 bearer JWT locally against pinned public keys, validates issuer/audience/role,
   // and every protected PostgREST RPC is then gated by api_hooks.royal_exam_pre_request,

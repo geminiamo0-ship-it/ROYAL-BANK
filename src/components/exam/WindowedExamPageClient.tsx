@@ -554,6 +554,7 @@ export function WindowedExamPageClient({
         <main className="mx-auto grid w-full max-w-[1240px] gap-6 px-3 pb-[calc(96px+env(safe-area-inset-bottom))] pt-4 md:px-4 md:pb-12 md:pt-3 lg:grid-cols-[minmax(0,1fr)_476px]">
           <div className="min-w-0">
             <WindowedExamQuestionPane
+              sessionId={sessionId}
               question={currentDisplayQuestion}
               currentIndex={currentIndex}
               questionCount={questionIds.length}
