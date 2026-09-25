@@ -4,6 +4,7 @@ import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AnswerOptionList } from '@/components/exam/AnswerOptionList';
 import { ExamAnnotationLayer } from '@/components/exam/ExamAnnotationLayer';
+import { MedicalImageGallery } from '@/components/media/MedicalImageGallery';
 import type {
   AnnotationStroke,
   AnnotationSurface,
@@ -107,13 +108,15 @@ export function WindowedExamQuestionPane({
   return (
     <section className="min-w-0 pb-0 md:pb-10">
       <div className="relative">
-        <div
-          data-annotation-content="true"
-          className={`pm-question-stem select-text text-[16px] leading-[1.55] text-white ${
+        <MedicalImageGallery>
+          <div
+            data-annotation-content="true"
+            className={`pm-question-stem select-text text-[16px] leading-[1.55] text-white ${
             showClues ? 'pm-show-clues' : 'pm-hide-clues'
           }`}
-          dangerouslySetInnerHTML={{ __html: questionHtml }}
-        />
+            dangerouslySetInnerHTML={{ __html: questionHtml }}
+          />
+        </MedicalImageGallery>
         <ExamAnnotationLayer
           surface="stem"
           contentFingerprint={questionHtml}
@@ -126,8 +129,9 @@ export function WindowedExamQuestionPane({
       </div>
 
       <div className="relative">
-        <div data-annotation-content="true">
-          <AnswerOptionList
+        <MedicalImageGallery>
+          <div data-annotation-content="true">
+            <AnswerOptionList
             isAnswered={isAnswered}
             isTimedMode={isTimedMode}
             pendingSelectionId={selectedOptionId}
@@ -138,9 +142,10 @@ export function WindowedExamQuestionPane({
             optionPercentages={optionPercentages}
             annotationTextMode={annotationTool === 'highlighter'}
             onSelectOption={onSelectOption}
-            onToggleStrikeOut={onToggleStrikeOut}
-          />
-        </div>
+              onToggleStrikeOut={onToggleStrikeOut}
+            />
+          </div>
+        </MedicalImageGallery>
         <ExamAnnotationLayer
           surface="options"
           contentFingerprint={optionsFingerprint}
@@ -201,11 +206,13 @@ export function WindowedExamQuestionPane({
                 <h2 className="mb-5 text-[16px] font-semibold text-[#23a7ff]">{question.topic}</h2>
               ) : null}
               {hasFeedback ? (
-                <div
-                  data-annotation-content="true"
-                  className="select-text"
-                  dangerouslySetInnerHTML={{ __html: explanationHtml }}
-                />
+                <MedicalImageGallery>
+                  <div
+                    data-annotation-content="true"
+                    className="select-text"
+                    dangerouslySetInnerHTML={{ __html: explanationHtml }}
+                  />
+                </MedicalImageGallery>
               ) : (
                 <div className="py-4 text-[#80868b]">
                   <div className="animate-pulse">

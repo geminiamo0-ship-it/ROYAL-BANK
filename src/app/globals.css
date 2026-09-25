@@ -453,3 +453,9 @@ body {
   border-color: #30363b !important;
   padding: 10px 12px !important;
 }
+
+
+/* Medical image viewer affordance */
+[data-medical-image-gallery="true"] img:not([data-no-preview="true"]) {
+  cursor: zoom-in;
+}

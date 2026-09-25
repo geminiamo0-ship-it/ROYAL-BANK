@@ -6,6 +6,7 @@ import {
   QuestionBankAccessError,
   QuestionBankAuthenticationError,
 } from '@/lib/question-bank';
+import { MedicalImageGallery } from '@/components/media/MedicalImageGallery';
 import { rewriteExamMediaHtml } from '@/lib/exam-html';
 import { getRevisionQuestion, normalizeRevisionFilters } from '@/lib/revision';
 
@@ -101,12 +102,13 @@ export default async function RevisionQuestionPage({
 
         {detail.question ? (
           <>
-            <div
-              className="rv-stem"
-              dangerouslySetInnerHTML={{ __html: rewriteExamMediaHtml(detail.question.text_html) }}
-            />
+            <MedicalImageGallery>
+              <div
+                className="rv-stem"
+                dangerouslySetInnerHTML={{ __html: rewriteExamMediaHtml(detail.question.text_html) }}
+              />
 
-            <div className="rv-options">
+              <div className="rv-options">
               {detail.question.options.map((option) => {
                 const isSelected = option.id === detail.selectedOptionId;
                 const isCorrect = option.id === detail.feedback?.correct_option_id;
@@ -125,7 +127,8 @@ export default async function RevisionQuestionPage({
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </MedicalImageGallery>
 
             <div className="rv-answer-summary">
               <div>
@@ -147,7 +150,9 @@ export default async function RevisionQuestionPage({
             <section className="rv-explanation">
               <h2>Explanation</h2>
               {detail.feedback?.explanation_html ? (
-                <div dangerouslySetInnerHTML={{ __html: rewriteExamMediaHtml(detail.feedback.explanation_html) }} />
+                <MedicalImageGallery>
+                  <div dangerouslySetInnerHTML={{ __html: rewriteExamMediaHtml(detail.feedback.explanation_html) }} />
+                </MedicalImageGallery>
               ) : (
                 <p>Explanation content is unavailable for this historical question release.</p>
               )}
