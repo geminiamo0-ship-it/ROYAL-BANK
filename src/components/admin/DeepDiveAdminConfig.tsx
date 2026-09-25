@@ -63,7 +63,7 @@ export function DeepDiveAdminConfig({
         <div>
           <h2 className="font-bold text-slate-900 dark:text-white">Live model configuration</h2>
           <p className="mt-1 text-[10px] leading-4 text-slate-500">
-            Stored in Supabase as the canonical config and mirrored into Cloudflare. Model changes require no app deploy.
+            Stored as the canonical AI configuration and mirrored to the serving layer. Model changes require no app deploy.
           </p>
         </div>
       </div>
@@ -82,7 +82,7 @@ export function DeepDiveAdminConfig({
       <form onSubmit={save} className="mt-5 space-y-4">
         <div className="grid gap-3 md:grid-cols-2">
           <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-            Primary OpenRouter model
+            Primary AI model
             <input value={primaryModel} onChange={(e) => setPrimaryModel(e.target.value)} className={inputClass} disabled={pending} />
           </label>
           <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
