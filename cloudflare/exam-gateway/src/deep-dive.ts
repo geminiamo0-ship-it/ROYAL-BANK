@@ -41,7 +41,7 @@ export type DeepDiveGeneration = {
   latencyMs: number;
 };
 
-const DEFAULT_CONFIG: DeepDiveConfig = {
+export const DEFAULT_DEEP_DIVE_CONFIG: DeepDiveConfig = {
   primaryModel: 'deepseek/deepseek-v4.1-flash',
   fallbackModel: null,
   temperature: 0.2,
@@ -53,88 +53,94 @@ const DEFAULT_CONFIG: DeepDiveConfig = {
   followupLimit: 12,
 };
 
-const CONFIG_CACHE_TTL_MS = 60_000;
-let configCache: { value: DeepDiveConfig; expiresAt: number; environment: string } | null = null;
-
 function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
 }
 
-export async function getDeepDiveConfig(env: Env): Promise<DeepDiveConfig> {
-  const environment = env.APP_ENV || 'development';
-  if (configCache && configCache.environment === environment && configCache.expiresAt > Date.now()) {
-    return configCache.value;
-  }
-
+export async function fetchDeepDiveConfigFromSupabase(env: Env): Promise<DeepDiveConfig> {
   const secret = env.SUPABASE_SECRET_KEY?.trim();
-  if (!secret) return DEFAULT_CONFIG;
+  if (!secret) throw new Error('SUPABASE_SECRET_KEY is not configured.');
 
-  try {
-    const url = new URL('/rest/v1/ai_deep_dive_config', normalizedSupabaseUrl(env));
-    url.searchParams.set('active', 'eq.true');
-    url.searchParams.set(
-      'select',
-      'primary_model,fallback_model,temperature,max_initial_tokens,max_followup_tokens,prompt_version,timeout_ms,default_daily_limit,default_followup_limit,updated_at',
-    );
-    url.searchParams.set('order', 'updated_at.desc');
-    url.searchParams.set('limit', '1');
+  const url = new URL('/rest/v1/ai_deep_dive_config', normalizedSupabaseUrl(env));
+  url.searchParams.set('active', 'eq.true');
+  url.searchParams.set(
+    'select',
+    'primary_model,fallback_model,temperature,max_initial_tokens,max_followup_tokens,prompt_version,timeout_ms,default_daily_limit,default_followup_limit,updated_at',
+  );
+  url.searchParams.set('order', 'updated_at.desc');
+  url.searchParams.set('limit', '1');
 
-    const response = await fetch(url, {
-      headers: {
-        apikey: secret,
-        authorization: `Bearer ${secret}`,
-        accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(4_000),
-    });
-    if (!response.ok) throw new Error(`Deep Dive config lookup failed: ${response.status}`);
+  const response = await fetch(url, {
+    headers: {
+      apikey: secret,
+      authorization: `Bearer ${secret}`,
+      accept: 'application/json',
+    },
+    signal: AbortSignal.timeout(4_000),
+  });
+  if (!response.ok) throw new Error(`Deep Dive config lookup failed: ${response.status}`);
 
-    const rows = await response.json<Array<Record<string, unknown>>>();
-    const row = rows[0];
-    const value: DeepDiveConfig = row
-      ? {
-          primaryModel:
-            typeof row.primary_model === 'string' && row.primary_model.trim()
-              ? row.primary_model.trim()
-              : DEFAULT_CONFIG.primaryModel,
-          fallbackModel:
-            typeof row.fallback_model === 'string' && row.fallback_model.trim()
-              ? row.fallback_model.trim()
-              : null,
-          temperature: boundedNumber(row.temperature, DEFAULT_CONFIG.temperature, 0, 1),
-          maxInitialTokens: Math.round(
-            boundedNumber(row.max_initial_tokens, DEFAULT_CONFIG.maxInitialTokens, 300, 4000),
-          ),
-          maxFollowupTokens: Math.round(
-            boundedNumber(row.max_followup_tokens, DEFAULT_CONFIG.maxFollowupTokens, 200, 2500),
-          ),
-          promptVersion:
-            typeof row.prompt_version === 'string' && row.prompt_version.trim()
-              ? row.prompt_version.trim()
-              : DEFAULT_CONFIG.promptVersion,
-          timeoutMs: Math.round(boundedNumber(row.timeout_ms, DEFAULT_CONFIG.timeoutMs, 5_000, 55_000)),
-          dailyLimit: Math.round(
-            boundedNumber(row.default_daily_limit, DEFAULT_CONFIG.dailyLimit, 1, 100),
-          ),
-          followupLimit: Math.round(
-            boundedNumber(row.default_followup_limit, DEFAULT_CONFIG.followupLimit, 1, 100),
-          ),
-        }
-      : DEFAULT_CONFIG;
+  const rows = await response.json<Array<Record<string, unknown>>>();
+  const row = rows[0];
+  if (!row) return DEFAULT_DEEP_DIVE_CONFIG;
 
-    configCache = {
-      value,
-      expiresAt: Date.now() + CONFIG_CACHE_TTL_MS,
-      environment,
-    };
-    return value;
-  } catch (error) {
-    console.error('DEEP_DIVE_CONFIG_FALLBACK', error);
-    if (configCache?.environment === environment) return configCache.value;
-    return DEFAULT_CONFIG;
-  }
+  return {
+    primaryModel:
+      typeof row.primary_model === 'string' && row.primary_model.trim()
+        ? row.primary_model.trim()
+        : DEFAULT_DEEP_DIVE_CONFIG.primaryModel,
+    fallbackModel:
+      typeof row.fallback_model === 'string' && row.fallback_model.trim()
+        ? row.fallback_model.trim()
+        : null,
+    temperature: boundedNumber(
+      row.temperature,
+      DEFAULT_DEEP_DIVE_CONFIG.temperature,
+      0,
+      1,
+    ),
+    maxInitialTokens: Math.round(
+      boundedNumber(
+        row.max_initial_tokens,
+        DEFAULT_DEEP_DIVE_CONFIG.maxInitialTokens,
+        300,
+        4000,
+      ),
+    ),
+    maxFollowupTokens: Math.round(
+      boundedNumber(
+        row.max_followup_tokens,
+        DEFAULT_DEEP_DIVE_CONFIG.maxFollowupTokens,
+        200,
+        2500,
+      ),
+    ),
+    promptVersion:
+      typeof row.prompt_version === 'string' && row.prompt_version.trim()
+        ? row.prompt_version.trim()
+        : DEFAULT_DEEP_DIVE_CONFIG.promptVersion,
+    timeoutMs: Math.round(
+      boundedNumber(row.timeout_ms, DEFAULT_DEEP_DIVE_CONFIG.timeoutMs, 5_000, 55_000),
+    ),
+    dailyLimit: Math.round(
+      boundedNumber(
+        row.default_daily_limit,
+        DEFAULT_DEEP_DIVE_CONFIG.dailyLimit,
+        1,
+        100,
+      ),
+    ),
+    followupLimit: Math.round(
+      boundedNumber(
+        row.default_followup_limit,
+        DEFAULT_DEEP_DIVE_CONFIG.followupLimit,
+        1,
+        100,
+      ),
+    ),
+  };
 }
 
 function decodeHtmlEntities(value: string): string {
