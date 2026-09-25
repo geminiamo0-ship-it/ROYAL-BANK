@@ -210,6 +210,8 @@ export async function buildDeepDiveCacheKey(
       selected_option_id: context.selectedOptionId,
       model: config.primaryModel,
       prompt_version: config.promptVersion,
+      temperature: config.temperature,
+      max_initial_tokens: config.maxInitialTokens,
       context_hash: contextHash,
       language: 'en',
     }),
