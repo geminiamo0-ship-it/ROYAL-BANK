@@ -219,7 +219,6 @@ async function getRevisionBaseRows(bankId: number): Promise<RevisionBaseRow[]> {
   const latestByQuestion = new Map<number, AnswerRow>();
   for (const answer of answers) {
     if (!Number.isSafeInteger(answer.question_id) || answer.question_id <= 0) continue;
-    if (!bankMetadata.has(answer.question_id)) continue;
     if (!latestByQuestion.has(answer.question_id)) latestByQuestion.set(answer.question_id, answer);
   }
 
