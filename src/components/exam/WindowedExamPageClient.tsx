@@ -543,7 +543,7 @@ export function WindowedExamPageClient({
         ref={mainScrollRef}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
       >
-        <main className="mx-auto grid w-full max-w-[1240px] gap-6 px-4 pb-12 pt-3 lg:grid-cols-[minmax(0,1fr)_476px]">
+        <main className="mx-auto grid w-full max-w-[1240px] gap-6 px-3 pb-[calc(96px+env(safe-area-inset-bottom))] pt-4 md:px-4 md:pb-12 md:pt-3 lg:grid-cols-[minmax(0,1fr)_476px]">
           <div className="min-w-0">
             <WindowedExamQuestionPane
               question={currentQ}
@@ -575,6 +575,7 @@ export function WindowedExamPageClient({
               onSubmitAnswer={() => submitAnswer(currentQ.id)}
               onRetrySave={() => retrySave(currentQ.id)}
               onRetryFeedback={() => retryFeedback(currentQ.id)}
+              onPrev={handlePrev}
               onNext={handleNext}
               onExplanationClick={handleExplanationClick}
             />

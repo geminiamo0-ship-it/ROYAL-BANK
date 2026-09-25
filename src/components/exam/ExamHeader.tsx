@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   Calculator,
   ChevronDown,
   Eraser,
@@ -14,10 +15,13 @@ import {
   Lightbulb,
   Maximize2,
   Minimize2,
+  Pause,
   Pencil,
   Redo2,
   Trash2,
   Undo2,
+  Wrench,
+  X,
 } from 'lucide-react';
 import { ExamClock } from '@/components/exam/ExamClock';
 import {
@@ -63,7 +67,7 @@ const LazyExamReferenceRanges = dynamic(
   () => import('@/components/exam/ExamReferenceRanges').then((module) => module.ExamReferenceRanges),
   {
     ssr: false,
-    loading: () => <div className="min-w-[520px] py-6 text-center text-[11px] text-[#aeb6bc]">Loading reference ranges…</div>,
+    loading: () => <div className="w-full py-6 text-center text-[11px] text-[#aeb6bc]">Loading reference ranges…</div>,
   },
 );
 
@@ -208,6 +212,35 @@ function ToolButton({
   );
 }
 
+function MobileToolTile({
+  active = false,
+  onClick,
+  icon,
+  label,
+  wide = false,
+}: {
+  active?: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  wide?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-[12px] border text-[11px] font-semibold transition-colors ${wide ? 'col-span-2' : ''} ${
+        active
+          ? 'border-[#b88a32] bg-[#f4ead7] text-[#8f6522] dark:border-[#d5ad5c] dark:bg-[#4d4023] dark:text-[#fff0a3]'
+          : 'border-[#e1d5c2] bg-[#fbf7ef] text-[#10243f] dark:border-[#596168] dark:bg-[#30363b] dark:text-white'
+      }`}
+    >
+      <span className="text-[#a27d3f] dark:text-[#d5ad5c]">{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
 export function ExamHeader({
   currentIndex,
   clockStartedAtMs,
@@ -236,12 +269,16 @@ export function ExamHeader({
   onToggleFullscreen,
 }: ExamHeaderProps) {
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [annotationColor, setAnnotationColor] = useState<AnnotationColor>(DEFAULT_ANNOTATION_COLOR);
   const [lastDrawingTool, setLastDrawingTool] = useState<Extract<AnnotationTool, 'pencil' | 'highlighter'>>('pencil');
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpenPanel(null);
+      if (event.key === 'Escape') {
+        setOpenPanel(null);
+        setMobileToolsOpen(false);
+      }
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
@@ -282,8 +319,256 @@ export function ExamHeader({
     }
   };
 
+  const progressPercent = questionCount > 0
+    ? Math.min(100, Math.max(0, ((currentIndex + 1) / questionCount) * 100))
+    : 0;
+
+  const closeMobileTools = () => {
+    setOpenPanel(null);
+    setMobileToolsOpen(false);
+  };
+
   return (
-    <header className="relative z-[70] shrink-0 overflow-visible border-b border-[#3f4348] bg-[#282828] px-3 py-2 text-white">
+    <>
+      <header className="relative z-[80] shrink-0 border-b border-[#e2dbcf] bg-[#fffdfa] px-3 pb-2 pt-2 text-[#10243f] dark:border-[#3f4348] dark:bg-[#282828] dark:text-white md:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex items-end gap-[2px]" aria-hidden="true">
+              <span className="h-[11px] w-[4px] bg-[#ff2020]" />
+              <span className="h-[15px] w-[4px] bg-[#e4b62e]" />
+              <span className="h-[20px] w-[4px] bg-[#47b92f]" />
+            </div>
+            <span className="hidden text-[13px] font-semibold min-[390px]:inline">RoyalBank</span>
+            <span className="whitespace-nowrap text-[12px] font-semibold">
+              Question {currentIndex + 1} of {questionCount || 1}
+            </span>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onToggleFlag}
+              title={isFlagged ? 'Remove flag' : 'Flag question'}
+              aria-pressed={isFlagged}
+              className={`grid h-[34px] w-[36px] place-items-center rounded-[8px] border transition-colors ${
+                isFlagged
+                  ? 'border-[#b88a32] bg-[#f4ead7] text-[#9f7321] dark:border-[#d5ad5c] dark:bg-[#4d4023] dark:text-[#f0c967]'
+                  : 'border-[#d8c8aa] bg-[#fbf7ef] text-[#9a7a45] dark:border-[#5a5f64] dark:bg-[#363636] dark:text-[#d9dce0]'
+              }`}
+            >
+              <Flag className={`h-4 w-4 ${isFlagged ? 'fill-current' : ''}`} />
+            </button>
+
+            {isReviewMode ? (
+              <div className="inline-flex h-[34px] items-center gap-1.5 rounded-[8px] border border-[#c9b3d9] bg-[#f3edf8] px-2.5 text-[10px] font-semibold text-[#7655bd] dark:border-[#745b91] dark:bg-[#3a3045] dark:text-[#d9b7ff]">
+                <Eye className="h-3.5 w-3.5" />
+                <span>Review</span>
+              </div>
+            ) : (
+              <ExamClock
+                startedAtMs={clockStartedAtMs}
+                deadlineAtMs={clockDeadlineAtMs}
+                serverClockOffsetMs={serverClockOffsetMs}
+                variant="mobile"
+              />
+            )}
+
+            {!isReviewMode ? (
+              <button
+                type="button"
+                onClick={onEndBlock}
+                className="h-[34px] rounded-[8px] px-2 text-[10px] font-semibold leading-3 text-[#9a6d24] hover:bg-[#f4ead7] dark:text-[#d7a6ff] dark:hover:bg-[#3a3045]"
+              >
+                End<br />block
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-2 h-[4px] overflow-hidden rounded-full bg-[#eee6d9] dark:bg-[#3f4348]">
+          <div
+            className="h-full rounded-full bg-[#b88a32] transition-[width] duration-200 dark:bg-[#d5ad5c]"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onToggleClues}
+            aria-pressed={showClues}
+            className={`inline-flex h-[40px] items-center justify-center gap-2 rounded-[8px] border text-[12px] font-semibold transition-colors ${
+              showClues
+                ? 'border-[#b88a32] bg-[#f4ead7] text-[#8f6522] dark:border-[#d5ad5c] dark:bg-[#4d4023] dark:text-[#fff0a3]'
+                : 'border-[#dfd2bc] bg-[#fffdfa] text-[#10243f] dark:border-[#5a5f64] dark:bg-[#30363b] dark:text-white'
+            }`}
+          >
+            <Lightbulb className={`h-4 w-4 ${showClues ? 'fill-current' : ''}`} />
+            <span>{showClues ? 'Clues on' : 'Clues'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setOpenPanel(null);
+              setMobileToolsOpen(true);
+            }}
+            className="inline-flex h-[40px] items-center justify-center gap-2 rounded-[8px] border border-[#dfd2bc] bg-[#fffdfa] text-[12px] font-semibold text-[#10243f] dark:border-[#5a5f64] dark:bg-[#30363b] dark:text-white"
+          >
+            <Wrench className="h-4 w-4 text-[#9f7321] dark:text-[#d5ad5c]" />
+            <span>Tools</span>
+          </button>
+        </div>
+      </header>
+
+      {mobileToolsOpen ? (
+        <div className="fixed inset-0 z-[190] flex items-end bg-black/45 md:hidden" role="dialog" aria-modal="true" aria-label="Exam tools">
+          <button
+            type="button"
+            aria-label="Close exam tools"
+            className="absolute inset-0"
+            onClick={closeMobileTools}
+          />
+          <div className="relative z-[1] max-h-[82dvh] w-full overflow-y-auto rounded-t-[22px] border-t border-[#e0d4c0] bg-[#fffdfa] px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3 text-[#10243f] shadow-[0_-18px_45px_rgba(0,0,0,0.2)] dark:border-[#4c5359] dark:bg-[#242a2f] dark:text-white">
+            <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-[#c8c0b4] dark:bg-[#596168]" />
+            <div className="flex items-center justify-between">
+              <h2 className="text-[18px] font-semibold">Tools</h2>
+              <button
+                type="button"
+                onClick={closeMobileTools}
+                className="grid h-9 w-9 place-items-center rounded-full bg-[#f4ede2] text-[#8f6b31] dark:bg-[#343b41] dark:text-[#d9dce0]"
+                aria-label="Close tools"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <MobileToolTile
+                active={openPanel === 'marker' || Boolean(annotationTool)}
+                onClick={() => togglePanel('marker')}
+                icon={<Pencil className="h-5 w-5" />}
+                label="Marker"
+              />
+              <MobileToolTile
+                active={openPanel === 'reference'}
+                onClick={() => togglePanel('reference')}
+                icon={<BookOpen className="h-5 w-5" />}
+                label="Reference ranges"
+              />
+              <MobileToolTile
+                active={openPanel === 'calculator'}
+                onClick={() => togglePanel('calculator')}
+                icon={<Calculator className="h-5 w-5" />}
+                label="Calculator"
+              />
+              <MobileToolTile
+                active={isFullscreen}
+                onClick={() => {
+                  void onToggleFullscreen();
+                  closeMobileTools();
+                }}
+                icon={isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+              />
+              <MobileToolTile
+                onClick={() => {
+                  closeMobileTools();
+                  onSuspend();
+                }}
+                icon={<Pause className="h-5 w-5" />}
+                label={isReviewMode ? 'Exit review' : 'Suspend'}
+                wide
+              />
+            </div>
+
+            {openPanel === 'marker' ? (
+              <div className="mt-4 rounded-[12px] border border-[#e1d5c2] bg-[#fbf7ef] p-3 dark:border-[#4c5359] dark:bg-[#30363b]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7c8795] dark:text-[#9fa6ac]">Marker tools</span>
+                  <button
+                    type="button"
+                    onClick={toggleMarkerMode}
+                    disabled={annotationLoading}
+                    className={`rounded-full border px-3 py-1 text-[10px] font-semibold ${
+                      annotationTool
+                        ? 'border-[#b88a32] bg-[#f4ead7] text-[#8f6522] dark:border-[#d5ad5c] dark:bg-[#4d4023] dark:text-[#fff0a3]'
+                        : 'border-[#d6c8b1] text-[#6b7280] dark:border-[#596168] dark:text-[#b9c0c6]'
+                    }`}
+                  >
+                    {annotationTool ? 'Marker on' : 'Marker off'}
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {([
+                    ['pencil', 'Pencil', <Pencil key="pencil-icon" className="h-4 w-4" />],
+                    ['highlighter', 'Highlight', <Highlighter key="highlight-icon" className="h-4 w-4" />],
+                    ['eraser', 'Eraser', <Eraser key="eraser-icon" className="h-4 w-4" />],
+                  ] as const).map(([tool, label, icon]) => (
+                    <button
+                      key={tool}
+                      type="button"
+                      onClick={() => chooseAnnotationTool(tool)}
+                      className={`flex min-h-[54px] flex-col items-center justify-center gap-1 rounded-[9px] border text-[10px] font-semibold ${
+                        annotationTool === tool
+                          ? 'border-[#b88a32] bg-[#f4ead7] text-[#8f6522] dark:border-[#d5ad5c] dark:bg-[#4d4023] dark:text-[#fff0a3]'
+                          : 'border-[#ded2bf] bg-white text-[#10243f] dark:border-[#596168] dark:bg-[#394046] dark:text-white'
+                      }`}
+                    >
+                      {icon}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {COLOR_SWATCHES.map((swatch) => (
+                      <button
+                        key={swatch.color}
+                        type="button"
+                        onClick={() => chooseAnnotationColor(swatch.color)}
+                        aria-label={`${swatch.label} annotation color`}
+                        className={`h-7 w-7 rounded-full border-2 ${
+                          annotationColor === swatch.color
+                            ? 'border-[#10243f] ring-2 ring-[#c4b28f] dark:border-white'
+                            : 'border-[#d4c8b6] dark:border-[#6c7379]'
+                        }`}
+                        style={{ backgroundColor: swatch.hex }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <button type="button" disabled={!canUndoAnnotation} onClick={onUndoAnnotation} className="inline-flex h-9 items-center justify-center gap-1 rounded-[8px] border border-[#ded2bf] text-[10px] disabled:opacity-35 dark:border-[#596168]"><Undo2 className="h-3.5 w-3.5" />Undo</button>
+                  <button type="button" disabled={!canRedoAnnotation} onClick={onRedoAnnotation} className="inline-flex h-9 items-center justify-center gap-1 rounded-[8px] border border-[#ded2bf] text-[10px] disabled:opacity-35 dark:border-[#596168]"><Redo2 className="h-3.5 w-3.5" />Redo</button>
+                  <button type="button" onClick={onClearAnnotations} className="inline-flex h-9 items-center justify-center gap-1 rounded-[8px] border border-[#e0b6b2] text-[10px] text-[#a44139] dark:border-[#6a4545] dark:text-[#ffd6d6]"><Trash2 className="h-3.5 w-3.5" />Clear</button>
+                </div>
+              </div>
+            ) : null}
+
+            {openPanel === 'reference' ? (
+              <div className="mt-4 overflow-hidden rounded-[12px] border border-[#e1d5c2] bg-[#fbf7ef] p-3 dark:border-[#4c5359] dark:bg-[#30363b]">
+                <LazyExamReferenceRanges />
+              </div>
+            ) : null}
+
+            {openPanel === 'calculator' ? (
+              <div className="mt-4 flex justify-center rounded-[12px] border border-[#e1d5c2] bg-[#fbf7ef] p-3 dark:border-[#4c5359] dark:bg-[#30363b]">
+                <MiniCalculator />
+              </div>
+            ) : null}
+
+            <p className="mt-3 text-center text-[9px] text-[#8b95a1] dark:text-[#92999f]">
+              {annotationLoading ? 'Loading marks…' : annotationSaving ? 'Saving marks…' : 'Marks saved'}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      <header className="relative z-[70] hidden shrink-0 overflow-visible border-b border-[#3f4348] bg-[#282828] px-3 py-2 text-white md:block">
       <div className="mx-auto grid max-w-[1240px] grid-cols-[1fr_auto_1fr] items-center gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex items-center gap-2">
@@ -496,5 +781,6 @@ export function ExamHeader({
         </div>
       </div>
     </header>
+    </>
   );
 }
