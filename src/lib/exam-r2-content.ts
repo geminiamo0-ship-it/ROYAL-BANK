@@ -25,7 +25,7 @@ export type ExamContentRelease = {
   prefix: string;
 };
 
-type R2Question = {
+export type RevisionRevisionR2Question = {
   id: number;
   text_html: string;
   category: string;
@@ -41,7 +41,7 @@ type R2Question = {
   }>;
 };
 
-type R2Feedback = {
+export type RevisionRevisionR2Feedback = {
   question_id: number;
   correct_option_id: number;
   option_percentages: Record<string, number>;
@@ -123,7 +123,7 @@ export async function resolveActiveExamContentRelease(): Promise<ExamContentRele
   return null;
 }
 
-function validateQuestion(value: unknown, expectedId: number): R2Question | null {
+function validateQuestion(value: unknown, expectedId: number): RevisionR2Question | null {
   const record = asObject(value);
   if (!record || positiveInteger(record.id) !== expectedId) return null;
   if (typeof record.text_html !== 'string' || typeof record.category !== 'string') return null;
@@ -144,10 +144,10 @@ function validateQuestion(value: unknown, expectedId: number): R2Question | null
     if ('is_correct' in option || 'percentage' in option) return null;
   }
 
-  return record as unknown as R2Question;
+  return record as unknown as RevisionR2Question;
 }
 
-function validateFeedback(value: unknown, expectedId: number): R2Feedback | null {
+function validateFeedback(value: unknown, expectedId: number): RevisionR2Feedback | null {
   const record = asObject(value);
   if (!record || positiveInteger(record.question_id) !== expectedId) return null;
   const correctOptionId = positiveInteger(record.correct_option_id);
@@ -166,12 +166,12 @@ function validateFeedback(value: unknown, expectedId: number): R2Feedback | null
   };
 }
 
-async function readQuestion(prefix: string, questionId: number): Promise<R2Question | null> {
+async function readQuestion(prefix: string, questionId: number): Promise<RevisionR2Question | null> {
   const raw = await readPrivateR2Json<unknown>(`${prefix}/questions/${questionId}.json`);
   return validateQuestion(raw, questionId);
 }
 
-async function readFeedback(prefix: string, questionId: number): Promise<R2Feedback | null> {
+async function readFeedback(prefix: string, questionId: number): Promise<RevisionR2Feedback | null> {
   const raw = await readPrivateR2Json<unknown>(`${prefix}/feedback/${questionId}.json`);
   return validateFeedback(raw, questionId);
 }
@@ -179,7 +179,7 @@ async function readFeedback(prefix: string, questionId: number): Promise<R2Feedb
 async function hydrateQuestionRefs(
   prefix: string,
   rawRefs: unknown,
-): Promise<R2Question[] | null> {
+): Promise<RevisionR2Question[] | null> {
   if (!Array.isArray(rawRefs)) return null;
   const ids: number[] = [];
   for (const rawRef of rawRefs) {
@@ -190,10 +190,10 @@ async function hydrateQuestionRefs(
   }
   const questions = await Promise.all(ids.map((id) => readQuestion(prefix, id)));
   if (questions.some((question) => question == null)) return null;
-  return questions as R2Question[];
+  return questions as RevisionR2Question[];
 }
 
-export async function hydrateExamR2QuestionIds(
+export async function hydrateExamRevisionR2QuestionIds(
   action: 'window' | 'reviewWindow',
   questionIds: number[],
   contentReleaseId: string | null,
@@ -204,7 +204,7 @@ export async function hydrateExamR2QuestionIds(
     const questions = await Promise.all(questionIds.map((id) => readQuestion(prefix, id)));
     if (questions.some((question) => question == null)) return null;
     logContentSource('r2', action, prefix);
-    return JSON.stringify(questions as R2Question[]);
+    return JSON.stringify(questions as RevisionR2Question[]);
   } catch {
     logContentSource('r2_unavailable', action, prefix);
     return null;
@@ -299,6 +299,41 @@ export async function hydrateExamR2Response(
     return hydrated;
   } catch {
     logContentSource('r2_unavailable', action, prefix);
+    return null;
+  }
+}
+
+
+export async function readRevisionQuestionContent(
+  contentReleaseId: string | null,
+  questionId: number,
+): Promise<RevisionR2Question | null> {
+  if (!isExamR2ContentEnabled() || !Number.isSafeInteger(questionId) || questionId <= 0) return null;
+  const release = contentReleaseId
+    ? { releaseId: contentReleaseId, prefix: prefixForRelease(contentReleaseId) }
+    : await resolveActiveExamContentRelease();
+  const prefix = release?.prefix ?? null;
+  if (!prefix) return null;
+  try {
+    return await readQuestion(prefix, questionId);
+  } catch {
+    return null;
+  }
+}
+
+export async function readRevisionQuestionFeedback(
+  contentReleaseId: string | null,
+  questionId: number,
+): Promise<RevisionR2Feedback | null> {
+  if (!isExamR2ContentEnabled() || !Number.isSafeInteger(questionId) || questionId <= 0) return null;
+  const release = contentReleaseId
+    ? { releaseId: contentReleaseId, prefix: prefixForRelease(contentReleaseId) }
+    : await resolveActiveExamContentRelease();
+  const prefix = release?.prefix ?? null;
+  if (!prefix) return null;
+  try {
+    return await readFeedback(prefix, questionId);
+  } catch {
     return null;
   }
 }
