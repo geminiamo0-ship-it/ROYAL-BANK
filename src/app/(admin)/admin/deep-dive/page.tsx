@@ -34,15 +34,15 @@ export default async function DeepDiveAdminPage() {
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric icon={Users} label="AI users · 30d" value={fmt(usage.active_users)} note={\`\${fmt(usage.deep_dive_starts)} new Deep Dives\`} />
-        <Metric icon={MessageCircle} label="Follow-ups · 30d" value={fmt(usage.followup_messages)} note={\`\${fmt(usage.requests)} total AI events\`} />
-        <Metric icon={Gauge} label="Initial cache hit rate" value={\`\${n(usage.cache_hit_rate_percent).toFixed(1)}%\`} note={\`\${fmt(usage.cache_hits)} cached starts\`} />
-        <Metric icon={Coins} label="OpenRouter cost · 30d" value={\`$\${n(usage.cost_usd).toFixed(4)}\`} note={\`\${fmt(usage.input_tokens)} in · \${fmt(usage.output_tokens)} out tokens\`} />
+        <Metric icon={Users} label="AI users · 30d" value={fmt(usage.active_users)} note={\`${fmt(usage.deep_dive_starts)} new Deep Dives\`} />
+        <Metric icon={MessageCircle} label="Follow-ups · 30d" value={fmt(usage.followup_messages)} note={\`${fmt(usage.requests)} total AI events\`} />
+        <Metric icon={Gauge} label="Initial cache hit rate" value={\`${n(usage.cache_hit_rate_percent).toFixed(1)}%\`} note={\`${fmt(usage.cache_hits)} cached starts\`} />
+        <Metric icon={Coins} label="OpenRouter cost · 30d" value={\`$${n(usage.cost_usd).toFixed(4)}\`} note={\`${fmt(usage.input_tokens)} in · ${fmt(usage.output_tokens)} out tokens\`} />
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2">
-        <Metric icon={Clock3} label="Average AI latency" value={\`\${n(usage.avg_latency_ms).toFixed(0)} ms\`} />
-        <Metric icon={Bot} label="Primary model" value={data.config.primary_model || '—'} note={data.config.fallback_model ? \`Fallback: \${data.config.fallback_model}\` : 'No fallback configured'} />
+        <Metric icon={Clock3} label="Average AI latency" value={\`${n(usage.avg_latency_ms).toFixed(0)} ms\`} />
+        <Metric icon={Bot} label="Primary model" value={data.config.primary_model || '—'} note={data.config.fallback_model ? \`Fallback: ${data.config.fallback_model}\` : 'No fallback configured'} />
       </section>
 
       <DeepDiveAdminConfig config={data.config} />
@@ -73,7 +73,7 @@ export default async function DeepDiveAdminPage() {
                     <td className="px-4 py-3">{fmt(row.requests)}</td>
                     <td className="px-4 py-3">{fmt(row.input_tokens)}</td>
                     <td className="px-4 py-3">{fmt(row.output_tokens)}</td>
-                    <td className="px-4 py-3 font-semibold">{\`$\${n(row.cost_usd).toFixed(4)}\`}</td>
+                    <td className="px-4 py-3 font-semibold">{\`$${n(row.cost_usd).toFixed(4)}\`}</td>
                   </tr>
                 ))}
               </tbody>
