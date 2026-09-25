@@ -175,6 +175,8 @@ export class DeepDiveUserState extends DurableObject<Env> {
 
     if (existing) {
       const used = this.usage(dayKey);
+      const messages = this.messages(existing.id);
+      const followupsUsed = messages.filter((message) => message.role === 'user').length;
       return {
         ok: true,
         existing: true,
@@ -188,7 +190,8 @@ export class DeepDiveUserState extends DurableObject<Env> {
         remaining: Math.max(0, limits.dailyLimit - used),
         dailyLimit: limits.dailyLimit,
         followupLimit: limits.followupLimit,
-        messages: this.messages(existing.id),
+        remainingFollowups: Math.max(0, limits.followupLimit - followupsUsed),
+        messages,
       };
     }
 
@@ -239,6 +242,7 @@ export class DeepDiveUserState extends DurableObject<Env> {
       remaining: Math.max(0, limits.dailyLimit - used - 1),
       dailyLimit: limits.dailyLimit,
       followupLimit: limits.followupLimit,
+      remainingFollowups: limits.followupLimit,
       messages: [],
     };
   }
