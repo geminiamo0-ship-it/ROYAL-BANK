@@ -10,7 +10,7 @@
     "enabled": true
   },
   "secrets": {
-    "required": ["SUPABASE_SECRET_KEY"]
+    "required": ["SUPABASE_SECRET_KEY", "OPENROUTER_API_KEY"]
   },
   "vars": {
     "APP_ENV": "development",
@@ -26,11 +26,27 @@
       {
         "name": "USER_EXAMS",
         "class_name": "UserExamState"
+      },
+      {
+        "name": "DEEP_DIVE_USERS",
+        "class_name": "DeepDiveUserState"
+      },
+      {
+        "name": "DEEP_DIVE_CACHE",
+        "class_name": "DeepDiveCache"
       }
     ]
   },
   "exports": {
     "UserExamState": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "DeepDiveUserState": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "DeepDiveCache": {
       "type": "durable-object",
       "storage": "sqlite"
     }
@@ -78,6 +94,14 @@
           {
             "name": "USER_EXAMS",
             "class_name": "UserExamState"
+          },
+          {
+            "name": "DEEP_DIVE_USERS",
+            "class_name": "DeepDiveUserState"
+          },
+          {
+            "name": "DEEP_DIVE_CACHE",
+            "class_name": "DeepDiveCache"
           }
         ]
       },
