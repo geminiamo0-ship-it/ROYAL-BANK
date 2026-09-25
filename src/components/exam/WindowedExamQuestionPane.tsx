@@ -58,6 +58,7 @@ interface WindowedExamQuestionPaneProps {
   onSubmitAnswer: () => void;
   onRetrySave: () => void;
   onRetryFeedback: () => void;
+  onPrev: () => void;
   onNext: () => void;
   onExplanationClick: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
@@ -92,6 +93,7 @@ export function WindowedExamQuestionPane({
   onSubmitAnswer,
   onRetrySave,
   onRetryFeedback,
+  onPrev,
   onNext,
   onExplanationClick,
 }: WindowedExamQuestionPaneProps) {
@@ -151,7 +153,7 @@ export function WindowedExamQuestionPane({
       </div>
 
       {!isReviewMode && !isTimedMode && !isAnswered ? (
-        <div className="mt-6 flex items-center gap-3">
+        <div className="mt-6 hidden items-center gap-3 md:flex">
           <button
             type="button"
             onClick={onSubmitAnswer}
@@ -236,7 +238,7 @@ export function WindowedExamQuestionPane({
           </div>
 
           {currentIndex < questionCount - 1 ? (
-            <div className="flex justify-end">
+            <div className="hidden justify-end md:flex">
               <button
                 type="button"
                 onClick={onNext}
@@ -249,6 +251,46 @@ export function WindowedExamQuestionPane({
           ) : null}
         </div>
       ) : null}
+
+      <div className="sticky bottom-0 z-[45] -mx-3 mt-5 border-t border-[#e2dbcf] bg-[#fffdfa]/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 backdrop-blur md:hidden dark:border-[#3f4348] dark:bg-[#282828]/95">
+        {!isReviewMode && !isTimedMode && !isAnswered ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onSubmitAnswer}
+              disabled={!selectedOptionId || isSaving || isSubmitting}
+              className="inline-flex h-[44px] flex-1 items-center justify-center rounded-[9px] bg-[#b88a32] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[#9a6d24] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {isSaving ? 'Preparing feedback...' : 'Submit answer'}
+            </button>
+            {!selectedOptionId ? (
+              <span className="max-w-[110px] text-[9px] leading-4 text-[#788494] dark:text-[#a8aeb4]">Choose one option first.</span>
+            ) : null}
+          </div>
+        ) : (
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            <button
+              type="button"
+              onClick={onPrev}
+              disabled={currentIndex === 0 || isSubmitting}
+              className="inline-flex h-[42px] items-center justify-center rounded-[9px] border border-[#d8c8aa] bg-[#fffdfa] px-3 text-[11px] font-semibold text-[#10243f] disabled:opacity-35 dark:border-[#5a5f64] dark:bg-[#30363b] dark:text-white"
+            >
+              Previous
+            </button>
+            <span className="min-w-[58px] text-center text-[10px] font-semibold text-[#7b8794] dark:text-[#a8aeb4]">
+              {currentIndex + 1} / {questionCount}
+            </span>
+            <button
+              type="button"
+              onClick={onNext}
+              disabled={currentIndex >= questionCount - 1 || isSubmitting}
+              className="inline-flex h-[42px] items-center justify-center rounded-[9px] bg-[#b88a32] px-3 text-[11px] font-semibold text-white disabled:opacity-35"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
