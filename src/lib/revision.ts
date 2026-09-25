@@ -1,16 +1,12 @@
 import 'server-only';
 
-import { headers } from 'next/headers';
-import { getLiveBankSessions, type BankSessionSummary } from '@/lib/bank-performance';
 import {
   readRevisionQuestionContent,
   readRevisionQuestionFeedback,
   type RevisionR2Feedback,
   type RevisionR2Question,
 } from '@/lib/exam-r2-content';
-import { buildGatewayProof, gatewayHeaders } from '@/lib/exam-gateway-server';
 import { createClient } from '@/lib/supabase/server';
-import { requireSupabaseServerConfig } from '@/lib/supabase/env';
 import { readStaticBankSelectionIndex } from '@/lib/ui-static-r2';
 
 export type RevisionStatusFilter = 'all' | 'incorrect' | 'correct' | 'flagged';
@@ -36,6 +32,7 @@ export interface RevisionListItem {
   category: string;
   topic: string | null;
   difficulty: string;
+  selectedOptionId: number;
   isCorrect: boolean;
   isFlagged: boolean;
   answeredAt: string;
@@ -64,7 +61,7 @@ export interface RevisionQuestionDetail {
   category: string;
   topic: string | null;
   difficulty: string;
-  selectedOptionId: number | null;
+  selectedOptionId: number;
   isCorrect: boolean;
   isFlagged: boolean;
   answeredAt: string;
@@ -77,17 +74,14 @@ export interface RevisionQuestionDetail {
   total: number;
 }
 
-type RevisionStateRow = {
+type RevisionRpcRow = {
   question_id: number;
-  answer_state: string | null;
-  is_suspended: boolean;
+  answer_state: string;
+  selected_option_id: number;
   is_flagged: boolean;
-  is_new: boolean;
-};
-
-type SessionQuestionRow = {
+  answered_at: string;
   test_session_id: string;
-  question_id: number;
+  content_release_id: string | null;
 };
 
 type RevisionBaseRow = {
@@ -95,29 +89,14 @@ type RevisionBaseRow = {
   category: string;
   topic: string | null;
   difficulty: string;
+  selectedOptionId: number;
   isCorrect: boolean;
   isFlagged: boolean;
   answeredAt: string;
   contentReleaseId: string | null;
 };
 
-type ProtectedFeedback = {
-  question_id?: number;
-  selected_option_id?: number | null;
-  is_correct?: boolean | null;
-  content_release_id?: string | null;
-};
-
-type GatewayContext = {
-  supabaseUrl: string;
-  publishableKey: string;
-  accessToken: string;
-  proof: ReturnType<typeof buildGatewayProof>;
-};
-
 const PAGE_SIZE = 12;
-const SESSION_LIMIT = 100;
-const SESSION_CHUNK_SIZE = 40;
 
 function plainText(html: string): string {
   return html
@@ -136,19 +115,6 @@ function plainText(html: string): string {
 
 function clampPage(value: number): number {
   return Number.isSafeInteger(value) && value > 0 ? value : 1;
-}
-
-function sessionDate(session: BankSessionSummary): string {
-  return session.completed_at || session.started_at || '';
-}
-
-function isFinalizedSession(session: BankSessionSummary): boolean {
-  return session.is_completed || session.session_type === 'standard' || session.session_type === 'tutor';
-}
-
-function sessionTimestamp(session: BankSessionSummary): number {
-  const value = Date.parse(sessionDate(session));
-  return Number.isFinite(value) ? value : 0;
 }
 
 export function normalizeRevisionFilters(
@@ -170,75 +136,46 @@ export function normalizeRevisionFilters(
   };
 }
 
-async function getRevisionStates(bankId: number): Promise<RevisionStateRow[]> {
+async function getRevisionRpcRows(bankId: number): Promise<RevisionRpcRow[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('get_user_question_states', { p_bank_id: bankId });
-  if (error) throw new Error(error.message || 'Unable to load revision state');
+  const { data, error } = await supabase.rpc('get_revision_question_index', {
+    p_bank_id: bankId,
+  });
 
-  return ((data || []) as unknown as RevisionStateRow[]).filter(
-    (row) => row.answer_state === 'correct' || row.answer_state === 'incorrect',
-  );
-}
+  if (error) throw new Error(error.message || 'Unable to load revision questions');
 
-async function getQuestionSessionDates(
-  sessions: BankSessionSummary[],
-): Promise<Map<number, string>> {
-  const finalized = sessions.filter(isFinalizedSession);
-  if (finalized.length === 0) return new Map();
-
-  const sessionById = new Map(finalized.map((session) => [session.id, session]));
-  const supabase = await createClient();
-  const latestByQuestion = new Map<number, { timestamp: number; date: string }>();
-
-  for (let index = 0; index < finalized.length; index += SESSION_CHUNK_SIZE) {
-    const ids = finalized.slice(index, index + SESSION_CHUNK_SIZE).map((session) => session.id);
-    const { data, error } = await supabase
-      .from('test_session_questions')
-      .select('test_session_id,question_id')
-      .in('test_session_id', ids);
-
-    if (error) throw new Error(error.message || 'Unable to load revision session mapping');
-
-    for (const row of (data || []) as unknown as SessionQuestionRow[]) {
-      const session = sessionById.get(String(row.test_session_id));
-      const questionId = Number(row.question_id);
-      if (!session || !Number.isSafeInteger(questionId) || questionId <= 0) continue;
-
-      const timestamp = sessionTimestamp(session);
-      const current = latestByQuestion.get(questionId);
-      if (!current || timestamp > current.timestamp) {
-        latestByQuestion.set(questionId, { timestamp, date: sessionDate(session) });
-      }
-    }
-  }
-
-  return new Map([...latestByQuestion.entries()].map(([questionId, value]) => [questionId, value.date]));
+  return ((data || []) as unknown as RevisionRpcRow[]).filter((row) => (
+    Number.isSafeInteger(Number(row.question_id)) &&
+    Number(row.question_id) > 0 &&
+    Number.isSafeInteger(Number(row.selected_option_id)) &&
+    Number(row.selected_option_id) > 0 &&
+    (row.answer_state === 'correct' || row.answer_state === 'incorrect')
+  ));
 }
 
 async function getRevisionBaseRows(bankId: number): Promise<RevisionBaseRow[]> {
-  const [states, selectionIndex, sessions] = await Promise.all([
-    getRevisionStates(bankId),
+  const [rpcRows, selectionIndex] = await Promise.all([
+    getRevisionRpcRows(bankId),
     readStaticBankSelectionIndex(bankId),
-    getLiveBankSessions(bankId, SESSION_LIMIT),
   ]);
 
   const metadata = new Map(
     (selectionIndex?.questions || []).map((question) => [question.id, question]),
   );
-  const dates = await getQuestionSessionDates(sessions);
 
-  return states.map((state) => {
-    const questionId = Number(state.question_id);
+  return rpcRows.map((row) => {
+    const questionId = Number(row.question_id);
     const meta = metadata.get(questionId);
     return {
       questionId,
       category: meta?.category || 'Uncategorized',
       topic: meta?.topic || null,
       difficulty: meta?.difficulty || '1',
-      isCorrect: state.answer_state === 'correct',
-      isFlagged: state.is_flagged === true,
-      answeredAt: dates.get(questionId) || '',
-      contentReleaseId: selectionIndex?.release_id || null,
+      selectedOptionId: Number(row.selected_option_id),
+      isCorrect: row.answer_state === 'correct',
+      isFlagged: row.is_flagged === true,
+      answeredAt: row.answered_at || '',
+      contentReleaseId: row.content_release_id || selectionIndex?.release_id || null,
     };
   });
 }
@@ -264,9 +201,10 @@ function applyFilters(rows: RevisionBaseRow[], filters: RevisionFilters): Revisi
       const first = (a.topic || a.category).localeCompare(b.topic || b.category);
       return first || a.questionId - b.questionId;
     }
-    const time = Date.parse(b.answeredAt) - Date.parse(a.answeredAt);
-    if (Number.isFinite(time) && time !== 0) return time;
-    return b.questionId - a.questionId;
+    const aTime = Date.parse(a.answeredAt);
+    const bTime = Date.parse(b.answeredAt);
+    const time = (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    return time || b.questionId - a.questionId;
   });
 
   return filtered;
@@ -284,124 +222,6 @@ async function hydrateListItems(rows: RevisionBaseRow[]): Promise<RevisionListIt
   }));
 }
 
-async function createGatewayContext(): Promise<GatewayContext> {
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getSession();
-  const accessToken = data.session?.access_token;
-  if (error || !accessToken) throw new Error('Authentication required');
-
-  const { url: supabaseUrl, publishableKey } = requireSupabaseServerConfig();
-  const gatewayKeyId = process.env.ROYAL_GATEWAY_KEY_ID || '';
-  const gatewayKey = process.env.ROYAL_GATEWAY_KEY || '';
-  const riskHmacSecret = process.env.ROYAL_RISK_HMAC_SECRET || '';
-  if (!gatewayKeyId || !gatewayKey || !riskHmacSecret) {
-    throw new Error('Revision gateway is not configured');
-  }
-
-  const incoming = await headers();
-  const proofRequest = new Request('https://royalbank.local/revision', {
-    headers: new Headers(incoming),
-  });
-  const proof = buildGatewayProof({
-    request: proofRequest,
-    gatewayKeyId,
-    gatewayKey,
-    riskHmacSecret,
-  });
-
-  return { supabaseUrl, publishableKey, accessToken, proof };
-}
-
-async function callProtectedFeedback(
-  context: GatewayContext,
-  rpcName: 'get_completed_exam_review_feedback_ref_v2' | 'get_exam_question_feedback_ref_v2',
-  sessionId: string,
-  questionId: number,
-): Promise<ProtectedFeedback | null> {
-  try {
-    const response = await fetch(`${context.supabaseUrl}/rest/v1/rpc/${rpcName}`, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: gatewayHeaders(
-        context.publishableKey,
-        context.accessToken,
-        context.proof,
-      ),
-      body: JSON.stringify({
-        p_session_id: sessionId,
-        p_question_id: questionId,
-      }),
-      signal: AbortSignal.timeout(5000),
-    });
-
-    if (!response.ok) return null;
-    return await response.json() as ProtectedFeedback;
-  } catch {
-    return null;
-  }
-}
-
-async function findReviewAnswer(
-  bankId: number,
-  questionId: number,
-): Promise<{
-  selectedOptionId: number | null;
-  isCorrect: boolean | null;
-  contentReleaseId: string | null;
-  answeredAt: string;
-} | null> {
-  const sessions = (await getLiveBankSessions(bankId, SESSION_LIMIT))
-    .filter(isFinalizedSession)
-    .sort((a, b) => sessionTimestamp(b) - sessionTimestamp(a));
-
-  if (sessions.length === 0) return null;
-
-  const supabase = await createClient();
-  const sessionIds = sessions.map((session) => session.id);
-  const matchingSessionIds = new Set<string>();
-
-  for (let index = 0; index < sessionIds.length; index += SESSION_CHUNK_SIZE) {
-    const ids = sessionIds.slice(index, index + SESSION_CHUNK_SIZE);
-    const { data, error } = await supabase
-      .from('test_session_questions')
-      .select('test_session_id,question_id')
-      .eq('question_id', questionId)
-      .in('test_session_id', ids);
-
-    if (error) throw new Error(error.message || 'Unable to locate reviewed question');
-    for (const row of (data || []) as unknown as SessionQuestionRow[]) {
-      matchingSessionIds.add(String(row.test_session_id));
-    }
-  }
-
-  if (matchingSessionIds.size === 0) return null;
-
-  const context = await createGatewayContext();
-
-  for (const session of sessions) {
-    if (!matchingSessionIds.has(session.id)) continue;
-
-    const rpcName = session.is_completed
-      ? 'get_completed_exam_review_feedback_ref_v2'
-      : 'get_exam_question_feedback_ref_v2';
-
-    const feedback = await callProtectedFeedback(context, rpcName, session.id, questionId);
-    if (!feedback || feedback.selected_option_id == null) continue;
-
-    return {
-      selectedOptionId: Number(feedback.selected_option_id),
-      isCorrect: typeof feedback.is_correct === 'boolean' ? feedback.is_correct : null,
-      contentReleaseId:
-        typeof feedback.content_release_id === 'string'
-          ? feedback.content_release_id
-          : null,
-      answeredAt: sessionDate(session),
-    };
-  }
-
-  return null;
-}
-
 export async function getRevisionIndex(bankId: number, filters: RevisionFilters): Promise<RevisionIndex> {
   const allRows = await getRevisionBaseRows(bankId);
   const filtered = applyFilters(allRows, filters);
@@ -412,7 +232,9 @@ export async function getRevisionIndex(bankId: number, filters: RevisionFilters)
   const items = await hydrateListItems(filtered.slice(start, start + PAGE_SIZE));
 
   const categoryCounts = new Map<string, number>();
-  for (const row of allRows) categoryCounts.set(row.category, (categoryCounts.get(row.category) || 0) + 1);
+  for (const row of allRows) {
+    categoryCounts.set(row.category, (categoryCounts.get(row.category) || 0) + 1);
+  }
 
   return {
     totals: {
@@ -437,26 +259,36 @@ export async function getRevisionQuestion(
   questionId: number,
   filters: RevisionFilters,
 ): Promise<RevisionQuestionDetail | null> {
-  const allRows = await getRevisionBaseRows(bankId);
+  const [allRows, supabase] = await Promise.all([
+    getRevisionBaseRows(bankId),
+    createClient(),
+  ]);
   const filtered = applyFilters(allRows, filters);
   const position = filtered.findIndex((row) => row.questionId === questionId);
   if (position < 0) return null;
 
-  const row = filtered[position];
-  const answer = await findReviewAnswer(bankId, questionId);
-  if (!answer) return null;
+  const { data, error } = await supabase.rpc('get_revision_question_detail', {
+    p_bank_id: bankId,
+    p_question_id: questionId,
+  });
+  if (error) throw new Error(error.message || 'Unable to load revision question');
 
-  const releaseId = answer.contentReleaseId || row.contentReleaseId;
+  const detailRow = ((data || []) as unknown as RevisionRpcRow[])[0];
+  if (!detailRow) return null;
+
+  const row = filtered[position];
+  const releaseId = detailRow.content_release_id || row.contentReleaseId;
   const [question, feedback] = await Promise.all([
-    readRevisionQuestionContent(releaseId, row.questionId),
-    readRevisionQuestionFeedback(releaseId, row.questionId),
+    readRevisionQuestionContent(releaseId, questionId),
+    readRevisionQuestionFeedback(releaseId, questionId),
   ]);
 
   return {
     ...row,
-    selectedOptionId: answer.selectedOptionId,
-    isCorrect: answer.isCorrect ?? row.isCorrect,
-    answeredAt: answer.answeredAt || row.answeredAt,
+    selectedOptionId: Number(detailRow.selected_option_id),
+    isCorrect: detailRow.answer_state === 'correct',
+    isFlagged: detailRow.is_flagged === true,
+    answeredAt: detailRow.answered_at || row.answeredAt,
     contentReleaseId: releaseId,
     question,
     feedback,
