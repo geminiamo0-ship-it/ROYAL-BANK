@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Check,
@@ -44,19 +45,20 @@ export function RevisionQuestionsClient({
 }) {
   const router = useRouter();
   const [searchValue, setSearchValue] = useState(filters.q);
-
   const basePath = `/bank/${bankId}/review`;
 
   const hrefFor = useMemo(() => {
     return (changes: Partial<RevisionFilters>) => {
       const next = { ...filters, ...changes };
       const params = new URLSearchParams();
+
       if (next.status !== 'all') params.set('status', next.status);
       if (next.category) params.set('category', next.category);
+      if (next.topic) params.set('topic', next.topic);
       if (next.difficulty !== 'all') params.set('difficulty', next.difficulty);
       if (next.q) params.set('q', next.q);
-      if (next.sort !== 'date') params.set('sort', next.sort);
       if (next.page > 1) params.set('page', String(next.page));
+
       const query = params.toString();
       return query ? `${basePath}?${query}` : basePath;
     };
@@ -75,8 +77,8 @@ export function RevisionQuestionsClient({
     <div className="revision-passmed">
       <section className="rv-hero">
         <div>
-          <h1>Review questions and key concepts</h1>
-          <p>Revisit previously attempted questions and reinforce key concepts.</p>
+          <h1>Review questions</h1>
+          <p>Revisit your previous answers without changing your question history.</p>
         </div>
         <div className="rv-hero-mark" aria-hidden="true">♛</div>
       </section>
@@ -84,7 +86,6 @@ export function RevisionQuestionsClient({
       <section className="rv-toolbar">
         <div className="rv-tabs">
           <button type="button" className="active">Questions</button>
-          <button type="button" disabled title="Key concepts will be added later">Key concepts</button>
         </div>
 
         <form className="rv-search" onSubmit={submitSearch}>
@@ -92,55 +93,73 @@ export function RevisionQuestionsClient({
           <input
             value={searchValue}
             onChange={(event) => setSearchValue(event.target.value)}
-            placeholder="Search questions..."
-            aria-label="Search review questions"
+            placeholder="Search topic, category or question ID..."
+            aria-label="Search revision questions by topic, category or question ID"
           />
         </form>
-
-        <div className="rv-sort">
-          <button
-            type="button"
-            className={filters.sort === 'date' ? 'active' : ''}
-            onClick={() => pushChanges({ sort: 'date', page: 1 })}
-          >
-            Sort by date
-          </button>
-          <button
-            type="button"
-            className={filters.sort === 'alpha' ? 'active' : ''}
-            onClick={() => pushChanges({ sort: 'alpha', page: 1 })}
-          >
-            Sort alphabetically
-          </button>
-        </div>
       </section>
 
       <div className="rv-layout">
         <aside className="rv-filters">
           <div className="rv-filter-card">
-            <div className="rv-filter-heading">Systems &amp; topics</div>
+            <div className="rv-filter-heading">Categories &amp; topics</div>
 
             <FilterRow
               label="All"
               count={index.totals.answered}
-              selected={!filters.category}
-              onClick={() => pushChanges({ category: null, page: 1 })}
+              selected={!filters.category && !filters.topic}
+              onClick={() => pushChanges({ category: null, topic: null, page: 1 })}
             />
 
             <div className="rv-category-list">
-              {index.categories.map((category) => (
-                <FilterRow
-                  key={category.name}
-                  label={category.name}
-                  count={category.count}
-                  selected={filters.category === category.name}
-                  expandable
-                  onClick={() => pushChanges({
-                    category: filters.category === category.name ? null : category.name,
-                    page: 1,
-                  })}
-                />
-              ))}
+              {index.categories.map((category) => {
+                const expanded = filters.category === category.name;
+                return (
+                  <div key={category.name} className="rv-taxonomy-group">
+                    <FilterRow
+                      label={category.name}
+                      count={category.count}
+                      selected={expanded && !filters.topic}
+                      expandable
+                      expanded={expanded}
+                      onClick={() => pushChanges({
+                        category: expanded ? null : category.name,
+                        topic: null,
+                        page: 1,
+                      })}
+                    />
+
+                    {expanded && category.topics.length > 0 ? (
+                      <div className="rv-topic-list">
+                        <button
+                          type="button"
+                          className={!filters.topic ? 'rv-topic-row active' : 'rv-topic-row'}
+                          onClick={() => pushChanges({ category: category.name, topic: null, page: 1 })}
+                        >
+                          <span>All {category.name}</span>
+                          <b>{category.count.toLocaleString()}</b>
+                        </button>
+
+                        {category.topics.map((topic) => (
+                          <button
+                            key={topic.name}
+                            type="button"
+                            className={filters.topic === topic.name ? 'rv-topic-row active' : 'rv-topic-row'}
+                            onClick={() => pushChanges({
+                              category: category.name,
+                              topic: topic.name,
+                              page: 1,
+                            })}
+                          >
+                            <span>{topic.name}</span>
+                            <b>{topic.count.toLocaleString()}</b>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
 
             <div className="rv-filter-section">
@@ -188,6 +207,16 @@ export function RevisionQuestionsClient({
         </aside>
 
         <section className="rv-results">
+          <div className="rv-results-head">
+            <div>
+              <strong>{index.totalFiltered.toLocaleString()} available question{index.totalFiltered === 1 ? '' : 's'}</strong>
+              <span>Showing up to {index.pageSize} questions per page · newest answered first</span>
+            </div>
+            {(filters.category || filters.topic || filters.status !== 'all' || filters.difficulty !== 'all' || filters.q) ? (
+              <Link href={basePath}>Clear filters</Link>
+            ) : null}
+          </div>
+
           {index.items.length > 0 ? (
             <div className="rv-question-list">
               {index.items.map((item) => {
@@ -195,9 +224,9 @@ export function RevisionQuestionsClient({
                 const query = new URLSearchParams();
                 if (filters.status !== 'all') query.set('status', filters.status);
                 if (filters.category) query.set('category', filters.category);
+                if (filters.topic) query.set('topic', filters.topic);
                 if (filters.difficulty !== 'all') query.set('difficulty', filters.difficulty);
                 if (filters.q) query.set('q', filters.q);
-                if (filters.sort !== 'date') query.set('sort', filters.sort);
                 const detailHref = `${basePath}/${item.questionId}${query.size ? `?${query.toString()}` : ''}`;
 
                 return (
@@ -208,8 +237,11 @@ export function RevisionQuestionsClient({
                     </div>
 
                     <div className="rv-question-copy">
-                      <h2>{item.title}</h2>
-                      <p>{item.preview || `${item.category}${item.topic ? ` · ${item.topic}` : ''}`}</p>
+                      <h2>{item.topic || `Question ${item.questionId}`}</h2>
+                      <p>
+                        <span className="rv-question-taxonomy">{item.category}{item.topic ? ` · ${item.topic}` : ''}</span>
+                        {item.preview ? ` — ${item.preview}` : ''}
+                      </p>
                     </div>
 
                     <div className="rv-question-icons" aria-label={`Difficulty ${item.difficulty}`}>
@@ -237,13 +269,13 @@ export function RevisionQuestionsClient({
           ) : (
             <div className="rv-empty">
               <strong>No reviewed questions match these filters.</strong>
-              <span>Change the filters or clear the search.</span>
+              <span>Change the category, topic, status, difficulty or search.</span>
             </div>
           )}
 
           <div className="rv-pagination">
             <span>
-              {index.totalFiltered.toLocaleString()} question{index.totalFiltered === 1 ? '' : 's'}
+              Page {index.page} of {index.pageCount}
             </span>
             <div>
               <button
@@ -276,12 +308,14 @@ function FilterRow({
   count,
   selected,
   expandable = false,
+  expanded = false,
   onClick,
 }: {
   label: string;
   count: number;
   selected: boolean;
   expandable?: boolean;
+  expanded?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -289,7 +323,11 @@ function FilterRow({
       <span className="rv-filter-check">{selected ? <Check /> : null}</span>
       <span className="rv-filter-label">{label}</span>
       <span className="rv-filter-count">{count.toLocaleString()}</span>
-      {expandable ? <span className="rv-filter-plus">+</span> : null}
+      {expandable ? (
+        <span className={expanded ? 'rv-filter-plus expanded' : 'rv-filter-plus'}>
+          <ChevronDown aria-hidden="true" />
+        </span>
+      ) : null}
     </button>
   );
 }
