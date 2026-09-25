@@ -192,6 +192,7 @@ export async function handleDeepDiveRequest(
           remaining: Number(prepared.remaining ?? 0),
           dailyLimit: Number(prepared.dailyLimit ?? config.dailyLimit),
           followupLimit: Number(prepared.followupLimit ?? config.followupLimit),
+          remainingFollowups: Number(prepared.remainingFollowups ?? config.followupLimit),
         });
       }
 
@@ -246,6 +247,7 @@ export async function handleDeepDiveRequest(
           remaining: Number(prepared.remaining ?? 0),
           dailyLimit: Number(prepared.dailyLimit ?? config.dailyLimit),
           followupLimit: Number(prepared.followupLimit ?? config.followupLimit),
+          remainingFollowups: Number(prepared.remainingFollowups ?? config.followupLimit),
         });
       } catch (error) {
         if (reserved) {
