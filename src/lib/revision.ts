@@ -7,6 +7,7 @@ import {
   type RevisionR2Question,
 } from '@/lib/exam-r2-content';
 import { createClient } from '@/lib/supabase/server';
+import { requireSupabaseServerConfig } from '@/lib/supabase/env';
 import { readStaticBankSelectionIndex } from '@/lib/ui-static-r2';
 
 export type RevisionStatusFilter = 'all' | 'incorrect' | 'correct' | 'flagged';
@@ -32,11 +33,13 @@ export interface RevisionListItem {
   category: string;
   topic: string | null;
   difficulty: string;
-  selectedOptionId: number;
+  selectedOptionId: number | null;
   isCorrect: boolean;
   isFlagged: boolean;
   answeredAt: string;
   contentReleaseId: string | null;
+  testSessionId: string | null;
+  source: 'legacy' | 'edge';
   title: string;
   preview: string;
 }
@@ -61,11 +64,13 @@ export interface RevisionQuestionDetail {
   category: string;
   topic: string | null;
   difficulty: string;
-  selectedOptionId: number;
+  selectedOptionId: number | null;
   isCorrect: boolean;
   isFlagged: boolean;
   answeredAt: string;
   contentReleaseId: string | null;
+  testSessionId: string | null;
+  source: 'legacy' | 'edge';
   question: RevisionR2Question | null;
   feedback: RevisionR2Feedback | null;
   previousQuestionId: number | null;
@@ -80,8 +85,9 @@ type RevisionRpcRow = {
   selected_option_id: number;
   is_flagged: boolean;
   answered_at: string;
-  test_session_id: string;
+  test_session_id: string | null;
   content_release_id: string | null;
+  source: 'legacy' | 'edge';
 };
 
 type RevisionBaseRow = {
@@ -89,11 +95,13 @@ type RevisionBaseRow = {
   category: string;
   topic: string | null;
   difficulty: string;
-  selectedOptionId: number;
+  selectedOptionId: number | null;
   isCorrect: boolean;
   isFlagged: boolean;
   answeredAt: string;
   contentReleaseId: string | null;
+  testSessionId: string | null;
+  source: 'legacy' | 'edge';
 };
 
 const PAGE_SIZE = 12;
@@ -147,8 +155,6 @@ async function getRevisionRpcRows(bankId: number): Promise<RevisionRpcRow[]> {
   return ((data || []) as unknown as RevisionRpcRow[]).filter((row) => (
     Number.isSafeInteger(Number(row.question_id)) &&
     Number(row.question_id) > 0 &&
-    Number.isSafeInteger(Number(row.selected_option_id)) &&
-    Number(row.selected_option_id) > 0 &&
     (row.answer_state === 'correct' || row.answer_state === 'incorrect')
   ));
 }
@@ -171,11 +177,16 @@ async function getRevisionBaseRows(bankId: number): Promise<RevisionBaseRow[]> {
       category: meta?.category || 'Uncategorized',
       topic: meta?.topic || null,
       difficulty: meta?.difficulty || '1',
-      selectedOptionId: Number(row.selected_option_id),
+      selectedOptionId:
+        row.selected_option_id == null || !Number.isSafeInteger(Number(row.selected_option_id))
+          ? null
+          : Number(row.selected_option_id),
       isCorrect: row.answer_state === 'correct',
       isFlagged: row.is_flagged === true,
       answeredAt: row.answered_at || '',
       contentReleaseId: row.content_release_id || selectionIndex?.release_id || null,
+      testSessionId: row.test_session_id || null,
+      source: row.source === 'edge' ? 'edge' : 'legacy',
     };
   });
 }
@@ -220,6 +231,58 @@ async function hydrateListItems(rows: RevisionBaseRow[]): Promise<RevisionListIt
       preview: preview.length > 150 ? `${preview.slice(0, 147)}…` : preview,
     };
   }));
+}
+
+
+type EdgeReviewFeedback = {
+  selected_option_id?: number | null;
+  is_correct?: boolean | null;
+};
+
+async function getEdgeHistoricalAnswer(
+  sessionId: string,
+  questionId: number,
+): Promise<{ selectedOptionId: number; isCorrect: boolean | null } | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (error || !accessToken) return null;
+
+  const { url: supabaseUrl } = requireSupabaseServerConfig();
+  const workerBase = supabaseUrl.includes('dcttiqdrsvkufzjahjzw')
+    ? 'https://royal-bank-v2-exam.geminiamo0.workers.dev'
+    : 'https://royal-bank-exam-production.geminiamo0.workers.dev';
+
+  try {
+    const response = await fetch(`${workerBase}/exam`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'reviewFeedback',
+        args: {
+          p_session_id: sessionId,
+          p_question_id: questionId,
+        },
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) return null;
+    const payload = await response.json() as EdgeReviewFeedback;
+    const selectedOptionId = Number(payload.selected_option_id);
+    if (!Number.isSafeInteger(selectedOptionId) || selectedOptionId <= 0) return null;
+    return {
+      selectedOptionId,
+      isCorrect: typeof payload.is_correct === 'boolean' ? payload.is_correct : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getRevisionIndex(bankId: number, filters: RevisionFilters): Promise<RevisionIndex> {
@@ -278,6 +341,20 @@ export async function getRevisionQuestion(
 
   const row = filtered[position];
   const releaseId = detailRow.content_release_id || row.contentReleaseId;
+  let selectedOptionId =
+    detailRow.selected_option_id == null || !Number.isSafeInteger(Number(detailRow.selected_option_id))
+      ? null
+      : Number(detailRow.selected_option_id);
+  let isCorrect = detailRow.answer_state === 'correct';
+
+  if (selectedOptionId == null && detailRow.source === 'edge' && detailRow.test_session_id) {
+    const historical = await getEdgeHistoricalAnswer(detailRow.test_session_id, questionId);
+    if (historical) {
+      selectedOptionId = historical.selectedOptionId;
+      if (historical.isCorrect != null) isCorrect = historical.isCorrect;
+    }
+  }
+
   const [question, feedback] = await Promise.all([
     readRevisionQuestionContent(releaseId, questionId),
     readRevisionQuestionFeedback(releaseId, questionId),
@@ -285,11 +362,13 @@ export async function getRevisionQuestion(
 
   return {
     ...row,
-    selectedOptionId: Number(detailRow.selected_option_id),
-    isCorrect: detailRow.answer_state === 'correct',
+    selectedOptionId,
+    isCorrect,
     isFlagged: detailRow.is_flagged === true,
     answeredAt: detailRow.answered_at || row.answeredAt,
     contentReleaseId: releaseId,
+    testSessionId: detailRow.test_session_id || row.testSessionId,
+    source: detailRow.source === 'edge' ? 'edge' : 'legacy',
     question,
     feedback,
     previousQuestionId: position > 0 ? filtered[position - 1].questionId : null,
