@@ -55,9 +55,6 @@ create table if not exists public.ai_user_entitlements (
   updated_at timestamptz not null default now()
 );
 
-create index if not exists ai_user_entitlements_updated_by
-  on public.ai_user_entitlements (updated_by)
-  where updated_by is not null;
 
 create table if not exists public.ai_usage_events (
   event_id uuid primary key,
@@ -96,9 +93,6 @@ create table if not exists public.ai_entitlement_audit (
 create index if not exists ai_entitlement_audit_user_time
   on public.ai_entitlement_audit (user_id, created_at desc);
 
-create index if not exists ai_entitlement_audit_actor_user
-  on public.ai_entitlement_audit (actor_user_id)
-  where actor_user_id is not null;
 
 alter table public.ai_deep_dive_config enable row level security;
 alter table public.ai_user_entitlements enable row level security;
