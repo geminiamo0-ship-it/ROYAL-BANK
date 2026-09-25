@@ -68,6 +68,14 @@ interface ExamHeaderProps {
 
 type OpenPanel = 'marker' | 'reference' | 'calculator' | null;
 
+const LazyExamReferenceRanges = dynamic(
+  () => import('@/components/exam/ExamReferenceRanges').then((module) => module.ExamReferenceRanges),
+  {
+    ssr: false,
+    loading: () => <div className="w-full py-6 text-center text-[11px] text-[#aeb6bc]">Loading reference ranges…</div>,
+  },
+);
+
 export function ExamHeader({
   currentIndex,
   clockStartedAtMs,
