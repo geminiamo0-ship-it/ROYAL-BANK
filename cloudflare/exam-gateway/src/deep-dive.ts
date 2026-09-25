@@ -44,7 +44,7 @@ export type DeepDiveGeneration = {
 
 export const DEFAULT_DEEP_DIVE_CONFIG: DeepDiveConfig = {
   primaryModel: 'deepseek/deepseek-v4.1-flash',
-  fallbackModel: null,
+  fallbackModel: 'deepseek/deepseek-v4-pro-0813',
   temperature: 0.2,
   maxInitialTokens: 1800,
   maxFollowupTokens: 900,
