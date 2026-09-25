@@ -15,7 +15,7 @@ import { useQuestionAnnotations } from '@/components/exam/useQuestionAnnotations
 import { useWindowedExamSession } from '@/components/exam/useWindowedExamSession';
 import { getCompletedExamReviewFeedbackDirect } from '@/lib/exam-client-api';
 import type { AnnotationTool } from '@/lib/exam-annotations';
-import { prepareQuestionStemHtml, rewriteExamMediaHtml } from '@/lib/exam-html';
+import { PUBLIC_R2_MEDIA_URL, prepareQuestionStemHtml, rewriteExamMediaHtml } from '@/lib/exam-html';
 import { examModeCapabilities } from '@/lib/exam-mode-capabilities';
 import { extractExplanationPanels } from '@/lib/explanation-panels';
 import type {
@@ -428,7 +428,7 @@ export function WindowedExamPageClient({
   }
 
   const currentFeedback = feedbackByQuestionId[currentQ.id];
-  const mediaUrl = process.env.NEXT_PUBLIC_R2_MEDIA_URL || 'offline_media';
+  const mediaUrl = PUBLIC_R2_MEDIA_URL;
   const updatedExplanation = rewriteExamMediaHtml(currentFeedback?.explanationHtml || '', mediaUrl);
   const explanationPanels = extractExplanationPanels(updatedExplanation, isCurrentConceptBookmarked);
   const currentAnswer = answers[currentQ.id];
@@ -437,6 +437,14 @@ export function WindowedExamPageClient({
   const correctOptionId = currentFeedback?.correctOptionId ?? currentAnswer?.correctOptionId ?? null;
   const optionPercentages = currentFeedback?.optionPercentages || {};
   const currentHtml = prepareQuestionStemHtml(currentQ.text_html || '', mediaUrl);
+  const currentDisplayQuestion = {
+    ...currentQ,
+    text_html: currentHtml,
+    options: currentQ.options.map((option) => ({
+      ...option,
+      text_html: rewriteExamMediaHtml(option.text_html || '', mediaUrl),
+    })),
+  };
   const conceptHtml = explanationPanels.conceptHtml
     ? rewriteExamMediaHtml(explanationPanels.conceptHtml, mediaUrl)
     : null;
@@ -546,7 +554,7 @@ export function WindowedExamPageClient({
         <main className="mx-auto grid w-full max-w-[1240px] gap-6 px-3 pb-[calc(96px+env(safe-area-inset-bottom))] pt-4 md:px-4 md:pb-12 md:pt-3 lg:grid-cols-[minmax(0,1fr)_476px]">
           <div className="min-w-0">
             <WindowedExamQuestionPane
-              question={currentQ}
+              question={currentDisplayQuestion}
               currentIndex={currentIndex}
               questionCount={questionIds.length}
               questionHtml={currentHtml}
@@ -594,7 +602,7 @@ export function WindowedExamPageClient({
               currentIndex={currentIndex}
               isTimedMode={isFeedbackLockedMode}
               marks={marks}
-              question={currentQ}
+              question={currentDisplayQuestion}
               questionIds={questionIds}
               sidebarHtml={isAnswered && !isFeedbackLockedMode ? explanationPanels.sidebarHtml : null}
             />
