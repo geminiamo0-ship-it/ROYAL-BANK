@@ -69,6 +69,7 @@ export default {
         deep_dive: {
           configured: Boolean(env.OPENROUTER_API_KEY?.trim()),
           default_model: 'deepseek/deepseek-v4.1-flash',
+          version: 1,
         },
       });
     }
