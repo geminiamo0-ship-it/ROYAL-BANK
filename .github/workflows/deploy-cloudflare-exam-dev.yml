@@ -57,3 +57,4 @@ jobs:
           grep -q '"ok":true' /tmp/royal-exam-health.json
           grep -q '"environment":"development"' /tmp/royal-exam-health.json
           grep -q '"supabase_project_ref":"dcttiqdrsvkufzjahjzw"' /tmp/royal-exam-health.json
+          grep -q '"deep_dive":{"configured":true' /tmp/royal-exam-health.json
