@@ -457,6 +457,52 @@ export class DeepDiveUserState extends DurableObject<Env> {
     );
   }
 
+  async adminSnapshot(input: {
+    userId: string;
+    defaultDailyLimit: number;
+    defaultFollowupLimit: number;
+  }): Promise<Record<string, unknown>> {
+    this.assertUser(input.userId);
+    const limits = this.limits(input.defaultDailyLimit, input.defaultFollowupLimit);
+    const dayKey = utcDayKey();
+    const used = this.usage(dayKey);
+    const threadCount = Number(
+      this.one<{ count: number }>('SELECT COUNT(*) AS count FROM threads')?.count ?? 0,
+    );
+    const followupCount = Number(
+      this.one<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM messages WHERE role = 'user'`,
+      )?.count ?? 0,
+    );
+    const override = this.one<{
+      daily_limit: number;
+      followup_limit: number;
+      expires_at_ms: number | null;
+      updated_at_ms: number;
+    }>(
+      'SELECT daily_limit, followup_limit, expires_at_ms, updated_at_ms FROM entitlement WHERE id = 1',
+    );
+
+    return {
+      ok: true,
+      dayKey,
+      usedToday: used,
+      remainingToday: Math.max(0, limits.dailyLimit - used),
+      dailyLimit: limits.dailyLimit,
+      followupLimit: limits.followupLimit,
+      totalThreads: threadCount,
+      totalFollowups: followupCount,
+      override: override
+        ? {
+            dailyLimit: Number(override.daily_limit),
+            followupLimit: Number(override.followup_limit),
+            expiresAtMs: override.expires_at_ms == null ? null : Number(override.expires_at_ms),
+            updatedAtMs: Number(override.updated_at_ms),
+          }
+        : null,
+    };
+  }
+
   async setEntitlement(input: {
     userId: string;
     dailyLimit: number;
