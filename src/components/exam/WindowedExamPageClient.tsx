@@ -440,7 +440,7 @@ export function WindowedExamPageClient({
   const currentDisplayQuestion = {
     ...currentQ,
     text_html: currentHtml,
-    options: currentQ.options.map((option) => ({
+    options: (currentQ.options ?? []).map((option) => ({
       ...option,
       text_html: rewriteExamMediaHtml(option.text_html || '', mediaUrl),
     })),
