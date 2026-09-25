@@ -105,7 +105,7 @@ export function WindowedExamQuestionPane({
     .replace(/>Bookmarked</g, '>Bookmark concept<');
 
   return (
-    <section className="min-w-0 pb-10">
+    <section className="min-w-0 pb-0 md:pb-10">
       <div className="relative">
         <div
           data-annotation-content="true"
@@ -252,7 +252,7 @@ export function WindowedExamQuestionPane({
         </div>
       ) : null}
 
-      <div className="sticky bottom-0 z-[45] -mx-3 mt-5 border-t border-[#e2dbcf] bg-[#fffdfa]/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 backdrop-blur md:hidden dark:border-[#3f4348] dark:bg-[#282828]/95">
+      <div className="fixed inset-x-0 bottom-0 z-[120] border-t border-[#e2dbcf] bg-[#fffdfa]/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 shadow-[0_-8px_24px_rgba(16,36,63,0.08)] backdrop-blur md:hidden dark:border-[#3f4348] dark:bg-[#282828]/95 dark:shadow-[0_-8px_24px_rgba(0,0,0,0.28)]">
         {!isReviewMode && !isTimedMode && !isAnswered ? (
           <div>
             <div className="grid grid-cols-[42px_minmax(0,1fr)_42px] items-center gap-2">
