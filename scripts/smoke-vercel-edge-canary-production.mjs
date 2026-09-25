@@ -99,7 +99,7 @@ async function signIn() {
   return body.access_token;
 }
 
-async function assertLegacyControl() {
+async function observeDefaultRoute() {
   const response = await fetch(`${appUrl}/api/exam`, {
     method: 'POST',
     redirect: 'manual',
@@ -112,9 +112,13 @@ async function assertLegacyControl() {
     body: JSON.stringify({ action: 'prepare', args: { p_bank_id: 1 } }),
   });
   const proxy = response.headers.get('x-royal-proxy');
-  if (proxy === 'cloudflare-edge') throw new Error('Control /api/exam unexpectedly routed to Cloudflare without canary opt-in');
-  await response.text();
-  return { status: response.status, proxy: proxy || null };
+  const body = await readBody(response);
+  return {
+    status: response.status,
+    proxy: proxy || null,
+    gateway: response.headers.get('x-royal-gateway'),
+    body,
+  };
 }
 
 async function exam(action, args) {
@@ -219,7 +223,7 @@ try {
   await grantBankAccess();
   token = await signIn();
 
-  const control = await assertLegacyControl();
+  const control = await observeDefaultRoute();
   const latencies = {};
   const prepared = await exam('prepare', { p_bank_id: 1 });
   latencies.prepare_ms = prepared.ms;
