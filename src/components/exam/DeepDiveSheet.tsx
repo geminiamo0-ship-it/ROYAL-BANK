@@ -1,6 +1,6 @@
 'use client';
 
-import React, { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import React, { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Loader2, MessageCircle, Send, Sparkles, X } from 'lucide-react';
 
 type ChatMessage = {
@@ -108,25 +108,6 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
   }
 
   useEffect(() => () => clearRevealTimer(), []);
-
-  useEffect(() => {
-    clearRevealTimer();
-    setMounted(false);
-    setEntered(false);
-    setThreadId(null);
-    setDisplayedInitial('');
-    setMessages([]);
-    setStreamingReply('');
-    setInput('');
-    setError(null);
-    setLimitReached(false);
-    setRemaining(null);
-    setDailyLimit(null);
-    setRemainingFollowups(null);
-    setFollowupLimit(null);
-    setSupportUrl(null);
-    setCacheHit(false);
-  }, [sessionId, questionId]);
 
   useEffect(() => {
     if (!mounted) return;
