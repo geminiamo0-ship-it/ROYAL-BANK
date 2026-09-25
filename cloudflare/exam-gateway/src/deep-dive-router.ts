@@ -411,7 +411,14 @@ export async function handleDeepDiveEntitlementAdmin(
   }
 
   const body = raw as Record<string, unknown>;
-  const action = body.action === 'get' ? 'get' : body.action === 'set' || body.action == null ? 'set' : null;
+  const action =
+    body.action === 'get'
+      ? 'get'
+      : body.action === 'clear'
+        ? 'clear'
+        : body.action === 'set' || body.action == null
+          ? 'set'
+          : null;
   const targetUserId = typeof body.userId === 'string' ? body.userId : '';
   if (!action || !UUID_RE.test(targetUserId)) {
     return json({ error: { code: 'INVALID_REQUEST', message: 'Choose a valid AI allowance request.' } }, 400);
@@ -425,6 +432,64 @@ export async function handleDeepDiveEntitlementAdmin(
       defaultFollowupLimit: config.followupLimit,
     });
     return json(snapshot);
+  }
+
+  const secret = env.SUPABASE_SECRET_KEY?.trim();
+  if (!secret) {
+    return json({ error: { code: 'AI_ADMIN_NOT_CONFIGURED', message: 'AI admin service is unavailable.' } }, 503);
+  }
+  const base = normalizedSupabaseUrl(env);
+
+  if (action === 'clear') {
+    const deleteResponse = await fetch(
+      `${base}/rest/v1/ai_user_entitlements?user_id=eq.${encodeURIComponent(targetUserId)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          apikey: secret,
+          authorization: `Bearer ${secret}`,
+          prefer: 'return=minimal',
+        },
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!deleteResponse.ok) {
+      console.error('DEEP_DIVE_ENTITLEMENT_CLEAR_DB_FAILED', await deleteResponse.text());
+      return json({ error: { code: 'AI_ENTITLEMENT_SAVE_FAILED', message: 'Unable to clear AI allowance.' } }, 502);
+    }
+
+    await env.DEEP_DIVE_USERS.getByName(targetUserId).clearEntitlement({ userId: targetUserId });
+
+    const auditResponse = await fetch(`${base}/rest/v1/ai_entitlement_audit`, {
+      method: 'POST',
+      headers: {
+        apikey: secret,
+        authorization: `Bearer ${secret}`,
+        'content-type': 'application/json',
+        prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        user_id: targetUserId,
+        actor_user_id: actorId,
+        daily_limit: 0,
+        followup_limit: 0,
+        expires_at: null,
+        reason: typeof body.reason === 'string' && body.reason.trim()
+          ? `Override cleared: ${body.reason.trim().slice(0, 450)}`
+          : 'Override cleared',
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!auditResponse.ok) {
+      console.error('DEEP_DIVE_ENTITLEMENT_CLEAR_AUDIT_FAILED', await auditResponse.text());
+    }
+
+    const config = await getDeepDiveConfig(env);
+    return json(await env.DEEP_DIVE_USERS.getByName(targetUserId).adminSnapshot({
+      userId: targetUserId,
+      defaultDailyLimit: config.dailyLimit,
+      defaultFollowupLimit: config.followupLimit,
+    }));
   }
 
   const dailyLimit = Number(body.dailyLimit);
@@ -453,10 +518,6 @@ export async function handleDeepDiveEntitlementAdmin(
     expiresAtIso = new Date(expiresAtMs).toISOString();
   }
 
-  const secret = env.SUPABASE_SECRET_KEY?.trim();
-  if (!secret) return json({ error: { code: 'AI_ADMIN_NOT_CONFIGURED', message: 'AI admin service is unavailable.' } }, 503);
-
-  const base = normalizedSupabaseUrl(env);
   const entitlementResponse = await fetch(
     `${base}/rest/v1/ai_user_entitlements?on_conflict=user_id`,
     {
