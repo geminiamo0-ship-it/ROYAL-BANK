@@ -62,6 +62,11 @@ export default async function RevisionQuestionPage({
   const backHref = `/bank/${parsedBankId}/review${suffix}`;
   const selectedOption = detail.question?.options.find((option) => option.id === detail.selectedOptionId) ?? null;
   const correctOption = detail.question?.options.find((option) => option.id === detail.feedback?.correct_option_id) ?? null;
+  const optionLetter = (optionId: number | null | undefined) => {
+    if (!detail.question || optionId == null) return '—';
+    const index = detail.question.options.findIndex((option) => option.id === optionId);
+    return index >= 0 ? String.fromCharCode(65 + index) : '—';
+  };
 
   return (
     <div className="revision-passmed rv-detail">
@@ -125,12 +130,12 @@ export default async function RevisionQuestionPage({
               <div>
                 <span>Your answer</span>
                 <strong className={detail.isCorrect ? 'correct-text' : 'incorrect-text'}>
-                  {selectedOption ? selectedOption.id : '—'}
+                  {selectedOption ? optionLetter(selectedOption.id) : '—'}
                 </strong>
               </div>
               <div>
                 <span>Correct answer</span>
-                <strong className="correct-text">{correctOption ? correctOption.id : '—'}</strong>
+                <strong className="correct-text">{correctOption ? optionLetter(correctOption.id) : '—'}</strong>
               </div>
               <div>
                 <span>Answered on</span>
