@@ -364,6 +364,10 @@ function MedicalImageViewer({
           if (scale > 1) resetView('fit');
           else setScale(2);
         }}
+        onWheel={(event) => {
+          event.preventDefault();
+          zoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12);
+        }}
       >
         {hasMultiple ? (
           <>
@@ -424,7 +428,7 @@ function MedicalImageViewer({
       </div>
 
       <footer className="relative z-20 flex min-h-[46px] shrink-0 items-center justify-center gap-3 border-t border-white/10 bg-black/25 px-3 text-[10px] text-white/45">
-        <span>Pinch or +/- to zoom</span>
+        <span>Wheel, pinch or +/- to zoom</span>
         <span aria-hidden="true">•</span>
         <span>Drag to pan</span>
         {hasMultiple ? (
@@ -459,11 +463,11 @@ export function MedicalImageGallery({
     const root = rootRef.current;
     if (!root) return;
 
+    const imageElements = Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+      .filter((img) => img.dataset.noPreview !== 'true');
+    const targetIndex = imageElements.indexOf(target);
     const nextImages = collectImages(root);
     if (nextImages.length === 0) return;
-
-    const targetSrc = target.currentSrc || target.src || target.getAttribute('src') || '';
-    const targetIndex = nextImages.findIndex((item) => item.src === targetSrc);
 
     event.preventDefault();
     event.stopPropagation();
