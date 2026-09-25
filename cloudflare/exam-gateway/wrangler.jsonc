@@ -9,6 +9,9 @@
   "observability": {
     "enabled": true
   },
+  "triggers": {
+    "crons": ["*/1 * * * *"]
+  },
   "secrets": {
     "required": ["SUPABASE_SECRET_KEY", "OPENROUTER_API_KEY"]
   },
@@ -34,6 +37,10 @@
       {
         "name": "DEEP_DIVE_CACHE",
         "class_name": "DeepDiveCache"
+      },
+      {
+        "name": "DEEP_DIVE_CONFIG",
+        "class_name": "DeepDiveConfigState"
       }
     ]
   },
@@ -47,6 +54,10 @@
       "storage": "sqlite"
     },
     "DeepDiveCache": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "DeepDiveConfigState": {
       "type": "durable-object",
       "storage": "sqlite"
     }
@@ -80,6 +91,9 @@
       // Named environments do not inherit bindings/vars. Keep every production
       // resource explicit so a DEV binding can never be reused accidentally.
       "name": "royal-bank-exam-production",
+      "triggers": {
+        "crons": ["*/1 * * * *"]
+      },
       "vars": {
         "APP_ENV": "production",
         "SERVICE_NAME": "royal-bank-exam-production",
@@ -102,6 +116,10 @@
           {
             "name": "DEEP_DIVE_CACHE",
             "class_name": "DeepDiveCache"
+          },
+          {
+            "name": "DEEP_DIVE_CONFIG",
+            "class_name": "DeepDiveConfigState"
           }
         ]
       },
