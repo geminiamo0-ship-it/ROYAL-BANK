@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createClient } from '@/lib/supabase/server';
+import { rewriteExamMediaHtml } from '@/lib/exam-html';
 import { isPrivateR2Configured } from '@/lib/r2-private';
 import { readStaticLibraryArticle, readStaticLibraryCatalog } from '@/lib/ui-static-r2';
 
@@ -242,7 +243,7 @@ function parseArticle(article: LibraryContentRpcPayload | undefined): LibraryArt
     id: article.id,
     name: article.name,
     category: typeof article.category === 'string' ? article.category : null,
-    contentHtml: article.content_html,
+    contentHtml: rewriteExamMediaHtml(article.content_html),
   };
 }
 
@@ -309,7 +310,7 @@ export async function readLibraryArticle(
         id: cached.id,
         name: cached.name,
         category: cached.category,
-        contentHtml: cached.content_html,
+        contentHtml: rewriteExamMediaHtml(cached.content_html),
       },
       access,
     };
