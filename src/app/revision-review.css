@@ -126,7 +126,7 @@
 .rv-toolbar {
   min-height: 64px;
   display: grid;
-  grid-template-columns: auto minmax(250px, 1fr) auto;
+  grid-template-columns: auto minmax(280px, 1fr);
   align-items: center;
   gap: 16px;
   margin-top: 14px;
@@ -137,14 +137,12 @@
   padding: 10px 12px;
 }
 
-.rv-tabs,
-.rv-sort {
+.rv-tabs {
   display: inline-flex;
   align-items: center;
 }
 
 .rv-tabs button,
-.rv-sort button,
 .rv-button-grid button,
 .rv-difficulty-grid button {
   border: 1px solid var(--rv-border-strong);
@@ -153,8 +151,7 @@
   transition: 150ms ease;
 }
 
-.rv-tabs button,
-.rv-sort button {
+.rv-tabs button {
   height: 38px;
   padding: 0 15px;
   font-size: 11px;
@@ -162,18 +159,11 @@
 }
 
 .rv-tabs button:first-child,
-.rv-sort button:first-child {
-  border-radius: 7px 0 0 7px;
-}
-
-.rv-tabs button:last-child,
-.rv-sort button:last-child {
-  border-left: 0;
-  border-radius: 0 7px 7px 0;
+.rv-tabs button:last-child {
+  border-radius: 7px;
 }
 
 .rv-tabs button.active,
-.rv-sort button.active,
 .rv-button-grid button.active,
 .rv-difficulty-grid button.active {
   border-color: var(--rv-gold);
@@ -189,8 +179,8 @@
 
 .rv-search {
   position: relative;
-  width: min(100%, 420px);
-  justify-self: center;
+  width: min(100%, 560px);
+  justify-self: end;
 }
 
 .rv-search svg {
@@ -322,8 +312,70 @@
   border: 1px solid var(--rv-border-strong);
   border-radius: 3px;
   color: var(--rv-muted);
-  font-size: 12px;
   line-height: 1;
+}
+
+.rv-filter-plus svg {
+  width: 11px;
+  height: 11px;
+  transition: transform 150ms ease;
+}
+
+.rv-filter-plus.expanded svg {
+  transform: rotate(180deg);
+}
+
+.rv-taxonomy-group {
+  border-bottom: 1px solid var(--rv-border);
+}
+
+.rv-taxonomy-group > .rv-filter-row {
+  border-bottom: 0;
+}
+
+.rv-topic-list {
+  display: grid;
+  gap: 2px;
+  padding: 3px 4px 8px 30px;
+  background: color-mix(in srgb, var(--rv-card-soft) 72%, transparent);
+}
+
+.rv-topic-row {
+  min-height: 29px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--rv-muted);
+  padding: 0 7px;
+  text-align: left;
+}
+
+.rv-topic-row:hover {
+  background: var(--rv-gold-soft);
+  color: var(--rv-text);
+}
+
+.rv-topic-row.active {
+  background: var(--rv-gold-soft);
+  color: var(--rv-gold-strong);
+  font-weight: 800;
+}
+
+.rv-topic-row span {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rv-topic-row b {
+  color: inherit;
+  font-size: 8px;
+  font-weight: 800;
 }
 
 .rv-filter-section {
@@ -376,6 +428,41 @@
 .rv-results {
   min-width: 0;
   overflow: hidden;
+}
+
+.rv-results-head {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--rv-border);
+  padding: 10px 16px;
+}
+
+.rv-results-head > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rv-results-head strong {
+  color: var(--rv-text-strong);
+  font-size: 11px;
+}
+
+.rv-results-head span {
+  color: var(--rv-muted);
+  font-size: 9px;
+}
+
+.rv-results-head > a {
+  color: var(--rv-gold-strong);
+  font-size: 9px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .rv-question-list {
@@ -441,6 +528,11 @@
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.rv-question-taxonomy {
+  color: var(--rv-gold-strong);
+  font-weight: 750;
 }
 
 .rv-question-icons,
@@ -863,7 +955,7 @@
 @media (max-width: 860px) {
   .review-main { padding: 14px 12px 24px; }
   .rv-toolbar { grid-template-columns: 1fr; }
-  .rv-tabs, .rv-sort { justify-self: start; }
+  .rv-tabs { justify-self: start; }
   .rv-search { width: 100%; max-width: none; justify-self: stretch; }
   .rv-layout { grid-template-columns: 1fr; }
   .rv-filter-card { max-height: none; }
