@@ -503,6 +503,11 @@ export class DeepDiveUserState extends DurableObject<Env> {
     };
   }
 
+  async clearEntitlement(input: { userId: string }): Promise<void> {
+    this.assertUser(input.userId);
+    this.ctx.storage.sql.exec('DELETE FROM entitlement WHERE id = 1');
+  }
+
   async setEntitlement(input: {
     userId: string;
     dailyLimit: number;
