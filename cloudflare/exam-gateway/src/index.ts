@@ -66,6 +66,10 @@ export default {
         service: env.SERVICE_NAME || 'royal-bank-exam',
         environment: env.APP_ENV,
         supabase_project_ref: env.SUPABASE_PROJECT_REF,
+        deep_dive: {
+          configured: Boolean(env.OPENROUTER_API_KEY?.trim()),
+          default_model: 'deepseek/deepseek-v4.1-flash',
+        },
       });
     }
     const isExamRequest = request.method === 'POST' && url.pathname === '/exam';
