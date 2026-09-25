@@ -110,6 +110,25 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
   useEffect(() => () => clearRevealTimer(), []);
 
   useEffect(() => {
+    clearRevealTimer();
+    setMounted(false);
+    setEntered(false);
+    setThreadId(null);
+    setDisplayedInitial('');
+    setMessages([]);
+    setStreamingReply('');
+    setInput('');
+    setError(null);
+    setLimitReached(false);
+    setRemaining(null);
+    setDailyLimit(null);
+    setRemainingFollowups(null);
+    setFollowupLimit(null);
+    setSupportUrl(null);
+    setCacheHit(false);
+  }, [sessionId, questionId]);
+
+  useEffect(() => {
     if (!mounted) return;
     const frame = window.requestAnimationFrame(() => setEntered(true));
     const previous = document.body.style.overflow;
@@ -152,7 +171,9 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
       setCacheHit(payload.cacheHit === true);
       setRemaining(typeof payload.remaining === 'number' ? payload.remaining : null);
       setDailyLimit(typeof payload.dailyLimit === 'number' ? payload.dailyLimit : null);
-      setFollowupLimit(typeof payload.followupLimit === 'number' ? payload.followupLimit : null);
+      const nextFollowupLimit = typeof payload.followupLimit === 'number' ? payload.followupLimit : null;
+      setFollowupLimit(nextFollowupLimit);
+      setRemainingFollowups(nextFollowupLimit);
       reveal(payload.initialResponse || '', setDisplayedInitial);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to open Deep Dive.');
