@@ -17,6 +17,7 @@ type StartResponse = {
   remaining?: number;
   dailyLimit?: number;
   followupLimit?: number;
+  remainingFollowups?: number;
   supportUrl?: string | null;
   error?: { code?: string; message?: string };
 };
@@ -154,7 +155,11 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
       setDailyLimit(typeof payload.dailyLimit === 'number' ? payload.dailyLimit : null);
       const nextFollowupLimit = typeof payload.followupLimit === 'number' ? payload.followupLimit : null;
       setFollowupLimit(nextFollowupLimit);
-      setRemainingFollowups(nextFollowupLimit);
+      setRemainingFollowups(
+        typeof payload.remainingFollowups === 'number'
+          ? payload.remainingFollowups
+          : nextFollowupLimit,
+      );
       reveal(payload.initialResponse || '', setDisplayedInitial);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to open Deep Dive.');
@@ -286,15 +291,21 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
                   <p className="mx-auto mt-2 max-w-[430px] text-[12px] leading-5 text-white/55">
                     Your current allowance includes {dailyLimit ?? 4} new Deep Dive sessions per day. Your existing conversations stay available.
                   </p>
-                  <a
-                    href={supportUrl || '/support'}
-                    target={supportUrl ? '_blank' : undefined}
-                    rel={supportUrl ? 'noreferrer' : undefined}
-                    className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-[#c49a46] px-4 text-[12px] font-semibold text-[#16120b] hover:bg-[#d2aa58]"
-                  >
-                    Contact the Royal Bank team
-                    <ArrowUp className="h-3.5 w-3.5 rotate-45" />
-                  </a>
+                  {supportUrl ? (
+                    <a
+                      href={supportUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-[#c49a46] px-4 text-[12px] font-semibold text-[#16120b] hover:bg-[#d2aa58]"
+                    >
+                      Contact us on Telegram
+                      <ArrowUp className="h-3.5 w-3.5 rotate-45" />
+                    </a>
+                  ) : (
+                    <p className="mx-auto mt-5 max-w-[390px] rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-[11px] text-white/50">
+                      Contact the Royal Bank team to increase your Deep Dive allowance.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="mx-auto max-w-[760px]">
