@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
@@ -65,7 +66,7 @@ export function RevisionQuestionsClient({
     router.push(hrefFor({ ...changes, page: changes.page ?? 1 }));
   };
 
-  const submitSearch = (event: React.FormEvent) => {
+  const submitSearch = (event: FormEvent) => {
     event.preventDefault();
     pushChanges({ q: searchValue.trim(), page: 1 });
   };
