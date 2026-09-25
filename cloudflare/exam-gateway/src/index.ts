@@ -6,6 +6,7 @@ import { syncExamEventsToSupabase } from './sync';
 export { UserExamState } from './user-exam-state';
 export { DeepDiveUserState } from './deep-dive-user-state';
 export { DeepDiveCache } from './deep-dive-cache';
+export { DeepDiveConfigState } from './deep-dive-config-state';
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, {
@@ -230,6 +231,18 @@ export default {
           doPhases,
         })
       : response;
+  },
+
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(
+      env.DEEP_DIVE_CONFIG.getByName('global').refreshFromSupabase().catch((error) => {
+        console.error('DEEP_DIVE_CONFIG_SCHEDULED_REFRESH_FAILED', error);
+      }),
+    );
   },
 
   async queue(batch: MessageBatch<ExamSyncEvent>, env: Env): Promise<void> {
