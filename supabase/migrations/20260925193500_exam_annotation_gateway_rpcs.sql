@@ -287,3 +287,6 @@ COMMENT ON FUNCTION public.edge_annotations_batch(uuid, bigint, jsonb, boolean) 
     'Session-scoped batched write endpoint for exam annotations; validates all annotation payloads.';
 COMMENT ON FUNCTION public.edge_annotations_clear(uuid, bigint) IS
     'Session-scoped clear endpoint for exam annotations.';
+
+
+NOTIFY pgrst, 'reload schema';
