@@ -1,4 +1,6 @@
 import type { UserExamState } from './user-exam-state';
+import type { DeepDiveCache } from './deep-dive-cache';
+import type { DeepDiveUserState } from './deep-dive-user-state';
 
 export type ExamSyncEvent = {
   event_id: string;
@@ -15,12 +17,15 @@ export type RoyalEnvironment = 'development' | 'staging' | 'production';
 declare global {
   interface Env {
     USER_EXAMS: DurableObjectNamespace<UserExamState>;
+    DEEP_DIVE_USERS: DurableObjectNamespace<DeepDiveUserState>;
+    DEEP_DIVE_CACHE: DurableObjectNamespace<DeepDiveCache>;
     EXAM_CONTENT: R2Bucket;
     EXAM_SYNC_QUEUE: Queue<ExamSyncEvent>;
     SUPABASE_URL: string;
     SUPABASE_PROJECT_REF: string;
     SUPABASE_PUBLISHABLE_KEY: string;
     SUPABASE_SECRET_KEY?: string;
+    OPENROUTER_API_KEY?: string;
     EXAM_CONTENT_ROOT: string;
     APP_ENV: RoyalEnvironment;
     EXAM_SYNC_QUEUE_NAME: string;
