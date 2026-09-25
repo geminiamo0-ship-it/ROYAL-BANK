@@ -2,7 +2,6 @@ import { normalizedSupabaseUrl } from './auth';
 import {
   buildDeepDiveCacheKey,
   generateDeepDiveFollowUp,
-  getDeepDiveConfig,
   type DeepDiveChatMessage,
 } from './deep-dive';
 import type { ExamSyncEvent } from './env';
@@ -106,6 +105,10 @@ function safeError(error: unknown): Response {
   return json({ error: { code, message: safeMessage } }, status);
 }
 
+async function deepDiveConfig(env: Env) {
+  return env.DEEP_DIVE_CONFIG.getByName('global').getConfig();
+}
+
 function queueUsage(
   ctx: ExecutionContext,
   env: Env,
@@ -134,7 +137,7 @@ export async function handleDeepDiveRequest(
   const body = parseBody(raw);
   if (!body) return json({ error: { code: 'INVALID_REQUEST', message: 'Invalid request.' } }, 400);
 
-  const config = await getDeepDiveConfig(env);
+  const config = await deepDiveConfig(env);
   const userState = env.DEEP_DIVE_USERS.getByName(userId);
   const examState = env.USER_EXAMS.getByName(userId);
 
@@ -425,7 +428,7 @@ export async function handleDeepDiveEntitlementAdmin(
   }
 
   if (action === 'get') {
-    const config = await getDeepDiveConfig(env);
+    const config = await deepDiveConfig(env);
     const snapshot = await env.DEEP_DIVE_USERS.getByName(targetUserId).adminSnapshot({
       userId: targetUserId,
       defaultDailyLimit: config.dailyLimit,
@@ -484,7 +487,7 @@ export async function handleDeepDiveEntitlementAdmin(
       console.error('DEEP_DIVE_ENTITLEMENT_CLEAR_AUDIT_FAILED', await auditResponse.text());
     }
 
-    const config = await getDeepDiveConfig(env);
+    const config = await deepDiveConfig(env);
     return json(await env.DEEP_DIVE_USERS.getByName(targetUserId).adminSnapshot({
       userId: targetUserId,
       defaultDailyLimit: config.dailyLimit,
