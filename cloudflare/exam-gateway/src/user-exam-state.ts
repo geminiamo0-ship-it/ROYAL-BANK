@@ -283,8 +283,73 @@ export class UserExamState extends DurableObject<Env> {
       const schemaVersion = sql
         .exec<{ value: string }>("SELECT value FROM metadata WHERE key = 'schema_version' LIMIT 1")
         .toArray()[0]?.value;
-      if (schemaVersion !== '2') {
+      const compatibleSchemaVersions = new Set(['2', '3', '4']);
+      if (!schemaVersion || !compatibleSchemaVersions.has(schemaVersion)) {
         throw new Error(`UNSUPPORTED_V2_DO_SCHEMA_VERSION:${String(schemaVersion ?? 'missing')}`);
+      }
+
+      // Production Durable Objects may already contain forward-compatible
+      // schema additions from newer gateway revisions. Do not reject those
+      // objects purely because their metadata version is newer; verify that
+      // every table/column this runtime depends on is still present.
+      const requiredColumns: Record<string, string[]> = {
+        sessions: [
+          'id',
+          'create_request_id',
+          'create_request_hash',
+          'bank_id',
+          'session_type',
+          'release_id',
+          'release_prefix',
+          'started_at',
+          'time_limit_minutes',
+          'deadline_at',
+          'suspended_at',
+          'completed_at',
+          'total_questions',
+          'version',
+          'last_active_at_ms',
+          'final_snapshot_json',
+        ],
+        session_questions: ['session_id', 'question_id', 'sort_order'],
+        answers: [
+          'session_id',
+          'question_id',
+          'selected_option_id',
+          'is_correct',
+          'time_spent_seconds',
+          'answered_at',
+          'revision',
+        ],
+        answer_requests: ['request_id', 'request_hash', 'response_json', 'created_at_ms'],
+        question_state: ['question_id', 'seen', 'incorrect', 'flagged', 'updated_at_ms'],
+        create_events: ['id', 'created_at_ms'],
+        question_disclosures: ['question_id', 'first_disclosed_at_ms'],
+        disclosure_events: ['id', 'question_id', 'created_at_ms'],
+        outbox: [
+          'event_id',
+          'session_id',
+          'stream_version',
+          'event_type',
+          'payload_json',
+          'created_at_ms',
+          'sent_at_ms',
+        ],
+      };
+
+      for (const [table, required] of Object.entries(requiredColumns)) {
+        const available = new Set(
+          sql
+            .exec<{ name: string }>(`PRAGMA table_info(${table})`)
+            .toArray()
+            .map((column) => String(column.name)),
+        );
+        const missing = required.filter((column) => !available.has(column));
+        if (missing.length > 0) {
+          throw new Error(
+            `INCOMPATIBLE_V2_DO_SCHEMA:${schemaVersion}:${table}:${missing.join(',')}`,
+          );
+        }
       }
     }
     this.scheduleOutboxAlarm();
