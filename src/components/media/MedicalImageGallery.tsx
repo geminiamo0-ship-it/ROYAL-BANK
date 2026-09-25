@@ -37,7 +37,10 @@ function clampScale(value: number) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
 }
 
-function distance(a: Touch, b: Touch) {
+function distance(
+  a: { clientX: number; clientY: number },
+  b: { clientX: number; clientY: number },
+) {
   return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 }
 
