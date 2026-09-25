@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft, BookOpen } from 'lucide-react';
+import { MedicalImageGallery } from '@/components/media/MedicalImageGallery';
 import {
   LibraryAccessError,
   LibraryAuthenticationError,
@@ -53,10 +54,12 @@ export default async function HighYieldArticlePage({
           <p className="mt-3 text-xs font-semibold text-slate-400">{result.article.category || 'General'}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-[#172238] dark:text-white">{result.article.name}</h1>
         </div>
-        <div
-          className="pm-explanation-container pt-6 leading-relaxed text-slate-800 dark:text-slate-200"
-          dangerouslySetInnerHTML={{ __html: result.article.contentHtml }}
-        />
+        <MedicalImageGallery>
+          <div
+            className="pm-explanation-container pt-6 leading-relaxed text-slate-800 dark:text-slate-200"
+            dangerouslySetInnerHTML={{ __html: result.article.contentHtml }}
+          />
+        </MedicalImageGallery>
       </article>
     </div>
   );
