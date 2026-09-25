@@ -203,6 +203,7 @@ export async function buildDeepDiveCacheKey(
     }),
   );
 
+  const promptHash = await sha256(SYSTEM_PROMPT);
   return sha256(
     JSON.stringify({
       release_id: context.releaseId,
@@ -210,6 +211,7 @@ export async function buildDeepDiveCacheKey(
       selected_option_id: context.selectedOptionId,
       model: config.primaryModel,
       prompt_version: config.promptVersion,
+      prompt_hash: promptHash,
       temperature: config.temperature,
       max_initial_tokens: config.maxInitialTokens,
       context_hash: contextHash,
