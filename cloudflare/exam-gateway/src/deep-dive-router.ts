@@ -42,8 +42,9 @@ function parseBody(value: unknown): DeepDiveBody | null {
     if (
       typeof body.sessionId === 'string'
       && UUID_RE.test(body.sessionId)
+      && typeof body.questionId === 'number'
       && Number.isSafeInteger(body.questionId)
-      && Number(body.questionId) > 0
+      && body.questionId > 0
     ) {
       return {
         action: 'start',
