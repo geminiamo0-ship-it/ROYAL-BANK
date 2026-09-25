@@ -44,6 +44,13 @@ function timedOut(error: unknown): boolean {
   return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
+function bearerToken(request: Request): string | null {
+  const authorization = request.headers.get('authorization') || '';
+  if (!authorization.startsWith('Bearer ')) return null;
+  const token = authorization.slice(7).trim();
+  return token || null;
+}
+
 export async function POST(request: Request): Promise<Response> {
   const length = Number(request.headers.get('content-length') || 0);
   if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
@@ -61,12 +68,21 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const accessToken = session?.access_token || null;
+  let accessToken = bearerToken(request);
+  if (!accessToken) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    accessToken = session?.access_token || null;
+  }
   if (!accessToken) {
     return jsonError(401, 'AUTH_REQUIRED', 'Authentication required.');
+  }
+
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(accessToken);
+  const claims = claimsData?.claims as Record<string, unknown> | undefined;
+  if (claimsError || claims?.role !== 'authenticated' || typeof claims?.sub !== 'string') {
+    return jsonError(401, 'INVALID_AUTH_TOKEN', 'Authentication token is invalid.');
   }
 
   const base = edgeBaseUrl();
