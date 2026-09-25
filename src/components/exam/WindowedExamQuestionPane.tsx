@@ -209,7 +209,7 @@ export function WindowedExamQuestionPane({
                 {question.topic ? (
                   <h2 className="min-w-0 text-[16px] font-semibold text-[#23a7ff]">{question.topic}</h2>
                 ) : <span />}
-                {hasFeedback ? <DeepDiveSheet sessionId={sessionId} questionId={question.id} /> : null}
+                {hasFeedback ? <DeepDiveSheet key={`${sessionId}:${question.id}`} sessionId={sessionId} questionId={question.id} /> : null}
               </div>
               {hasFeedback ? (
                 <MedicalImageGallery>
