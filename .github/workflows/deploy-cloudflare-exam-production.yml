@@ -143,6 +143,7 @@ jobs:
           grep -q '"ok":true' /tmp/royal-exam-production-health.json
           grep -q '"environment":"production"' /tmp/royal-exam-production-health.json
           grep -q '"supabase_project_ref":"trnvsgenmzhyuayxxdoq"' /tmp/royal-exam-production-health.json
+          grep -q '"deep_dive":{"configured":true' /tmp/royal-exam-production-health.json
 
       - name: Verify Production content pointer through Worker
         shell: bash
