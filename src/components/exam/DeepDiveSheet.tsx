@@ -70,6 +70,7 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
   const [entered, setEntered] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [revealing, setRevealing] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [displayedInitial, setDisplayedInitial] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -95,14 +96,21 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
 
   function reveal(text: string, setter: (value: string) => void, onDone?: () => void) {
     clearRevealTimer();
+    setRevealing(true);
     let cursor = 0;
     setter('');
+    if (!text) {
+      setRevealing(false);
+      onDone?.();
+      return;
+    }
     const chunk = Math.max(8, Math.min(28, Math.ceil(Math.max(text.length, 1) / 180)));
     revealTimerRef.current = window.setInterval(() => {
       cursor = Math.min(text.length, cursor + chunk);
       setter(text.slice(0, cursor));
       if (cursor >= text.length) {
         clearRevealTimer();
+        setRevealing(false);
         onDone?.();
       }
     }, 14);
@@ -211,6 +219,7 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
       reveal(assistant, setStreamingReply, () => {
         setMessages((current) => [...current, { role: 'assistant', content: assistant }]);
         setStreamingReply('');
+        setSending(false);
       });
     } catch (cause) {
       setMessages((current) => {
@@ -219,7 +228,6 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
       });
       setInput(message);
       setError(cause instanceof Error ? cause.message : 'Unable to continue this Deep Dive.');
-    } finally {
       setSending(false);
     }
   }
@@ -358,7 +366,7 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
                       }}
                       rows={1}
                       placeholder="Ask a follow-up about this question…"
-                      disabled={sending || remainingFollowups === 0}
+                      disabled={sending || revealing || remainingFollowups === 0}
                       className="max-h-28 min-h-[26px] w-full resize-none bg-transparent text-[12px] leading-5 text-white outline-none placeholder:text-white/30 disabled:opacity-50"
                     />
                     <div className="mt-1 flex items-center justify-between gap-2 text-[8px] text-white/28">
@@ -366,7 +374,7 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
                       {remainingFollowups != null && followupLimit != null ? <span>{remainingFollowups} follow-ups left</span> : null}
                     </div>
                   </div>
-                  <button type="submit" disabled={!input.trim() || sending || remainingFollowups === 0} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#c49a46] text-[#16120b] transition hover:bg-[#d3aa57] disabled:cursor-not-allowed disabled:opacity-35" aria-label="Send follow-up">
+                  <button type="submit" disabled={!input.trim() || sending || revealing || remainingFollowups === 0} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#c49a46] text-[#16120b] transition hover:bg-[#d3aa57] disabled:cursor-not-allowed disabled:opacity-35" aria-label="Send follow-up">
                     {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </button>
                 </form>
