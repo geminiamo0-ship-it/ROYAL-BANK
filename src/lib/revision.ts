@@ -82,7 +82,7 @@ export interface RevisionQuestionDetail {
 type RevisionRpcRow = {
   question_id: number;
   answer_state: string;
-  selected_option_id: number;
+  selected_option_id: number | null;
   is_flagged: boolean;
   answered_at: string;
   test_session_id: string | null;
