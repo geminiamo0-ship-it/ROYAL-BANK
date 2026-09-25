@@ -6,6 +6,7 @@ import {
   QuestionBankAccessError,
   QuestionBankAuthenticationError,
 } from '@/lib/question-bank';
+import { rewriteExamMediaHtml } from '@/lib/exam-html';
 import { getRevisionQuestion, normalizeRevisionFilters } from '@/lib/revision';
 
 function queryString(filters: ReturnType<typeof normalizeRevisionFilters>): string {
@@ -102,7 +103,7 @@ export default async function RevisionQuestionPage({
           <>
             <div
               className="rv-stem"
-              dangerouslySetInnerHTML={{ __html: detail.question.text_html }}
+              dangerouslySetInnerHTML={{ __html: rewriteExamMediaHtml(detail.question.text_html) }}
             />
 
             <div className="rv-options">
@@ -118,7 +119,7 @@ export default async function RevisionQuestionPage({
                 return (
                   <div key={option.id} className={className}>
                     <span className="rv-option-dot" />
-                    <div className="rv-option-text" dangerouslySetInnerHTML={{ __html: option.text_html }} />
+                    <div className="rv-option-text" dangerouslySetInnerHTML={{ __html: rewriteExamMediaHtml(option.text_html) }} />
                     {isSelected ? <span className="rv-option-state">{detail.isCorrect ? <Check /> : <X />} Your answer</span> : null}
                     {isCorrect ? <span className="rv-option-state correct-state"><Check /> Correct answer</span> : null}
                   </div>
@@ -146,7 +147,7 @@ export default async function RevisionQuestionPage({
             <section className="rv-explanation">
               <h2>Explanation</h2>
               {detail.feedback?.explanation_html ? (
-                <div dangerouslySetInnerHTML={{ __html: detail.feedback.explanation_html }} />
+                <div dangerouslySetInnerHTML={{ __html: rewriteExamMediaHtml(detail.feedback.explanation_html) }} />
               ) : (
                 <p>Explanation content is unavailable for this historical question release.</p>
               )}
