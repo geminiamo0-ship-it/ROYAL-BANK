@@ -98,9 +98,15 @@ export async function syncExamEventsToSupabase(env: Env, events: ExamSyncEvent[]
   const aiEvents = events.filter((event) => event.event_type.startsWith('ai.'));
   const examEvents = events.filter((event) => !event.event_type.startsWith('ai.'));
 
-  const [examCount, aiCount] = await Promise.all([
-    syncExamHistoryEvents(env, secretKey, examEvents),
-    syncAiUsageEvents(env, secretKey, aiEvents),
-  ]);
+  // Exam history is correctness-critical and retains the queue retry semantics.
+  // AI telemetry is observability-only: never let an analytics write failure
+  // delay or replay exam history events.
+  const examCount = await syncExamHistoryEvents(env, secretKey, examEvents);
+  let aiCount = 0;
+  try {
+    aiCount = await syncAiUsageEvents(env, secretKey, aiEvents);
+  } catch (error) {
+    console.error('AI_USAGE_TELEMETRY_DROPPED', error);
+  }
   return examCount + aiCount;
 }
