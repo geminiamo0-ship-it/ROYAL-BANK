@@ -411,15 +411,29 @@ export async function handleDeepDiveEntitlementAdmin(
   }
 
   const body = raw as Record<string, unknown>;
+  const action = body.action === 'get' ? 'get' : body.action === 'set' || body.action == null ? 'set' : null;
   const targetUserId = typeof body.userId === 'string' ? body.userId : '';
+  if (!action || !UUID_RE.test(targetUserId)) {
+    return json({ error: { code: 'INVALID_REQUEST', message: 'Choose a valid AI allowance request.' } }, 400);
+  }
+
+  if (action === 'get') {
+    const config = await getDeepDiveConfig(env);
+    const snapshot = await env.DEEP_DIVE_USERS.getByName(targetUserId).adminSnapshot({
+      userId: targetUserId,
+      defaultDailyLimit: config.dailyLimit,
+      defaultFollowupLimit: config.followupLimit,
+    });
+    return json(snapshot);
+  }
+
   const dailyLimit = Number(body.dailyLimit);
   const followupLimit = Number(body.followupLimit);
   const expiresAt = body.expiresAt == null || body.expiresAt === '' ? null : String(body.expiresAt);
   const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : '';
 
   if (
-    !UUID_RE.test(targetUserId)
-    || !Number.isSafeInteger(dailyLimit)
+    !Number.isSafeInteger(dailyLimit)
     || dailyLimit < 1
     || dailyLimit > 1000
     || !Number.isSafeInteger(followupLimit)
