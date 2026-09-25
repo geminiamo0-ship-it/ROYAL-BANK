@@ -38,6 +38,7 @@ export type DeepDiveGeneration = {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  costUsd: number;
   latencyMs: number;
 };
 
@@ -291,6 +292,7 @@ type OpenRouterResponse = {
     completion_tokens?: number;
     input_tokens?: number;
     output_tokens?: number;
+    cost?: number;
   };
   model?: string;
 };
@@ -331,6 +333,7 @@ async function callOpenRouter(
       model,
       temperature: config.temperature,
       max_tokens: maxTokens,
+      usage: { include: true },
       messages,
     }),
     signal: AbortSignal.timeout(config.timeoutMs),
@@ -356,6 +359,7 @@ async function callOpenRouter(
     model: parsed.model || model,
     inputTokens: Number(parsed.usage?.prompt_tokens ?? parsed.usage?.input_tokens ?? 0) || 0,
     outputTokens: Number(parsed.usage?.completion_tokens ?? parsed.usage?.output_tokens ?? 0) || 0,
+    costUsd: Math.max(0, Number(parsed.usage?.cost ?? 0) || 0),
     latencyMs: performance.now() - started,
   };
 }
