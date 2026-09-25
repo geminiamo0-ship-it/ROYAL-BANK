@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - architecture/cloudflare-exam-v2
+      - feat/deep-dive-ai-v1
     paths:
       - 'cloudflare/exam-gateway/**'
       - '.github/workflows/deploy-cloudflare-exam-dev.yml'
