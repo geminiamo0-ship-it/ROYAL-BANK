@@ -45,6 +45,21 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: printf '%s' "$OPENROUTER_API_KEY" | npx wrangler secret put OPENROUTER_API_KEY
+      - name: Verify DEV OpenRouter model
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "HTTP-Referer: https://royal-bank-five.vercel.app" \
+            -H "X-Title: Royal Bank Deep Dive DEV Smoke" \
+            -d '{"model":"deepseek/deepseek-v4.1-flash","temperature":0,"max_tokens":8,"messages":[{"role":"user","content":"Reply only: OK"}]}' \
+            >/tmp/openrouter-smoke.json
+          node -e "const r=require('/tmp/openrouter-smoke.json'); if (!r?.choices?.[0]?.message?.content) { console.error(JSON.stringify(r)); process.exit(1); } console.log('OpenRouter model smoke: OK')"
+
       - name: Deploy DEV Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
