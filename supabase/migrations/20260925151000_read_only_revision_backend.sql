@@ -1,8 +1,11 @@
 -- Read-only Revision backend.
 --
 -- Exposes only the authenticated user's latest finalized answer state for an
--- accessible bank. Question/explanation content stays in immutable R2 releases.
+-- accessible bank. Question/explanation/correct-answer content stays in R2.
 -- No Revision RPC below mutates answer, flag, session, or disclosure state.
+--
+-- The content release is read through to_jsonb(test_sessions) so this migration
+-- is compatible with older DEV schemas that predate content_release_id.
 
 CREATE OR REPLACE FUNCTION public.get_revision_question_index(
     p_bank_id bigint
@@ -11,7 +14,6 @@ RETURNS TABLE (
     question_id bigint,
     answer_state text,
     selected_option_id bigint,
-    correct_option_id bigint,
     is_flagged boolean,
     answered_at timestamptz,
     test_session_id uuid,
@@ -20,7 +22,7 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path TO 'public', 'private', 'pg_catalog', 'pg_temp'
+SET search_path TO 'public', 'pg_catalog', 'pg_temp'
 SET row_security TO 'off'
 AS $function$
     WITH authorized AS (
@@ -36,7 +38,7 @@ AS $function$
             ua.is_correct,
             ua.answered_at,
             ua.test_session_id,
-            ts.content_release_id
+            NULLIF(to_jsonb(ts)->>'content_release_id', '') AS content_release_id
         FROM authorized a
         JOIN public.user_answers ua
           ON ua.user_id = a.user_id
@@ -58,7 +60,6 @@ AS $function$
         latest.question_id,
         CASE WHEN latest.is_correct THEN 'correct' ELSE 'incorrect' END::text AS answer_state,
         latest.selected_option_id,
-        COALESCE(release_answer.correct_option_id, legacy_correct.id) AS correct_option_id,
         (uqf.question_id IS NOT NULL) AS is_flagged,
         latest.answered_at,
         latest.test_session_id,
@@ -67,19 +68,6 @@ AS $function$
     LEFT JOIN public.user_question_flags uqf
       ON uqf.user_id = auth.uid()
      AND uqf.question_id = latest.question_id
-    LEFT JOIN private.exam_content_release_answers release_answer
-      ON latest.content_release_id IS NOT NULL
-     AND release_answer.release_id = latest.content_release_id
-     AND release_answer.question_id = latest.question_id
-    LEFT JOIN LATERAL (
-        SELECT o.id
-        FROM public.options o
-        WHERE latest.content_release_id IS NULL
-          AND o.question_id = latest.question_id
-          AND o.is_correct = TRUE
-        ORDER BY o.id
-        LIMIT 1
-    ) legacy_correct ON TRUE
     ORDER BY latest.answered_at DESC, latest.question_id DESC;
 $function$;
 
@@ -91,7 +79,6 @@ RETURNS TABLE (
     question_id bigint,
     answer_state text,
     selected_option_id bigint,
-    correct_option_id bigint,
     is_flagged boolean,
     answered_at timestamptz,
     test_session_id uuid,
@@ -100,14 +87,13 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path TO 'public', 'private', 'pg_catalog', 'pg_temp'
+SET search_path TO 'public', 'pg_catalog', 'pg_temp'
 SET row_security TO 'off'
 AS $function$
     SELECT
         idx.question_id,
         idx.answer_state,
         idx.selected_option_id,
-        idx.correct_option_id,
         idx.is_flagged,
         idx.answered_at,
         idx.test_session_id,
@@ -128,7 +114,7 @@ GRANT EXECUTE ON FUNCTION public.get_revision_question_detail(bigint, bigint)
     TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.get_revision_question_index(bigint) IS
-    'Read-only Revision boundary: latest finalized answer per question for the authenticated user and accessible bank, with pinned content release and persistent flag state.';
+    'Read-only Revision boundary: latest finalized answer per question for the authenticated user and accessible bank, including persistent flag state and pinned release when available.';
 
 COMMENT ON FUNCTION public.get_revision_question_detail(bigint, bigint) IS
     'Read-only Revision detail boundary for one previously answered bank question. No answer/session/flag mutation occurs.';
