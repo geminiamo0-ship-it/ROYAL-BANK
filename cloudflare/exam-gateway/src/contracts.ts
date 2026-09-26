@@ -28,6 +28,9 @@ export type GatewayAction =
   | 'submitRaw'
   | 'feedback'
   | 'flag'
+  | 'annotationsGet'
+  | 'annotationsBatch'
+  | 'annotationsClear'
   | 'suspend'
   | 'resume'
   | 'complete';
@@ -58,6 +61,9 @@ const actions = new Set<GatewayAction>([
   'submitRaw',
   'feedback',
   'flag',
+  'annotationsGet',
+  'annotationsBatch',
+  'annotationsClear',
   'suspend',
   'resume',
   'complete',
@@ -95,6 +101,89 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+const annotationSurfaces = new Set(['stem', 'options', 'explanation']);
+const annotationColors = new Set(['yellow', 'red', 'blue', 'green', 'purple']);
+const MAX_ANNOTATION_STROKES = 500;
+const MAX_ANNOTATION_POINTS = 25_000;
+const MAX_ANNOTATION_PAYLOAD_BYTES = 262_144;
+
+function validAnnotationStroke(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.id !== 'string' || value.id.length < 1 || value.id.length > 80) {
+    return false;
+  }
+  if (value.color != null && (typeof value.color !== 'string' || !annotationColors.has(value.color))) {
+    return false;
+  }
+
+  if (value.tool === 'text-highlight') {
+    return (
+      isNonNegativeInteger(value.start) &&
+      isPositiveInteger(value.end) &&
+      Number(value.end) > Number(value.start) &&
+      Number(value.end) <= 250_000 &&
+      (value.quote == null || (typeof value.quote === 'string' && value.quote.length <= 1_000))
+    );
+  }
+
+  if (value.tool !== 'pencil' && value.tool !== 'highlighter') return false;
+  if (typeof value.width !== 'number' || !Number.isFinite(value.width) || value.width < 0.5 || value.width > 48) {
+    return false;
+  }
+  if (!Array.isArray(value.points) || value.points.length < 2 || value.points.length > 2_000) return false;
+
+  return value.points.every((point) =>
+    Array.isArray(point) &&
+    point.length === 2 &&
+    point.every((coordinate) =>
+      typeof coordinate === 'number' &&
+      Number.isFinite(coordinate) &&
+      coordinate >= 0 &&
+      coordinate <= 1
+    )
+  );
+}
+
+function validAnnotationUpdate(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.surface !== 'string' || !annotationSurfaces.has(value.surface)) return false;
+  if (typeof value.content_hash !== 'string' || !/^[0-9a-f]{64}$/.test(value.content_hash)) return false;
+  if (!Array.isArray(value.strokes) || value.strokes.length > MAX_ANNOTATION_STROKES) return false;
+
+  let totalPoints = 0;
+  for (const stroke of value.strokes) {
+    if (!validAnnotationStroke(stroke)) return false;
+    if (isRecord(stroke) && (stroke.tool === 'pencil' || stroke.tool === 'highlighter')) {
+      totalPoints += Array.isArray(stroke.points) ? stroke.points.length : 0;
+      if (totalPoints > MAX_ANNOTATION_POINTS) return false;
+    }
+  }
+
+  try {
+    return new TextEncoder().encode(JSON.stringify(value.strokes)).byteLength <= MAX_ANNOTATION_PAYLOAD_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+function validAnnotationQuestionArgs(args: Record<string, unknown>): boolean {
+  return isUuid(args.p_session_id) && isPositiveInteger(args.p_question_id);
+}
+
+function validAnnotationBatchArgs(args: Record<string, unknown>): boolean {
+  if (!validAnnotationQuestionArgs(args) || !Array.isArray(args.p_updates) || args.p_updates.length > 3) return false;
+  if (args.p_seed != null && typeof args.p_seed !== 'boolean') return false;
+  if (args.p_updates.length === 0 && args.p_seed !== true) return false;
+
+  const seen = new Set<string>();
+  for (const update of args.p_updates) {
+    if (!validAnnotationUpdate(update)) return false;
+    const surface = String((update as Record<string, unknown>).surface);
+    if (seen.has(surface)) return false;
+    seen.add(surface);
+  }
+  return true;
 }
 
 function validCreate(args: Record<string, unknown>): boolean {
@@ -137,6 +226,12 @@ export function parseGatewayRequest(value: unknown): GatewayRequest | null {
   if (action === 'create') return validCreate(args) ? { action, args: normalizeCreate(args) } : null;
   if (action === 'flag') {
     return isPositiveInteger(args.p_question_id) && typeof args.p_flagged === 'boolean' ? { action, args } : null;
+  }
+  if (action === 'annotationsGet' || action === 'annotationsClear') {
+    return validAnnotationQuestionArgs(args) ? { action, args } : null;
+  }
+  if (action === 'annotationsBatch') {
+    return validAnnotationBatchArgs(args) ? { action, args } : null;
   }
   if (action === 'window' || action === 'reviewWindow') {
     const maxCount = action === 'window' ? 3 : 5;
