@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* next-themes controls color mode via html.light/html.dark. Tailwind v4 defaults
+   dark: utilities to prefers-color-scheme, so bind the variant to the class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
     --background: 0 0% 100%;
