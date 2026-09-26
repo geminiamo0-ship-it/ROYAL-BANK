@@ -486,11 +486,12 @@ export function suspendExamSessionBestEffort(sessionId: string): void {
   // unload/page-close cannot use callExamGateway because its timeout/AbortController
   // path is intentionally interactive. A small keepalive request still goes through
   // the same /api/exam BFF and production middleware rewrite.
+  const keepalive = true;
   void fetch('/api/exam', {
     method: 'POST',
     cache: 'no-store',
     credentials: 'same-origin',
-    keepalive: true,
+    keepalive,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       action: 'suspend',
