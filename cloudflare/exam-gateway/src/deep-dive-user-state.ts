@@ -210,10 +210,16 @@ export class DeepDiveUserState extends DurableObject<Env> {
       const messages = this.messages(existing.id);
       const followupsUsed = messages.filter((message) => message.role === 'user').length;
       let variant = this.variant(existing.id, input.language);
+      const variantCount = Number(
+        this.one<{ count: number }>(
+          'SELECT COUNT(*) AS count FROM thread_variants WHERE thread_id = ?',
+          existing.id,
+        )?.count ?? 0,
+      );
 
       // Threads created before bilingual support stored their only response directly
-      // on the thread. Treat that legacy response as the English variant.
-      if (!variant && input.language === 'en' && existing.initial_response) {
+      // on the thread. Only backfill when the thread has no v2 variants at all.
+      if (!variant && variantCount === 0 && input.language === 'en' && existing.initial_response) {
         this.ctx.storage.sql.exec(
           `INSERT OR IGNORE INTO thread_variants(
             thread_id, language, cache_key, initial_response, model, prompt_version, updated_at_ms
