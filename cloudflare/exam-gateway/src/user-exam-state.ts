@@ -59,6 +59,15 @@ type QuestionStateRow = {
   flagged: number;
 };
 
+type AnnotationRow = {
+  question_id: number;
+  surface: string;
+  content_hash: string;
+  strokes_json: string;
+  version: number;
+  updated_at: string;
+};
+
 class GatewayError extends Error {
   code: string;
   status: number;
@@ -352,6 +361,24 @@ export class UserExamState extends DurableObject<Env> {
         }
       }
     }
+
+    // Annotation storage was added after the initial V2 Durable Object rollout.
+    // Create it independently of metadata schema_version so existing user objects
+    // gain the table in place without resetting or migrating exam state.
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS question_annotations (
+        question_id INTEGER NOT NULL,
+        surface TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        strokes_json TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (question_id, surface)
+      );
+      CREATE INDEX IF NOT EXISTS idx_question_annotations_question
+        ON question_annotations(question_id);
+    `);
+
     this.scheduleOutboxAlarm();
   }
 
@@ -1157,6 +1184,98 @@ export class UserExamState extends DurableObject<Env> {
     return this.feedbackPayload(answer, feedback);
   }
 
+  private assertQuestionInSession(sessionId: string, questionId: number): SessionRow {
+    const session = this.session(sessionId);
+    const belongs = this.one<{ present: number }>(
+      'SELECT 1 AS present FROM session_questions WHERE session_id = ? AND question_id = ?',
+      session.id,
+      questionId,
+    );
+    if (!belongs) throw new GatewayError(400, 'QUESTION_NOT_IN_SESSION', 'Question does not belong to session.');
+    return session;
+  }
+
+  private annotationRecords(questionId: number): Array<Record<string, unknown>> {
+    return this.all<AnnotationRow & Record<string, SqlStorageValue>>(
+      `SELECT question_id, surface, content_hash, strokes_json, version, updated_at
+       FROM question_annotations
+       WHERE question_id = ?
+       ORDER BY surface`,
+      questionId,
+    ).map((row) => ({
+      surface: String(row.surface),
+      content_hash: String(row.content_hash),
+      strokes: JSON.parse(String(row.strokes_json)) as unknown,
+      version: Number(row.version),
+      updated_at: String(row.updated_at),
+    }));
+  }
+
+  private annotationsGet(args: Record<string, unknown>): Record<string, unknown> {
+    const sessionId = String(args.p_session_id);
+    const questionId = Number(args.p_question_id);
+    this.assertQuestionInSession(sessionId, questionId);
+    return { hydrated: true, records: this.annotationRecords(questionId) };
+  }
+
+  private annotationsBatch(args: Record<string, unknown>): Record<string, unknown> {
+    const sessionId = String(args.p_session_id);
+    const questionId = Number(args.p_question_id);
+    this.assertQuestionInSession(sessionId, questionId);
+
+    const updates = Array.isArray(args.p_updates)
+      ? args.p_updates as Array<Record<string, unknown>>
+      : [];
+    const seed = args.p_seed === true;
+    const now = new Date().toISOString();
+
+    this.ctx.storage.transactionSync(() => {
+      for (const update of updates) {
+        const surface = String(update.surface);
+        const contentHash = String(update.content_hash);
+        const strokesJson = JSON.stringify(update.strokes ?? []);
+        const existing = this.one<{ version: number }>(
+          'SELECT version FROM question_annotations WHERE question_id = ? AND surface = ?',
+          questionId,
+          surface,
+        );
+
+        if (seed && existing) continue;
+
+        const version = existing ? Number(existing.version) + 1 : 1;
+        this.ctx.storage.sql.exec(
+          `INSERT INTO question_annotations(
+             question_id, surface, content_hash, strokes_json, version, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(question_id, surface) DO UPDATE SET
+             content_hash = excluded.content_hash,
+             strokes_json = excluded.strokes_json,
+             version = excluded.version,
+             updated_at = excluded.updated_at`,
+          questionId,
+          surface,
+          contentHash,
+          strokesJson,
+          version,
+          now,
+        );
+      }
+    });
+
+    return { hydrated: true, records: this.annotationRecords(questionId) };
+  }
+
+  private annotationsClear(args: Record<string, unknown>): Record<string, unknown> {
+    const sessionId = String(args.p_session_id);
+    const questionId = Number(args.p_question_id);
+    this.assertQuestionInSession(sessionId, questionId);
+    this.ctx.storage.sql.exec(
+      'DELETE FROM question_annotations WHERE question_id = ?',
+      questionId,
+    );
+    return { hydrated: true, records: [] };
+  }
+
   private setFlag(args: Record<string, unknown>): Record<string, unknown> {
     const questionId = Number(args.p_question_id);
     const flagged = args.p_flagged === true ? 1 : 0;
@@ -1412,6 +1531,12 @@ export class UserExamState extends DurableObject<Env> {
         return this.feedback(input.args, input.action);
       case 'flag':
         return this.setFlag(input.args);
+      case 'annotationsGet':
+        return this.annotationsGet(input.args);
+      case 'annotationsBatch':
+        return this.annotationsBatch(input.args);
+      case 'annotationsClear':
+        return this.annotationsClear(input.args);
       case 'suspend':
         return this.suspend(input.args);
       case 'resume':

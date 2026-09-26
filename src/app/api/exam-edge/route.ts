@@ -3,6 +3,7 @@ import {
   isInProductionEdgeRollout,
   productionEdgeCutoverEnabled,
 } from '@/lib/exam-edge-rollout';
+import { POST as handleLegacyExamPost } from '../exam/route';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'dub1';
@@ -91,6 +92,39 @@ function bearerToken(request: Request): string | null {
 
 function timedOut(error: unknown): boolean {
   return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+}
+
+function isSessionNotFoundResponse(status: number, rawBody: string): boolean {
+  if (status !== 404) return false;
+  try {
+    const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+    const error =
+      parsed.error && typeof parsed.error === 'object' && !Array.isArray(parsed.error)
+        ? parsed.error as Record<string, unknown>
+        : null;
+    return error?.code === 'SESSION_NOT_FOUND';
+  } catch {
+    return false;
+  }
+}
+
+function legacyFallbackRequest(
+  request: Request,
+  accessToken: string,
+  rawBody: string,
+): Request {
+  const headers = new Headers(request.headers);
+  headers.set('authorization', `Bearer ${accessToken}`);
+  headers.set('content-type', 'application/json');
+  headers.delete(INTERNAL_CANARY_HEADER);
+  const url = new URL(request.url);
+  url.pathname = '/api/exam';
+  url.search = '';
+  return new Request(url, {
+    method: 'POST',
+    headers,
+    body: rawBody,
+  });
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -296,6 +330,21 @@ export async function POST(request: Request): Promise<Response> {
 
   const responseBody = await upstream.text();
   upstreamMs = performance.now() - upstreamStarted;
+
+  // Sessions created before the 100% Cloudflare cutover live only in the
+  // historical Supabase session store. If the per-user Durable Object has no
+  // such session, execute the proven legacy route handler directly (not via an
+  // HTTP redirect, which would be rewritten back to Edge by middleware).
+  // The Worker has already failed before mutating state, so this fallback does
+  // not replay a successful mutation.
+  if (
+    action !== 'prepare' &&
+    action !== 'create' &&
+    isSessionNotFoundResponse(upstream.status, responseBody)
+  ) {
+    return handleLegacyExamPost(legacyFallbackRequest(request, accessToken, rawBody));
+  }
+
   const headers = new Headers({
     'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
     'cache-control': 'no-store',

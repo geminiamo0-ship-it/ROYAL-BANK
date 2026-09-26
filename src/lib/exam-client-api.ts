@@ -283,7 +283,7 @@ export async function getExamSessionWindowDirect(
     {
       p_session_id: sessionId,
       p_start: Math.max(0, Math.floor(start)),
-      p_count: Math.min(5, Math.max(1, Math.floor(count))),
+      p_count: Math.min(3, Math.max(1, Math.floor(count))),
     },
     { windowAccessToken },
   );

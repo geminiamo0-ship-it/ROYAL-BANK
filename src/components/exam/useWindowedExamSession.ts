@@ -70,9 +70,10 @@ export function useWindowedExamSession({
     const ids = questionIdsRef.current;
     if (count <= 0 || start >= ids.length) return [];
 
-    const requestedEnd = Math.min(ids.length, start + Math.min(5, count));
-    const requestedCount = requestedEnd - start;
     const mode: 'active' | 'review' = reviewMode ? 'review' : 'active';
+    const maxWindowCount = reviewMode ? 5 : 3;
+    const requestedEnd = Math.min(ids.length, start + Math.min(maxWindowCount, count));
+    const requestedCount = requestedEnd - start;
     const accessToken = windowAccessTokenRef.current;
 
     const cachedRequested = () => ids
@@ -105,7 +106,7 @@ export function useWindowedExamSession({
       while (
         fetchEnd < requestedEnd &&
         !questionsByIdRef.current[ids[fetchEnd]] &&
-        fetchEnd - firstMissing < 5
+        fetchEnd - firstMissing < maxWindowCount
       ) {
         fetchEnd += 1;
       }
