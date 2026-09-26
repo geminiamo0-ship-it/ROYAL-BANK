@@ -51,7 +51,7 @@ export const DEFAULT_DEEP_DIVE_CONFIG: DeepDiveConfig = {
   maxInitialTokens: 1800,
   maxFollowupTokens: 900,
   promptVersion: 'deep_dive_v2_bilingual_gfm',
-  timeoutMs: 30_000,
+  timeoutMs: 170_000,
   dailyLimit: 4,
   followupLimit: 12,
 };
@@ -125,7 +125,7 @@ export async function fetchDeepDiveConfigFromSupabase(env: Env): Promise<DeepDiv
         ? row.prompt_version.trim()
         : DEFAULT_DEEP_DIVE_CONFIG.promptVersion,
     timeoutMs: Math.round(
-      boundedNumber(row.timeout_ms, DEFAULT_DEEP_DIVE_CONFIG.timeoutMs, 5_000, 55_000),
+      boundedNumber(row.timeout_ms, DEFAULT_DEEP_DIVE_CONFIG.timeoutMs, 5_000, 170_000),
     ),
     dailyLimit: Math.round(
       boundedNumber(
