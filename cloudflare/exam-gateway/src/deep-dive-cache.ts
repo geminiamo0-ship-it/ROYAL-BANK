@@ -3,6 +3,7 @@ import {
   generateInitialDeepDive,
   type DeepDiveConfig,
   type DeepDiveGeneration,
+  type DeepDiveLanguage,
   type DeepDiveTrustedContext,
 } from './deep-dive';
 
@@ -24,6 +25,7 @@ export class DeepDiveCache extends DurableObject<Env> {
     cacheKey: string;
     context: DeepDiveTrustedContext;
     config: DeepDiveConfig;
+    language: DeepDiveLanguage;
   }): Promise<{ cacheHit: boolean; generation: CachedGeneration }> {
     const objectKey = this.ctx.id.name;
     if (!objectKey || objectKey !== input.cacheKey) {
@@ -41,7 +43,7 @@ export class DeepDiveCache extends DurableObject<Env> {
       const secondCheck = await this.stored(input.cacheKey);
       if (secondCheck) return secondCheck;
 
-      const generation = await generateInitialDeepDive(this.env, input.context, input.config);
+      const generation = await generateInitialDeepDive(this.env, input.context, input.config, input.language);
       const value: CachedGeneration = {
         ...generation,
         cacheKey: input.cacheKey,
