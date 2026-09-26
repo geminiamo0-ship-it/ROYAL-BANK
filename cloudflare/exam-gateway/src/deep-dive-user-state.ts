@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { DeepDiveChatMessage } from './deep-dive';
+import type { DeepDiveChatMessage, DeepDiveLanguage } from './deep-dive';
 
 type Entitlement = {
   dailyLimit: number;
@@ -19,6 +19,16 @@ type ThreadRow = {
   status: string;
   usage_day_key: string;
   created_at_ms: number;
+  updated_at_ms: number;
+};
+
+type ThreadVariantRow = {
+  thread_id: string;
+  language: DeepDiveLanguage;
+  cache_key: string;
+  initial_response: string;
+  model: string | null;
+  prompt_version: string | null;
   updated_at_ms: number;
 };
 
@@ -60,6 +70,19 @@ export class DeepDiveUserState extends DurableObject<Env> {
       );
       CREATE INDEX IF NOT EXISTS idx_deep_dive_threads_question
         ON threads(question_id, updated_at_ms);
+
+      CREATE TABLE IF NOT EXISTS thread_variants (
+        thread_id TEXT NOT NULL,
+        language TEXT NOT NULL CHECK (language IN ('en', 'ar')),
+        cache_key TEXT NOT NULL,
+        initial_response TEXT NOT NULL,
+        model TEXT,
+        prompt_version TEXT,
+        updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY(thread_id, language)
+      );
+      CREATE INDEX IF NOT EXISTS idx_deep_dive_thread_variants_language
+        ON thread_variants(language, updated_at_ms);
 
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,6 +168,14 @@ export class DeepDiveUserState extends DurableObject<Env> {
     ) as ThreadRow | null;
   }
 
+  private variant(threadId: string, language: DeepDiveLanguage): ThreadVariantRow | null {
+    return this.one<ThreadVariantRow & Record<string, SqlStorageValue>>(
+      'SELECT * FROM thread_variants WHERE thread_id = ? AND language = ? LIMIT 1',
+      threadId,
+      language,
+    ) as ThreadVariantRow | null;
+  }
+
   private messages(threadId: string): DeepDiveChatMessage[] {
     return this.all<{ role: string; content: string }>(
       'SELECT role, content FROM messages WHERE thread_id = ? ORDER BY id ASC LIMIT 32',
@@ -160,6 +191,7 @@ export class DeepDiveUserState extends DurableObject<Env> {
     questionId: number;
     selectedOptionId: number;
     cacheKey: string;
+    language: DeepDiveLanguage;
     defaultDailyLimit: number;
     defaultFollowupLimit: number;
   }): Promise<Record<string, unknown>> {
@@ -177,16 +209,63 @@ export class DeepDiveUserState extends DurableObject<Env> {
       const used = this.usage(dayKey);
       const messages = this.messages(existing.id);
       const followupsUsed = messages.filter((message) => message.role === 'user').length;
+      let variant = this.variant(existing.id, input.language);
+      const variantCount = Number(
+        this.one<{ count: number }>(
+          'SELECT COUNT(*) AS count FROM thread_variants WHERE thread_id = ?',
+          existing.id,
+        )?.count ?? 0,
+      );
+
+      // Threads created before bilingual support stored their only response directly
+      // on the thread. Only backfill when the thread has no v2 variants at all.
+      if (
+        !variant
+        && variantCount === 0
+        && input.language === 'en'
+        && existing.initial_response
+        && existing.cache_key === input.cacheKey
+      ) {
+        this.ctx.storage.sql.exec(
+          `INSERT OR IGNORE INTO thread_variants(
+            thread_id, language, cache_key, initial_response, model, prompt_version, updated_at_ms
+          ) VALUES (?, 'en', ?, ?, ?, ?, ?)`,
+          existing.id,
+          existing.cache_key,
+          existing.initial_response,
+          existing.model,
+          existing.prompt_version,
+          existing.updated_at_ms,
+        );
+        variant = this.variant(existing.id, 'en');
+      }
+
+      if (variant) {
+        this.ctx.storage.sql.exec(
+          `UPDATE threads
+           SET cache_key = ?, initial_response = ?, model = ?, prompt_version = ?,
+               status = 'ready', updated_at_ms = ?
+           WHERE id = ?`,
+          variant.cache_key,
+          variant.initial_response,
+          variant.model,
+          variant.prompt_version,
+          Date.now(),
+          existing.id,
+        );
+      }
+
       return {
         ok: true,
         existing: true,
         reserved: false,
         threadId: existing.id,
-        status: existing.status,
-        initialResponse: existing.initial_response,
-        model: existing.model,
-        promptVersion: existing.prompt_version,
-        cacheKey: existing.cache_key,
+        status: variant?.initial_response ? 'ready' : existing.status,
+        language: input.language,
+        initialResponse: variant?.initial_response ?? null,
+        model: variant?.model ?? null,
+        promptVersion: variant?.prompt_version ?? null,
+        cacheKey: variant?.cache_key ?? input.cacheKey,
         remaining: Math.max(0, limits.dailyLimit - used),
         dailyLimit: limits.dailyLimit,
         followupLimit: limits.followupLimit,
@@ -239,6 +318,7 @@ export class DeepDiveUserState extends DurableObject<Env> {
       status: 'pending',
       initialResponse: null,
       cacheKey: input.cacheKey,
+      language: input.language,
       remaining: Math.max(0, limits.dailyLimit - used - 1),
       dailyLimit: limits.dailyLimit,
       followupLimit: limits.followupLimit,
@@ -250,6 +330,8 @@ export class DeepDiveUserState extends DurableObject<Env> {
   async finalizeStart(input: {
     userId: string;
     threadId: string;
+    language: DeepDiveLanguage;
+    cacheKey: string;
     content: string;
     model: string;
     promptVersion: string;
@@ -257,16 +339,43 @@ export class DeepDiveUserState extends DurableObject<Env> {
     this.assertUser(input.userId);
     const row = this.thread(input.threadId);
     if (!row) throw new Error('DEEP_DIVE_THREAD_NOT_FOUND');
-    this.ctx.storage.sql.exec(
-      `UPDATE threads
-       SET initial_response = ?, model = ?, prompt_version = ?, status = 'ready', updated_at_ms = ?
-       WHERE id = ?`,
-      input.content,
-      input.model,
-      input.promptVersion,
-      Date.now(),
-      input.threadId,
-    );
+    const now = Date.now();
+
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO thread_variants(
+          thread_id, language, cache_key, initial_response, model, prompt_version, updated_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(thread_id, language) DO UPDATE SET
+          cache_key = excluded.cache_key,
+          initial_response = excluded.initial_response,
+          model = excluded.model,
+          prompt_version = excluded.prompt_version,
+          updated_at_ms = excluded.updated_at_ms`,
+        input.threadId,
+        input.language,
+        input.cacheKey,
+        input.content,
+        input.model,
+        input.promptVersion,
+        now,
+      );
+
+      // The logical thread is quota-bearing once. Its canonical seed follows the
+      // currently generated language variant so follow-ups continue from what the learner sees.
+      this.ctx.storage.sql.exec(
+        `UPDATE threads
+         SET cache_key = ?, initial_response = ?, model = ?, prompt_version = ?,
+             status = 'ready', updated_at_ms = ?
+         WHERE id = ?`,
+        input.cacheKey,
+        input.content,
+        input.model,
+        input.promptVersion,
+        now,
+        input.threadId,
+      );
+    });
   }
 
   async refundStart(input: { userId: string; threadId: string }): Promise<void> {

@@ -1,8 +1,11 @@
 import { normalizedSupabaseUrl } from './auth';
 import {
   buildDeepDiveCacheKey,
+  detectDeepDiveLanguage,
+  effectiveDeepDivePromptVersion,
   generateDeepDiveFollowUp,
   type DeepDiveChatMessage,
+  type DeepDiveLanguage,
 } from './deep-dive';
 import type { ExamSyncEvent } from './env';
 
@@ -10,6 +13,7 @@ type DeepDiveStartBody = {
   action: 'start';
   sessionId: string;
   questionId: number;
+  language: DeepDiveLanguage;
 };
 
 type DeepDiveMessageBody = {
@@ -29,7 +33,7 @@ function json(value: unknown, status = 200): Response {
     headers: {
       'cache-control': 'no-store',
       'content-type': 'application/json; charset=utf-8',
-      'x-royal-deep-dive': 'v1',
+      'x-royal-deep-dive': 'v2',
     },
   });
 }
@@ -45,10 +49,12 @@ function parseBody(value: unknown): DeepDiveBody | null {
       && Number.isSafeInteger(body.questionId)
       && body.questionId > 0
     ) {
+      const language: DeepDiveLanguage = body.language === 'ar' ? 'ar' : 'en';
       return {
         action: 'start',
         sessionId: body.sessionId,
         questionId: Number(body.questionId),
+        language,
       };
     }
     return null;
@@ -148,7 +154,8 @@ export async function handleDeepDiveRequest(
         sessionId: body.sessionId,
         questionId: body.questionId,
       });
-      const computedCacheKey = await buildDeepDiveCacheKey(context, config);
+      const computedCacheKey = await buildDeepDiveCacheKey(context, config, body.language);
+      const promptVersion = effectiveDeepDivePromptVersion(config);
 
       const prepared = await userState.prepareStart({
         userId,
@@ -156,6 +163,7 @@ export async function handleDeepDiveRequest(
         questionId: body.questionId,
         selectedOptionId: context.selectedOptionId,
         cacheKey: computedCacheKey,
+        language: body.language,
         defaultDailyLimit: config.dailyLimit,
         defaultFollowupLimit: config.followupLimit,
       }) as Record<string, unknown>;
@@ -193,6 +201,7 @@ export async function handleDeepDiveRequest(
           dailyLimit: Number(prepared.dailyLimit ?? config.dailyLimit),
           followupLimit: Number(prepared.followupLimit ?? config.followupLimit),
           remainingFollowups: Number(prepared.remainingFollowups ?? config.followupLimit),
+          language: body.language,
         });
       }
 
@@ -205,14 +214,17 @@ export async function handleDeepDiveRequest(
           cacheKey,
           context,
           config,
+          language: body.language,
         });
 
         await userState.finalizeStart({
           userId,
           threadId,
+          language: body.language,
+          cacheKey,
           content: generated.generation.content,
           model: generated.generation.model,
-          promptVersion: config.promptVersion,
+          promptVersion,
         });
 
         queueUsage(ctx, env, {
@@ -226,7 +238,8 @@ export async function handleDeepDiveRequest(
             question_id: body.questionId,
             selected_option_id: context.selectedOptionId,
             model: generated.generation.model,
-            prompt_version: config.promptVersion,
+            prompt_version: promptVersion,
+            language: body.language,
             cache_hit: generated.cacheHit,
             input_tokens: generated.cacheHit ? 0 : generated.generation.inputTokens,
             output_tokens: generated.cacheHit ? 0 : generated.generation.outputTokens,
@@ -242,7 +255,8 @@ export async function handleDeepDiveRequest(
           initialResponse: generated.generation.content,
           messages: [],
           model: generated.generation.model,
-          promptVersion: config.promptVersion,
+          promptVersion,
+          language: body.language,
           cacheHit: generated.cacheHit,
           existingThread: prepared.existing === true,
           remaining: Number(prepared.remaining ?? 0),
@@ -318,6 +332,7 @@ export async function handleDeepDiveRequest(
     });
 
     try {
+      const responseLanguage = detectDeepDiveLanguage(body.message);
       const generation = await generateDeepDiveFollowUp(
         env,
         context,
@@ -349,7 +364,8 @@ export async function handleDeepDiveRequest(
           thread_id: body.threadId,
           question_id: questionId,
           model: generation.model,
-          prompt_version: config.promptVersion,
+          prompt_version: effectiveDeepDivePromptVersion(config),
+          language: responseLanguage,
           cache_hit: false,
           input_tokens: generation.inputTokens,
           output_tokens: generation.outputTokens,
@@ -364,6 +380,7 @@ export async function handleDeepDiveRequest(
         threadId: body.threadId,
         assistantResponse: generation.content,
         model: generation.model,
+        language: responseLanguage,
         idempotent: false,
         remainingFollowups: Number(prepared.remainingFollowups ?? 0),
         followupLimit: Number(prepared.followupLimit ?? config.followupLimit),
