@@ -18,6 +18,8 @@ export const EXAM_RPC_BY_ACTION: Record<ExamGatewayAction, string> = {
   annotationsGet: 'edge_annotations_get',
   annotationsBatch: 'edge_annotations_batch',
   annotationsClear: 'edge_annotations_clear',
+  suspend: 'suspend_exam_session_compat',
+  resume: 'resume_exam_session_compat',
   complete: 'complete_exam_session',
 };
 
@@ -185,6 +187,8 @@ const ARGS_SCHEMA_BY_ACTION = {
   annotationsGet: annotationQuestionArgsSchema,
   annotationsBatch: annotationBatchArgsSchema,
   annotationsClear: annotationQuestionArgsSchema,
+  suspend: sessionArgsSchema,
+  resume: sessionArgsSchema,
   complete: sessionArgsSchema,
 } satisfies Record<ExamGatewayAction, z.ZodType>;
 

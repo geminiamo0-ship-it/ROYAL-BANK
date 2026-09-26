@@ -37,9 +37,11 @@ function edgeBaseUrl(): URL | null {
         : process.env.VERCEL_ENV === 'production'
           ? PROD_EDGE_URL
           : DEV_EDGE_URL;
+  // Deep Dive must use the same Worker target as the exam gateway because it
+  // reads the same per-user USER_EXAMS Durable Object. A separate Deep Dive
+  // override can strand newly created sessions in another DO namespace.
   const raw =
-    process.env.ROYAL_DEEP_DIVE_EDGE_URL?.trim()
-    || process.env.ROYAL_EXAM_EDGE_URL?.trim()
+    process.env.ROYAL_EXAM_EDGE_URL?.trim()
     || fallback;
   try {
     const url = new URL(raw);
@@ -143,6 +145,7 @@ export async function POST(request: Request): Promise<Response> {
         headers: {
           'cache-control': 'no-store',
           'x-royal-deep-dive-proxy': 'cloudflare',
+          'x-royal-deep-dive-edge-host': upstreamUrl.host,
         },
       });
     } catch {
@@ -156,6 +159,7 @@ export async function POST(request: Request): Promise<Response> {
       'cache-control': 'no-store',
       'content-type': contentType,
       'x-royal-deep-dive-proxy': 'cloudflare',
+      'x-royal-deep-dive-edge-host': upstreamUrl.host,
     },
   });
 }

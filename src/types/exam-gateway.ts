@@ -18,6 +18,8 @@ export type ExamGatewayAction =
   | 'annotationsGet'
   | 'annotationsBatch'
   | 'annotationsClear'
+  | 'suspend'
+  | 'resume'
   | 'complete';
 
 export type ExamGatewayArgsByAction = {
@@ -100,6 +102,12 @@ export type ExamGatewayArgsByAction = {
   annotationsClear: {
     p_session_id: string;
     p_question_id: number;
+  };
+  suspend: {
+    p_session_id: string;
+  };
+  resume: {
+    p_session_id: string;
   };
   complete: {
     p_session_id: string;
