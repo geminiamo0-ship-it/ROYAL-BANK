@@ -20,7 +20,7 @@ export function DeepDiveAdminConfig({
   const [temperature, setTemperature] = useState(String(config.temperature ?? 0.2));
   const [maxInitialTokens, setMaxInitialTokens] = useState(String(config.max_initial_tokens ?? 1800));
   const [maxFollowupTokens, setMaxFollowupTokens] = useState(String(config.max_followup_tokens ?? 900));
-  const [timeoutMs, setTimeoutMs] = useState(String(config.timeout_ms ?? 30000));
+  const [timeoutMs, setTimeoutMs] = useState(String(config.timeout_ms ?? 170000));
   const [dailyLimit, setDailyLimit] = useState(String(config.default_daily_limit ?? 4));
   const [followupLimit, setFollowupLimit] = useState(String(config.default_followup_limit ?? 12));
   const [message, setMessage] = useState<string | null>(null);
@@ -95,7 +95,7 @@ export function DeepDiveAdminConfig({
           <NumberField label="Temperature" value={temperature} setValue={setTemperature} min="0" max="1" step="0.05" pending={pending} />
           <NumberField label="Initial max tokens" value={maxInitialTokens} setValue={setMaxInitialTokens} min="300" max="4000" step="100" pending={pending} />
           <NumberField label="Follow-up max tokens" value={maxFollowupTokens} setValue={setMaxFollowupTokens} min="200" max="2500" step="100" pending={pending} />
-          <NumberField label="Timeout (ms)" value={timeoutMs} setValue={setTimeoutMs} min="5000" max="55000" step="1000" pending={pending} />
+          <NumberField label="Timeout (ms)" value={timeoutMs} setValue={setTimeoutMs} min="5000" max="170000" step="1000" pending={pending} />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
