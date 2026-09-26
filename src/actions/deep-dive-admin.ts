@@ -57,7 +57,7 @@ const configSchema = z.object({
   temperature: z.number().min(0).max(1),
   maxInitialTokens: z.number().int().min(300).max(4000),
   maxFollowupTokens: z.number().int().min(200).max(2500),
-  timeoutMs: z.number().int().min(5000).max(55000),
+  timeoutMs: z.number().int().min(5000).max(170000),
   defaultDailyLimit: z.number().int().min(1).max(100),
   defaultFollowupLimit: z.number().int().min(1).max(100),
 }).strict();
