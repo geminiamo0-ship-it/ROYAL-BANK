@@ -192,10 +192,14 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
       <button
         type="button"
         onClick={openSheet}
-        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#c9a75f]/45 bg-[#c9a75f]/8 px-3 text-[11px] font-semibold text-[#9b722a] transition hover:border-[#c9a75f]/70 hover:bg-[#c9a75f]/12 dark:border-[#c9a75f]/55 dark:bg-[#c9a75f]/10 dark:text-[#e6c980]"
+        aria-label="Open Deep Dive AI tutor"
+        title="Deep Dive"
+        className="fixed bottom-[calc(78px+env(safe-area-inset-bottom))] right-2.5 z-[130] inline-flex h-7 items-center gap-1 rounded-full border border-[#c9a75f]/40 bg-[#fffdfa]/94 px-2.5 text-[9px] font-semibold text-[#8f6723] shadow-[0_8px_24px_rgba(56,42,18,0.14)] backdrop-blur-md transition duration-200 hover:-translate-y-0.5 hover:border-[#c9a75f]/65 hover:bg-[#fffaf0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c9a75f]/35 dark:border-[#c9a75f]/45 dark:bg-[#151d23]/94 dark:text-[#e4c274] dark:shadow-[0_10px_28px_rgba(0,0,0,0.28)] dark:hover:bg-[#192229] md:bottom-5 md:right-5 md:h-8 md:gap-1.5 md:px-3 md:text-[10px]"
       >
-        <Sparkles className="h-3.5 w-3.5" />
-        Deep Dive
+        <span className="grid h-[18px] w-[18px] place-items-center rounded-full border border-[#c9a75f]/24 bg-[#c9a75f]/8 md:h-5 md:w-5">
+          <Sparkles className="h-2.5 w-2.5 md:h-3 md:w-3" />
+        </span>
+        <span>Deep Dive</span>
       </button>
 
       {mounted ? (
