@@ -185,7 +185,8 @@ function MarkdownBlocks({
         rows.push(splitTableRow(lines[i]));
         i += 1;
       }
-      const tableDir = direction === 'rtl' ? 'rtl' : 'ltr';
+      const tableText = [...headers, ...rows.flat()].join(' ');
+      const tableDir = textDirection(tableText, direction);
       nodes.push(
         <div key={`table-${i}`} className="my-4 max-w-full overflow-x-auto rounded-xl border border-black/10 bg-[#fffdf8] shadow-sm dark:border-white/10 dark:bg-[#11191f]">
           <table dir={tableDir} className="w-full min-w-[560px] border-collapse text-[11.5px] leading-5 sm:text-[12px]">
