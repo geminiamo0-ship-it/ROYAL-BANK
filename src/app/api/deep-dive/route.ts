@@ -145,7 +145,6 @@ export async function POST(request: Request): Promise<Response> {
         headers: {
           'cache-control': 'no-store',
           'x-royal-deep-dive-proxy': 'cloudflare',
-      'x-royal-deep-dive-edge-host': upstreamUrl.host,
           'x-royal-deep-dive-edge-host': upstreamUrl.host,
         },
       });
@@ -160,6 +159,7 @@ export async function POST(request: Request): Promise<Response> {
       'cache-control': 'no-store',
       'content-type': contentType,
       'x-royal-deep-dive-proxy': 'cloudflare',
+      'x-royal-deep-dive-edge-host': upstreamUrl.host,
     },
   });
 }
