@@ -1,7 +1,10 @@
 'use client';
 
-import React, { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import React, { type FormEvent, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Loader2, MessageCircle, Send, Sparkles, X } from 'lucide-react';
+import { DeepDiveMarkdown, type DeepDiveTextDirection } from './DeepDiveMarkdown';
+
+type DeepDiveLanguage = 'en' | 'ar';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -18,6 +21,7 @@ type StartResponse = {
   dailyLimit?: number;
   followupLimit?: number;
   remainingFollowups?: number;
+  language?: DeepDiveLanguage;
   supportUrl?: string | null;
   error?: { code?: string; message?: string };
 };
@@ -27,40 +31,79 @@ type MessageResponse = {
   assistantResponse?: string;
   remainingFollowups?: number;
   followupLimit?: number;
+  language?: DeepDiveLanguage;
   error?: { code?: string; message?: string };
 };
 
-function inlineMarkdown(value: string): ReactNode[] {
-  return value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={index} className="font-semibold text-[#fff8e8]">{part.slice(2, -2)}</strong>;
-    }
-    return <React.Fragment key={index}>{part}</React.Fragment>;
-  });
+const ARABIC_RE = /[\u0600-\u06FF]/g;
+const LATIN_RE = /[A-Za-z]/g;
+
+function messageDirection(value: string): 'ltr' | 'rtl' {
+  const arabic = (value.match(ARABIC_RE) || []).length;
+  const latin = (value.match(LATIN_RE) || []).length;
+  return arabic > 0 && arabic >= Math.max(2, Math.floor(latin * 0.2)) ? 'rtl' : 'ltr';
 }
 
-function DeepDiveMarkdown({ content }: { content: string }) {
+function LanguageChoice({
+  onChoose,
+}: {
+  onChoose: (language: DeepDiveLanguage) => void;
+}) {
   return (
-    <div className="space-y-2.5 text-[13px] leading-6 text-[#dce3e8] sm:text-[14px]">
-      {content.split('\n').map((raw, index) => {
-        const line = raw.trim();
-        if (!line) return <div key={index} className="h-1" />;
-        if (line.startsWith('### ')) {
-          return <h4 key={index} className="pt-2 text-[13px] font-semibold text-[#efd497]">{inlineMarkdown(line.slice(4))}</h4>;
-        }
-        if (line.startsWith('## ')) {
-          return <h3 key={index} className="pt-3 font-serif text-[18px] font-semibold tracking-[-0.015em] text-white">{inlineMarkdown(line.slice(3))}</h3>;
-        }
-        if (/^[-*]\s+/.test(line)) {
-          return (
-            <div key={index} className="flex gap-2 pl-1">
-              <span className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#c49a46]" />
-              <p>{inlineMarkdown(line.replace(/^[-*]\s+/, ''))}</p>
-            </div>
-          );
-        }
-        return <p key={index}>{inlineMarkdown(line)}</p>;
-      })}
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-5 py-10 sm:px-8">
+      <div className="royal-deep-dive-chooser w-full max-w-[520px] text-center">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-[18px] border border-[#c9a75f]/30 bg-[#c9a75f]/8 text-[#ad7d28] dark:text-[#e7c878]">
+          <Sparkles className="h-5 w-5" />
+        </div>
+        <h3 className="mt-4 font-serif text-[24px] font-semibold tracking-[-0.025em] text-[#28231d] dark:text-white">
+          How would you like your Deep Dive?
+        </h3>
+        <p className="mx-auto mt-2 max-w-[430px] text-[11.5px] leading-5 text-[#756e64] dark:text-white/48">
+          Choose the teaching language for the first explanation. You can switch at any time,
+          and follow-up replies adapt to the language you use.
+        </p>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => onChoose('en')}
+            className="group rounded-2xl border border-black/10 bg-[#fffdf8] p-4 text-left shadow-[0_10px_30px_rgba(69,51,21,0.045)] transition hover:-translate-y-0.5 hover:border-[#c9a75f]/45 hover:shadow-[0_14px_34px_rgba(69,51,21,0.08)] dark:border-white/10 dark:bg-[#151d23]"
+          >
+            <span className="text-[8px] font-bold uppercase tracking-[0.13em] text-[#9a722d] dark:text-[#d9b86e]">
+              MRCP Professor Mode
+            </span>
+            <span className="mt-1.5 block text-[16px] font-semibold text-[#2c271f] dark:text-white">
+              English
+            </span>
+            <span className="mt-1.5 block text-[10px] leading-4.5 text-[#756e64] dark:text-white/45">
+              Full English explanation with clinical reasoning, mechanisms, distractor analysis and exam strategy.
+            </span>
+            <span className="mt-3 block text-[10px] font-semibold text-[#a77929] dark:text-[#e4c274]">
+              Continue in English →
+            </span>
+          </button>
+
+          <button
+            type="button"
+            dir="rtl"
+            onClick={() => onChoose('ar')}
+            className="group rounded-2xl border border-black/10 bg-[#fffdf8] p-4 text-right shadow-[0_10px_30px_rgba(69,51,21,0.045)] transition hover:-translate-y-0.5 hover:border-[#c9a75f]/45 hover:shadow-[0_14px_34px_rgba(69,51,21,0.08)] dark:border-white/10 dark:bg-[#151d23]"
+          >
+            <span className="text-[8px] font-bold uppercase tracking-[0.13em] text-[#9a722d] dark:text-[#d9b86e]">
+              Egyptian Education Mode
+            </span>
+            <span className="mt-1.5 block text-[16px] font-semibold text-[#2c271f] dark:text-white">
+              عربي + Medical English
+            </span>
+            <span className="mt-1.5 block text-[10px] leading-4.5 text-[#756e64] dark:text-white/45">
+              شرح مصري بسيط مع الحفاظ على المصطلحات الطبية المهمة بالإنجليزي زي ما هتشوفها في الامتحان.
+            </span>
+            <span className="mt-3 block text-[10px] font-semibold text-[#a77929] dark:text-[#e4c274]">
+              ابدأ الشرح بالعربي ←
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -68,13 +111,12 @@ function DeepDiveMarkdown({ content }: { content: string }) {
 export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; questionId: number }) {
   const [mounted, setMounted] = useState(false);
   const [entered, setEntered] = useState(false);
+  const [language, setLanguage] = useState<DeepDiveLanguage | null>(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [revealing, setRevealing] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [displayedInitial, setDisplayedInitial] = useState('');
+  const [initialResponse, setInitialResponse] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [streamingReply, setStreamingReply] = useState('');
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [limitReached, setLimitReached] = useState(false);
@@ -84,39 +126,7 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
   const [followupLimit, setFollowupLimit] = useState<number | null>(null);
   const [supportUrl, setSupportUrl] = useState<string | null>(null);
   const [cacheHit, setCacheHit] = useState(false);
-  const revealTimerRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  function clearRevealTimer() {
-    if (revealTimerRef.current != null) {
-      window.clearInterval(revealTimerRef.current);
-      revealTimerRef.current = null;
-    }
-  }
-
-  function reveal(text: string, setter: (value: string) => void, onDone?: () => void) {
-    clearRevealTimer();
-    setRevealing(true);
-    let cursor = 0;
-    setter('');
-    if (!text) {
-      setRevealing(false);
-      onDone?.();
-      return;
-    }
-    const chunk = Math.max(8, Math.min(28, Math.ceil(Math.max(text.length, 1) / 180)));
-    revealTimerRef.current = window.setInterval(() => {
-      cursor = Math.min(text.length, cursor + chunk);
-      setter(text.slice(0, cursor));
-      if (cursor >= text.length) {
-        clearRevealTimer();
-        setRevealing(false);
-        onDone?.();
-      }
-    }, 14);
-  }
-
-  useEffect(() => () => clearRevealTimer(), []);
 
   useEffect(() => {
     if (!mounted) return;
@@ -132,17 +142,24 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
   useEffect(() => {
     if (!mounted || !scrollRef.current) return;
     scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [displayedInitial, messages, streamingReply, mounted]);
+  }, [initialResponse, messages, sending, mounted]);
 
-  async function loadDeepDive() {
+  async function loadDeepDive(nextLanguage: DeepDiveLanguage) {
+    setLanguage(nextLanguage);
     setLoading(true);
     setError(null);
     setLimitReached(false);
+
     try {
       const response = await fetch('/api/deep-dive', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'start', sessionId, questionId }),
+        body: JSON.stringify({
+          action: 'start',
+          sessionId,
+          questionId,
+          language: nextLanguage,
+        }),
       });
       const payload = await response.json() as StartResponse;
       if (!response.ok || !payload.ok) {
@@ -157,6 +174,7 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
       }
 
       setThreadId(payload.threadId || null);
+      setInitialResponse(payload.initialResponse || '');
       setMessages(Array.isArray(payload.messages) ? payload.messages : []);
       setCacheHit(payload.cacheHit === true);
       setRemaining(typeof payload.remaining === 'number' ? payload.remaining : null);
@@ -168,7 +186,6 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
           ? payload.remainingFollowups
           : nextFollowupLimit,
       );
-      reveal(payload.initialResponse || '', setDisplayedInitial);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to open Deep Dive.');
     } finally {
@@ -178,12 +195,16 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
 
   function openSheet() {
     setMounted(true);
-    if (!threadId && !loading && !limitReached) void loadDeepDive();
   }
 
   function closeSheet() {
     setEntered(false);
-    window.setTimeout(() => setMounted(false), 220);
+    window.setTimeout(() => setMounted(false), 260);
+  }
+
+  async function switchLanguage(nextLanguage: DeepDiveLanguage) {
+    if (nextLanguage === language && initialResponse) return;
+    await loadDeepDive(nextLanguage);
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -215,12 +236,7 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
 
       if (typeof payload.remainingFollowups === 'number') setRemainingFollowups(payload.remainingFollowups);
       if (typeof payload.followupLimit === 'number') setFollowupLimit(payload.followupLimit);
-      const assistant = payload.assistantResponse;
-      reveal(assistant, setStreamingReply, () => {
-        setMessages((current) => [...current, { role: 'assistant', content: assistant }]);
-        setStreamingReply('');
-        setSending(false);
-      });
+      setMessages((current) => [...current, { role: 'assistant', content: payload.assistantResponse as string }]);
     } catch (cause) {
       setMessages((current) => {
         const last = current[current.length - 1];
@@ -228,16 +244,20 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
       });
       setInput(message);
       setError(cause instanceof Error ? cause.message : 'Unable to continue this Deep Dive.');
+    } finally {
       setSending(false);
     }
   }
+
+  const initialDirection: DeepDiveTextDirection = language === 'ar' ? 'rtl' : 'ltr';
+  const inputDirection = messageDirection(input || (language === 'ar' ? 'ع' : 'A'));
 
   return (
     <>
       <button
         type="button"
         onClick={openSheet}
-        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#c9a75f]/55 bg-[#c9a75f]/10 px-3 text-[11px] font-semibold text-[#e6c980] transition hover:border-[#d9ba75] hover:bg-[#c9a75f]/16"
+        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#c9a75f]/45 bg-[#c9a75f]/8 px-3 text-[11px] font-semibold text-[#9b722a] transition hover:border-[#c9a75f]/70 hover:bg-[#c9a75f]/12 dark:border-[#c9a75f]/55 dark:bg-[#c9a75f]/10 dark:text-[#e6c980]"
       >
         <Sparkles className="h-3.5 w-3.5" />
         Deep Dive
@@ -245,7 +265,7 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
 
       {mounted ? (
         <div
-          className={'fixed inset-0 z-[900] flex items-end justify-center transition-colors duration-200 ' + (entered ? 'bg-black/60 backdrop-blur-[2px]' : 'bg-black/0')}
+          className={'fixed inset-0 z-[900] transition duration-300 ' + (entered ? 'bg-[#3d311d]/18 backdrop-blur-[4px] dark:bg-black/55' : 'bg-transparent backdrop-blur-0')}
           role="dialog"
           aria-modal="true"
           aria-label="Deep Dive AI tutor"
@@ -254,134 +274,225 @@ export function DeepDiveSheet({ sessionId, questionId }: { sessionId: string; qu
           }}
         >
           <section
-            className={'flex h-[88dvh] w-full max-w-[980px] flex-col overflow-hidden rounded-t-[24px] border border-b-0 border-[#3e454a] bg-[#11171c] shadow-[0_-20px_70px_rgba(0,0,0,0.45)] transition duration-200 ease-out sm:h-[82dvh] sm:w-[calc(100%-32px)] ' + (entered ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0')}
+            className={
+              'fixed inset-x-0 bottom-0 flex h-[92dvh] flex-col overflow-hidden rounded-t-[24px] border border-b-0 border-black/10 bg-[#fbf7ef] shadow-[0_-24px_70px_rgba(60,45,20,0.16)] transition duration-[380ms] ease-[cubic-bezier(.22,1,.36,1)] dark:border-white/10 dark:bg-[#11181e] dark:shadow-[0_-24px_70px_rgba(0,0,0,0.4)] sm:inset-y-3 sm:left-auto sm:right-3 sm:h-auto sm:w-[min(650px,46vw)] sm:min-w-[500px] sm:rounded-[24px] sm:border-b ' +
+              (entered
+                ? 'translate-y-0 opacity-100 sm:translate-x-0'
+                : 'translate-y-full opacity-0 sm:translate-x-full sm:translate-y-0')
+            }
           >
-            <div className="shrink-0 border-b border-white/8 bg-[#131a20] px-4 pb-3 pt-2 sm:px-5">
-              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/18" />
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[#c9a75f]/30 bg-[#c9a75f]/10 text-[#e8c978]">
-                    <Sparkles className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="font-serif text-[18px] font-semibold tracking-[-0.02em] text-white">Deep Dive</h2>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[9px] font-medium text-[#8f9aa3]">
-                      <span>Royal Bank AI Tutor</span>
-                      {remaining != null && dailyLimit != null ? (
-                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[#d7bd82]">{remaining} of {dailyLimit} remaining today</span>
-                      ) : null}
-                      {cacheHit ? <span className="text-[#7fc7a1]">Instant analysis</span> : null}
-                    </div>
+            <header className="relative z-10 flex min-h-[82px] shrink-0 items-center justify-between gap-3 border-b border-black/8 bg-[#fffdf8]/92 px-4 pt-2 backdrop-blur-xl dark:border-white/8 dark:bg-[#121a20]/94 sm:px-5 sm:pt-0">
+              <div className="absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-black/12 dark:bg-white/18 sm:hidden" />
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#c9a75f]/30 bg-[#c9a75f]/8 text-[#ad7d28] dark:bg-[#c9a75f]/10 dark:text-[#e8c978]">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="font-serif text-[19px] font-semibold tracking-[-0.02em] text-[#28231d] dark:text-white">
+                    Deep Dive
+                  </h2>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[8.5px] font-medium text-[#81796e] dark:text-[#8f9aa3]">
+                    <span>Royal Bank AI Tutor</span>
+                    {remaining != null && dailyLimit != null ? (
+                      <span className="rounded-full border border-[#c9a75f]/20 bg-[#c9a75f]/5 px-2 py-0.5 text-[#9d742b] dark:border-white/10 dark:text-[#d7bd82]">
+                        {remaining} of {dailyLimit} remaining today
+                      </span>
+                    ) : null}
+                    {cacheHit ? <span className="text-[#49845b] dark:text-[#7fc7a1]">Instant analysis</span> : null}
                   </div>
                 </div>
-                <button type="button" onClick={closeSheet} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/60 hover:bg-white/8 hover:text-white" aria-label="Close Deep Dive">
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                {language ? (
+                  <div className="flex rounded-xl border border-black/8 bg-[#f3ede2] p-1 dark:border-white/8 dark:bg-[#0d1419]">
+                    <button
+                      type="button"
+                      onClick={() => void switchLanguage('en')}
+                      disabled={loading}
+                      className={'rounded-lg px-2.5 py-1.5 text-[9px] font-bold transition ' + (language === 'en' ? 'bg-[#fffdf8] text-[#9b722a] shadow-sm dark:bg-[#182128] dark:text-[#e5c576]' : 'text-[#8b8377] hover:text-[#4b443b] dark:text-white/38 dark:hover:text-white/70')}
+                    >
+                      EN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void switchLanguage('ar')}
+                      disabled={loading}
+                      className={'rounded-lg px-2.5 py-1.5 text-[9px] font-bold transition ' + (language === 'ar' ? 'bg-[#fffdf8] text-[#9b722a] shadow-sm dark:bg-[#182128] dark:text-[#e5c576]' : 'text-[#8b8377] hover:text-[#4b443b] dark:text-white/38 dark:hover:text-white/70')}
+                    >
+                      عربي
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={closeSheet}
+                  className="grid h-9 w-9 place-items-center rounded-full text-[#8b8378] transition hover:bg-black/5 hover:text-[#302b24] dark:text-white/50 dark:hover:bg-white/8 dark:hover:text-white"
+                  aria-label="Close Deep Dive"
+                >
                   <X className="h-4 w-4" />
                 </button>
               </div>
-            </div>
+            </header>
 
-            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-7 sm:py-6">
-              {loading ? (
-                <div className="mx-auto flex max-w-[680px] flex-col items-center justify-center py-20 text-center">
-                  <div className="relative grid h-12 w-12 place-items-center rounded-2xl border border-[#c9a75f]/30 bg-[#c9a75f]/8 text-[#e7c878]">
-                    <Sparkles className="h-5 w-5" />
-                    <span className="absolute inset-0 animate-ping rounded-2xl border border-[#c9a75f]/20" />
-                  </div>
-                  <p className="mt-4 text-[13px] font-semibold text-white">Building your Deep Dive…</p>
-                  <p className="mt-1 text-[10px] text-white/40">Analysing the question, your answer and the official explanation.</p>
-                </div>
-              ) : limitReached ? (
-                <div className="mx-auto max-w-[560px] py-14 text-center">
-                  <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-[#c9a75f]/30 bg-[#c9a75f]/10 text-[#e7c878]">
-                    <MessageCircle className="h-5 w-5" />
-                  </div>
-                  <h3 className="mt-4 font-serif text-[22px] font-semibold text-white">You’ve used today’s Deep Dives</h3>
-                  <p className="mx-auto mt-2 max-w-[430px] text-[12px] leading-5 text-white/55">
-                    Your current allowance includes {dailyLimit ?? 4} new Deep Dive sessions per day. Your existing conversations stay available.
-                  </p>
-                  {supportUrl ? (
-                    <a
-                      href={supportUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-[#c49a46] px-4 text-[12px] font-semibold text-[#16120b] hover:bg-[#d2aa58]"
-                    >
-                      Contact us on Telegram
-                      <ArrowUp className="h-3.5 w-3.5 rotate-45" />
-                    </a>
+            {!language && !loading ? <LanguageChoice onChoose={(next) => void loadDeepDive(next)} /> : null}
+
+            {language ? (
+              <>
+                <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-5 sm:py-5">
+                  {loading ? (
+                    <div className="mx-auto flex max-w-[520px] flex-col items-center justify-center py-24 text-center">
+                      <div className="relative grid h-12 w-12 place-items-center rounded-2xl border border-[#c9a75f]/30 bg-[#c9a75f]/8 text-[#ad7d28] dark:text-[#e7c878]">
+                        <Sparkles className="h-5 w-5" />
+                        <span className="absolute inset-0 animate-ping rounded-2xl border border-[#c9a75f]/20" />
+                      </div>
+                      <p className="mt-4 text-[12.5px] font-semibold text-[#302b24] dark:text-white">
+                        {language === 'ar' ? 'بنجهز الـ Deep Dive بتاعك…' : 'Building your Deep Dive…'}
+                      </p>
+                      <p className="mt-1 text-[9.5px] text-[#8b8378] dark:text-white/35">
+                        {language === 'ar'
+                          ? 'بنحلل السؤال، إجابتك، والـ official explanation.'
+                          : 'Analysing the question, your answer and the official explanation.'}
+                      </p>
+                    </div>
+                  ) : limitReached ? (
+                    <div className="mx-auto max-w-[520px] py-16 text-center">
+                      <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-[#c9a75f]/30 bg-[#c9a75f]/8 text-[#ad7d28] dark:text-[#e7c878]">
+                        <MessageCircle className="h-5 w-5" />
+                      </div>
+                      <h3 className="mt-4 font-serif text-[21px] font-semibold text-[#2d2821] dark:text-white">
+                        You’ve used today’s Deep Dives
+                      </h3>
+                      <p className="mx-auto mt-2 max-w-[430px] text-[11px] leading-5 text-[#7b746a] dark:text-white/48">
+                        Your current allowance includes {dailyLimit ?? 4} new Deep Dive sessions per day. Existing conversations stay available.
+                      </p>
+                      {supportUrl ? (
+                        <a
+                          href={supportUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-[#c49a46] px-4 text-[11px] font-semibold text-[#16120b] hover:bg-[#d2aa58]"
+                        >
+                          Contact us on Telegram
+                          <ArrowUp className="h-3.5 w-3.5 rotate-45" />
+                        </a>
+                      ) : null}
+                    </div>
                   ) : (
-                    <p className="mx-auto mt-5 max-w-[390px] rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3 text-[11px] text-white/50">
-                      Contact the Royal Bank team to increase your Deep Dive allowance.
-                    </p>
+                    <div className="mx-auto w-full max-w-[760px]">
+                      {initialResponse ? (
+                        <DeepDiveMarkdown
+                          content={initialResponse}
+                          direction={initialDirection}
+                          animateSections
+                        />
+                      ) : null}
+
+                      {messages.length ? <div className="my-5 border-t border-black/8 dark:border-white/8" /> : null}
+
+                      <div className="space-y-3">
+                        {messages.map((message, index) => {
+                          const direction = messageDirection(message.content);
+                          if (message.role === 'user') {
+                            return (
+                              <div key={index} className="flex justify-end">
+                                <div
+                                  dir={direction}
+                                  style={{ unicodeBidi: 'plaintext' }}
+                                  className="max-w-[82%] rounded-2xl rounded-br-md bg-[#b88a32] px-4 py-3 text-[12px] leading-5.5 text-white shadow-sm"
+                                >
+                                  {message.content}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div key={index} className="max-w-[96%] rounded-2xl border border-black/8 bg-[#fffdf8] px-4 py-4 shadow-sm dark:border-white/8 dark:bg-[#151d23]">
+                              <DeepDiveMarkdown content={message.content} direction="auto" compact />
+                            </div>
+                          );
+                        })}
+
+                        {sending ? (
+                          <div className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-[#fffdf8] px-3 py-2 text-[9.5px] text-[#8b8378] dark:border-white/8 dark:bg-[#151d23] dark:text-white/42">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-[#b88a32]" />
+                            Thinking…
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {error ? (
+                        <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/7 px-3 py-2 text-[10.5px] text-red-700 dark:text-red-200">
+                          {error}
+                        </div>
+                      ) : null}
+                    </div>
                   )}
                 </div>
-              ) : (
-                <div className="mx-auto max-w-[760px]">
-                  {displayedInitial ? (
-                    <div className="rounded-2xl border border-white/8 bg-[#151d23] px-4 py-4 shadow-sm sm:px-5 sm:py-5">
-                      <DeepDiveMarkdown content={displayedInitial} />
-                    </div>
-                  ) : null}
 
-                  {messages.map((message, index) => (
-                    <div key={index} className={message.role === 'user' ? 'ml-auto mt-4 max-w-[78%]' : 'mt-4 max-w-[94%]'}>
-                      {message.role === 'user' ? (
-                        <div className="rounded-2xl rounded-br-md bg-[#b88a32] px-4 py-3 text-[13px] leading-5 text-white">{message.content}</div>
-                      ) : (
-                        <div className="rounded-2xl rounded-bl-md border border-white/8 bg-[#151d23] px-4 py-4"><DeepDiveMarkdown content={message.content} /></div>
-                      )}
-                    </div>
-                  ))}
-
-                  {streamingReply ? (
-                    <div className="mt-4 max-w-[94%] rounded-2xl rounded-bl-md border border-white/8 bg-[#151d23] px-4 py-4">
-                      <DeepDiveMarkdown content={streamingReply} />
-                    </div>
-                  ) : null}
-
-                  {sending && !streamingReply ? (
-                    <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/8 bg-[#151d23] px-3 py-2 text-[10px] text-white/45">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#d1ad60]" />
-                      Thinking…
-                    </div>
-                  ) : null}
-
-                  {error ? <div className="mt-4 rounded-xl border border-red-500/25 bg-red-500/8 px-3 py-2 text-[11px] text-red-200">{error}</div> : null}
-                </div>
-              )}
-            </div>
-
-            {!loading && !limitReached && threadId ? (
-              <div className="shrink-0 border-t border-white/8 bg-[#12191e]/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-3 backdrop-blur sm:px-5 sm:pb-4">
-                <form onSubmit={sendMessage} className="mx-auto flex max-w-[760px] items-end gap-2">
-                  <div className="min-w-0 flex-1 rounded-2xl border border-white/12 bg-[#0d1317] px-3 py-2 focus-within:border-[#b9954d]/65">
-                    <textarea
-                      value={input}
-                      onChange={(event) => setInput(event.target.value.slice(0, 2000))}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' && !event.shiftKey) {
-                          event.preventDefault();
-                          event.currentTarget.form?.requestSubmit();
-                        }
-                      }}
-                      rows={1}
-                      placeholder="Ask a follow-up about this question…"
-                      disabled={sending || revealing || remainingFollowups === 0}
-                      className="max-h-28 min-h-[26px] w-full resize-none bg-transparent text-[12px] leading-5 text-white outline-none placeholder:text-white/30 disabled:opacity-50"
-                    />
-                    <div className="mt-1 flex items-center justify-between gap-2 text-[8px] text-white/28">
-                      <span>Same question context and conversation memory</span>
-                      {remainingFollowups != null && followupLimit != null ? <span>{remainingFollowups} follow-ups left</span> : null}
-                    </div>
+                {!loading && !limitReached && threadId ? (
+                  <div className="shrink-0 border-t border-black/8 bg-[#f8f2e8]/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-3 backdrop-blur-xl dark:border-white/8 dark:bg-[#0f171c]/95 sm:px-4 sm:pb-4">
+                    <form onSubmit={sendMessage} className="mx-auto flex max-w-[760px] items-end gap-2">
+                      <div className="min-w-0 flex-1 rounded-2xl border border-black/10 bg-[#fffdf8] px-3 py-2 transition focus-within:border-[#b9954d]/55 dark:border-white/10 dark:bg-[#0b1217]">
+                        <textarea
+                          value={input}
+                          dir={inputDirection}
+                          onChange={(event) => setInput(event.target.value.slice(0, 2000))}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                              event.preventDefault();
+                              event.currentTarget.form?.requestSubmit();
+                            }
+                          }}
+                          rows={1}
+                          placeholder={language === 'ar' ? 'اسأل أي follow-up عن السؤال…' : 'Ask a follow-up about this question…'}
+                          disabled={sending || remainingFollowups === 0}
+                          className={'max-h-28 min-h-[26px] w-full resize-none bg-transparent text-[11.5px] leading-5 text-[#302b24] outline-none placeholder:text-[#a1988b] disabled:opacity-50 dark:text-white dark:placeholder:text-white/28 ' + (inputDirection === 'rtl' ? 'text-right' : 'text-left')}
+                        />
+                        <div className="mt-1 flex items-center justify-between gap-2 text-[7.5px] text-[#a1988b] dark:text-white/25">
+                          <span>{language === 'ar' ? 'نفس السؤال + conversation memory' : 'Same question context and conversation memory'}</span>
+                          {remainingFollowups != null && followupLimit != null ? (
+                            <span>{remainingFollowups} follow-ups left</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={!input.trim() || sending || remainingFollowups === 0}
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#c49a46] text-[#16120b] transition hover:bg-[#d3aa57] disabled:cursor-not-allowed disabled:opacity-35"
+                        aria-label="Send follow-up"
+                      >
+                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      </button>
+                    </form>
+                    {remainingFollowups === 0 ? (
+                      <p className="mx-auto mt-2 max-w-[760px] text-center text-[8.5px] text-[#9a722d] dark:text-[#d7bd82]">
+                        This conversation has reached its follow-up limit.
+                      </p>
+                    ) : null}
                   </div>
-                  <button type="submit" disabled={!input.trim() || sending || revealing || remainingFollowups === 0} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#c49a46] text-[#16120b] transition hover:bg-[#d3aa57] disabled:cursor-not-allowed disabled:opacity-35" aria-label="Send follow-up">
-                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  </button>
-                </form>
-                {remainingFollowups === 0 ? <p className="mx-auto mt-2 max-w-[760px] text-center text-[9px] text-[#d7bd82]">This conversation has reached its follow-up limit.</p> : null}
-              </div>
+                ) : null}
+              </>
             ) : null}
           </section>
+
+          <style jsx global>{`
+            @keyframes royalDeepDiveSectionIn {
+              from { opacity: 0; transform: translateY(9px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes royalDeepDiveChooserIn {
+              from { opacity: 0; transform: translateY(10px) scale(.992); }
+              to { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            .royal-deep-dive-section {
+              animation: royalDeepDiveSectionIn .44s cubic-bezier(.22,1,.36,1) both;
+            }
+            .royal-deep-dive-chooser {
+              animation: royalDeepDiveChooserIn .46s .06s cubic-bezier(.22,1,.36,1) both;
+            }
+          `}</style>
         </div>
       ) : null}
     </>
