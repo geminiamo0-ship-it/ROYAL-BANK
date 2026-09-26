@@ -4,10 +4,10 @@ import { getRoyalSupportTelegramUrl } from '@/lib/royal-support';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'dub1';
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 const MAX_BODY_BYTES = 8 * 1024;
-const EDGE_TIMEOUT_MS = 55_000;
+const EDGE_TIMEOUT_MS = 175_000;
 const DEV_EDGE_URL = 'https://royal-bank-v2-exam.geminiamo0.workers.dev';
 const PROD_EDGE_URL = 'https://royal-bank-exam-production.geminiamo0.workers.dev';
 const PROD_SUPABASE_PROJECT_REF = 'trnvsgenmzhyuayxxdoq';
