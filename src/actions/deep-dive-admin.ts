@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 
 export type DeepDiveAdminOverview = {
@@ -94,15 +93,9 @@ export async function getDeepDiveAdminOverview(
   if (!actor.ok) return actor;
 
   const safeDays = Math.min(90, Math.max(1, Math.round(Number(days) || 30)));
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return { ok: false, error: 'The secure AI admin service is not configured.' };
-  }
-
+  const supabase = await createClient();
   const from = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await admin.rpc('admin_get_deep_dive_ai_overview', {
+  const { data, error } = await supabase.rpc('admin_get_deep_dive_ai_overview_session', {
     p_from: from,
   });
 
@@ -123,33 +116,27 @@ export async function updateDeepDiveAdminConfig(
   const actor = await requireAdminActor();
   if (!actor.ok) return actor;
 
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return { ok: false, error: 'The secure AI admin service is not configured.' };
-  }
-
-  const updatedAt = new Date().toISOString();
   const value = parsed.data;
-  const { error } = await admin
-    .from('ai_deep_dive_config')
-    .update({
-      primary_model: value.primaryModel,
-      fallback_model: value.fallbackModel?.trim() || null,
-      temperature: value.temperature,
-      max_initial_tokens: value.maxInitialTokens,
-      max_followup_tokens: value.maxFollowupTokens,
-      timeout_ms: value.timeoutMs,
-      default_daily_limit: value.defaultDailyLimit,
-      default_followup_limit: value.defaultFollowupLimit,
-      updated_at: updatedAt,
-    })
-    .eq('active', true);
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('admin_update_deep_dive_ai_config_session', {
+    p_primary_model: value.primaryModel,
+    p_fallback_model: value.fallbackModel?.trim() || '',
+    p_temperature: value.temperature,
+    p_max_initial_tokens: value.maxInitialTokens,
+    p_max_followup_tokens: value.maxFollowupTokens,
+    p_timeout_ms: value.timeoutMs,
+    p_default_daily_limit: value.defaultDailyLimit,
+    p_default_followup_limit: value.defaultFollowupLimit,
+  });
 
-  if (error) {
+  if (error || !data) {
     return { ok: false, error: 'Unable to update the Deep Dive AI configuration.' };
   }
+
+  const updatedAt =
+    typeof data === 'object' && data && 'updated_at' in data
+      ? String((data as { updated_at?: unknown }).updated_at || new Date().toISOString())
+      : new Date().toISOString();
 
   revalidatePath('/admin/deep-dive');
   return { ok: true, data: { updatedAt } };
