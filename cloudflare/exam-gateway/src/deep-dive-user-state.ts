@@ -219,7 +219,13 @@ export class DeepDiveUserState extends DurableObject<Env> {
 
       // Threads created before bilingual support stored their only response directly
       // on the thread. Only backfill when the thread has no v2 variants at all.
-      if (!variant && variantCount === 0 && input.language === 'en' && existing.initial_response) {
+      if (
+        !variant
+        && variantCount === 0
+        && input.language === 'en'
+        && existing.initial_response
+        && existing.cache_key === input.cacheKey
+      ) {
         this.ctx.storage.sql.exec(
           `INSERT OR IGNORE INTO thread_variants(
             thread_id, language, cache_key, initial_response, model, prompt_version, updated_at_ms
@@ -232,6 +238,21 @@ export class DeepDiveUserState extends DurableObject<Env> {
           existing.updated_at_ms,
         );
         variant = this.variant(existing.id, 'en');
+      }
+
+      if (variant) {
+        this.ctx.storage.sql.exec(
+          `UPDATE threads
+           SET cache_key = ?, initial_response = ?, model = ?, prompt_version = ?,
+               status = 'ready', updated_at_ms = ?
+           WHERE id = ?`,
+          variant.cache_key,
+          variant.initial_response,
+          variant.model,
+          variant.prompt_version,
+          Date.now(),
+          existing.id,
+        );
       }
 
       return {
@@ -340,28 +361,20 @@ export class DeepDiveUserState extends DurableObject<Env> {
         now,
       );
 
-      // Keep the legacy thread-level fields as the canonical conversation seed.
-      // Language switching therefore does not create a second quota-bearing thread.
-      if (!row.initial_response) {
-        this.ctx.storage.sql.exec(
-          `UPDATE threads
-           SET cache_key = ?, initial_response = ?, model = ?, prompt_version = ?,
-               status = 'ready', updated_at_ms = ?
-           WHERE id = ?`,
-          input.cacheKey,
-          input.content,
-          input.model,
-          input.promptVersion,
-          now,
-          input.threadId,
-        );
-      } else {
-        this.ctx.storage.sql.exec(
-          `UPDATE threads SET status = 'ready', updated_at_ms = ? WHERE id = ?`,
-          now,
-          input.threadId,
-        );
-      }
+      // The logical thread is quota-bearing once. Its canonical seed follows the
+      // currently generated language variant so follow-ups continue from what the learner sees.
+      this.ctx.storage.sql.exec(
+        `UPDATE threads
+         SET cache_key = ?, initial_response = ?, model = ?, prompt_version = ?,
+             status = 'ready', updated_at_ms = ?
+         WHERE id = ?`,
+        input.cacheKey,
+        input.content,
+        input.model,
+        input.promptVersion,
+        now,
+        input.threadId,
+      );
     });
   }
 
