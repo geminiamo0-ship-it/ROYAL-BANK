@@ -3,6 +3,7 @@ import { createHash, createHmac } from 'node:crypto';
 const PAGE_SIZE = 1000;
 const args = new Set(process.argv.slice(2));
 const dryRun = args.has('--dry-run');
+const concurrency = Math.min(32, Math.max(1, Number(process.env.ROYAL_AI_CORPUS_CONCURRENCY || 16) || 16));
 
 function required(...names) {
   for (const name of names) {
@@ -193,7 +194,8 @@ const [articles, sources, registry] = await Promise.all([
 const sourceById = new Map(sources.map((row) => [String(row.id), row]));
 const registryByArticle = new Map(registry.map((row) => [String(row.article_id), row]));
 const activeIds = new Set();
-const writes = [];
+const uploadOps = [];
+const deleteOps = [];
 
 for (const article of articles) {
   const articleId = String(article.id);
@@ -222,31 +224,54 @@ for (const article of articles) {
   const contentHash = sha256(markdown);
   const existing = registryByArticle.get(articleId);
   if (!existing || existing.content_hash !== contentHash || existing.object_key !== objectKey) {
-    if (existing?.object_key && existing.object_key !== objectKey) await r2Delete(existing.object_key);
-    await r2Put(objectKey, markdown);
-    writes.push({
-      article_id: articleId,
-      object_key: objectKey,
-      content_hash: contentHash,
-      published_at: new Date().toISOString(),
-    });
+    uploadOps.push({ articleId, objectKey, markdown, contentHash, oldKey: existing?.object_key || null });
   }
 }
 
 for (const row of registry) {
   const articleId = String(row.article_id);
-  if (activeIds.has(articleId)) continue;
-  await r2Delete(String(row.object_key));
-  await deleteRegistry(articleId);
+  if (!activeIds.has(articleId)) deleteOps.push({ articleId, objectKey: String(row.object_key) });
 }
 
-await upsertRegistry(writes);
+async function runPool(items, worker) {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(concurrency, Math.max(1, items.length)) }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+}
+
+const writes = [];
+await runPool(uploadOps, async (op) => {
+  if (op.oldKey && op.oldKey !== op.objectKey) await r2Delete(op.oldKey);
+  await r2Put(op.objectKey, op.markdown);
+  writes.push({
+    article_id: op.articleId,
+    object_key: op.objectKey,
+    content_hash: op.contentHash,
+    published_at: new Date().toISOString(),
+  });
+});
+
+await runPool(deleteOps, async (op) => {
+  await r2Delete(op.objectKey);
+  await deleteRegistry(op.articleId);
+});
+
+for (let start = 0; start < writes.length; start += 250) {
+  await upsertRegistry(writes.slice(start, start + 250));
+}
 
 console.log(JSON.stringify({
   dryRun,
   articles: articles.length,
   enabled: activeIds.size,
   uploadedOrUpdated: writes.length,
+  concurrency,
   removed: registry.filter((row) => !activeIds.has(String(row.article_id))).length,
   bucket,
   root,
