@@ -317,6 +317,7 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
       };
     }
 
+    const activeConversationId = conversationId as string;
     const now = Date.now();
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec(
@@ -324,7 +325,7 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
           request_id, conversation_id, user_message, status, usage_day_key, created_at_ms, updated_at_ms
         ) VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
         input.requestId,
-        conversationId,
+        activeConversationId,
         message,
         dayKey,
         now,
@@ -339,16 +340,16 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
         'UPDATE conversations SET language = ?, updated_at_ms = ? WHERE id = ?',
         input.language,
         now,
-        conversationId,
+        activeConversationId,
       );
     });
 
     return {
       ok: true,
       idempotent: false,
-      conversationId,
+      conversationId: activeConversationId,
       summary: String(conversation.summary || ''),
-      recentMessages: this.recentMessages(conversationId, 8).map(({ role, content }) => ({ role, content })),
+      recentMessages: this.recentMessages(activeConversationId, 8).map(({ role, content }) => ({ role, content })),
       remainingToday: Math.max(0, limits.dailyLimit - used - 1),
       dailyLimit: limits.dailyLimit,
       dayKey,
