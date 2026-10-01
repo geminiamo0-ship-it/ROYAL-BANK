@@ -1,0 +1,91 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "royal-ai-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-15",
+  "keep_vars": true,
+  "observability": { "enabled": true },
+  "secrets": {
+    "required": ["SUPABASE_SECRET_KEY", "OPENROUTER_API_KEY"]
+  },
+  "vars": {
+    "APP_ENV": "development",
+    "SERVICE_NAME": "royal-ai-gateway-dev",
+    "SUPABASE_PROJECT_REF": "dcttiqdrsvkufzjahjzw",
+    "SUPABASE_URL": "https://dcttiqdrsvkufzjahjzw.supabase.co",
+    "AI_SEARCH_INSTANCE": "royal-medical-knowledge-dev",
+    "ROYAL_AI_SYNC_QUEUE_NAME": "royal-ai-sync-dev"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROYAL_AI_USERS", "class_name": "RoyalAiUserState" }
+    ]
+  },
+  "exports": {
+    "RoyalAiUserState": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "ai_search_namespaces": [
+    {
+      "binding": "AI_SEARCH",
+      "namespace": "default",
+      "remote": true
+    }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "ROYAL_AI_SYNC_QUEUE", "queue": "royal-ai-sync-dev" }
+    ],
+    "consumers": [
+      {
+        "queue": "royal-ai-sync-dev",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "retry_delay": 5,
+        "dead_letter_queue": "royal-ai-sync-dev-dlq"
+      }
+    ]
+  },
+  "env": {
+    "production": {
+      "name": "royal-ai-production",
+      "vars": {
+        "APP_ENV": "production",
+        "SERVICE_NAME": "royal-ai-production",
+        "SUPABASE_PROJECT_REF": "trnvsgenmzhyuayxxdoq",
+        "SUPABASE_URL": "https://trnvsgenmzhyuayxxdoq.supabase.co",
+        "AI_SEARCH_INSTANCE": "royal-medical-knowledge",
+        "ROYAL_AI_SYNC_QUEUE_NAME": "royal-ai-sync-production"
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "ROYAL_AI_USERS", "class_name": "RoyalAiUserState" }
+        ]
+      },
+      "ai_search_namespaces": [
+        {
+          "binding": "AI_SEARCH",
+          "namespace": "default"
+        }
+      ],
+      "queues": {
+        "producers": [
+          { "binding": "ROYAL_AI_SYNC_QUEUE", "queue": "royal-ai-sync-production" }
+        ],
+        "consumers": [
+          {
+            "queue": "royal-ai-sync-production",
+            "max_batch_size": 10,
+            "max_batch_timeout": 3,
+            "max_retries": 5,
+            "retry_delay": 5,
+            "dead_letter_queue": "royal-ai-sync-production-dlq"
+          }
+        ]
+      }
+    }
+  }
+}

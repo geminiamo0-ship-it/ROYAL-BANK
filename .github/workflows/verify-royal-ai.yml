@@ -1,0 +1,47 @@
+name: Verify Royal AI
+
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/royal-ai-gateway/**'
+      - 'scripts/publish-royal-ai-corpus.mjs'
+      - '.github/workflows/verify-royal-ai.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'cloudflare/royal-ai-gateway/**'
+      - 'scripts/publish-royal-ai-corpus.mjs'
+      - '.github/workflows/verify-royal-ai.yml'
+
+concurrency:
+  group: verify-royal-ai-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Royal AI Worker dependencies
+        working-directory: cloudflare/royal-ai-gateway
+        run: npm install --ignore-scripts
+
+      - name: Typecheck Royal AI Worker
+        working-directory: cloudflare/royal-ai-gateway
+        run: npm run typecheck
+
+      - name: Validate Wrangler configuration
+        working-directory: cloudflare/royal-ai-gateway
+        run: npx wrangler deploy --dry-run --outdir /tmp/royal-ai-worker
+
+      - name: Syntax-check corpus publisher
+        run: node --check scripts/publish-royal-ai-corpus.mjs
