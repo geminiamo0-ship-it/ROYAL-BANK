@@ -117,7 +117,6 @@ jobs:
           R2_BUCKET_NAME: royal-ai-production-corpus
           ROYAL_AI_CORPUS_ROOT: royal-ai-corpus
           ROYAL_AI_CORPUS_CONCURRENCY: '16'
-          ROYAL_AI_FORCE_PUBLISH: 'true'
         run: node scripts/publish-royal-ai-corpus.mjs
 
       - name: Provision or verify Royal AI Search v2
