@@ -94,6 +94,30 @@ export async function handleRoyalAiChat(
     if (!doAction) {
       return json({ error: { code: 'INVALID_ACTION', message: 'Unsupported Royal AI action.' } }, 400);
     }
+
+    if (action === 'new') {
+      let access = await stub.handle({
+        userId,
+        action: 'usage',
+        defaultDailyLimit: config.dailyLimit,
+      }) as Record<string, unknown>;
+      if (access.entitled !== true && await hydrateRoyalAiEntitlement(env, userId, stub)) {
+        access = await stub.handle({
+          userId,
+          action: 'usage',
+          defaultDailyLimit: config.dailyLimit,
+        }) as Record<string, unknown>;
+      }
+      if (access.entitled !== true) {
+        return json({
+          error: {
+            code: 'ROYAL_AI_ACCESS_REQUIRED',
+            message: 'Royal AI is not active on this account.',
+          },
+        }, 403);
+      }
+    }
+
     const result = await stub.handle({
       userId,
       action: doAction,
