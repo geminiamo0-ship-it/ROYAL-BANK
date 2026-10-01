@@ -158,7 +158,7 @@ export async function handleRoyalAiChat(
   try {
     upstream = await openRouterStream(env, prompt, config);
   } catch (error) {
-    await stub.handle({ userId, action: 'failMessage', requestId }).catch(() => undefined);
+    try { await stub.handle({ userId, action: 'failMessage', requestId }); } catch {}
     console.error('ROYAL_AI_OPENROUTER_START_FAILED', error);
     return json({ error: { code: 'ROYAL_AI_UNAVAILABLE', message: 'Royal AI is temporarily unavailable.' } }, 502);
   }
@@ -341,7 +341,7 @@ async function processModelStream(input: {
       totalMs,
       createdAt: new Date().toISOString(),
     };
-    await env.ROYAL_AI_SYNC_QUEUE.send(usageEvent).catch((error) => {
+    await env.ROYAL_AI_SYNC_QUEUE.send(usageEvent).catch((error: unknown) => {
       console.error('ROYAL_AI_USAGE_QUEUE_FAILED', error);
     });
 
@@ -354,7 +354,7 @@ async function processModelStream(input: {
     }
   } catch (error) {
     console.error('ROYAL_AI_STREAM_FAILED', error);
-    await stub.handle({ userId, action: 'failMessage', requestId }).catch(() => undefined);
+    try { await stub.handle({ userId, action: 'failMessage', requestId }); } catch {}
     if (clientOpen) {
       await writeSafely(writer, sse('error', {
         code: 'ROYAL_AI_STREAM_FAILED',
