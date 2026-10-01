@@ -175,6 +175,20 @@ function htmlToMarkdown(value) {
     .trim();
 }
 
+function cleanCorpusText(value) {
+  return String(value || '')
+    .replace(/^You've never been tested on this concept\.?$/gim, '')
+    .replace(/^You've not yet rated this concept\.?$/gim, '')
+    .replace(/^Importance:\s*\d+\s*$/gim, '')
+    .replace(/^Report broken media\s*$/gim, '')
+    .replace(/^Suggest link\s+Report broken link\s*$/gim, '')
+    .replace(/^Report broken link\s*$/gim, '')
+    .replace(/^👍\s*\d+\s*👎\s*\d+\s*$/gim, '')
+    .replace(/^\+?\s*PassMedicine Notes\s*/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function slug(value, fallback) {
   const normalized = String(value || '')
     .normalize('NFKD')
@@ -223,7 +237,7 @@ for (const article of articles) {
     source?.version ? 'Version: ' + String(source.version) : '',
     source?.source_date ? 'Source date: ' + String(source.source_date) : '',
     '',
-    htmlToMarkdown(article.content_html),
+    cleanCorpusText(htmlToMarkdown(article.content_html)),
     '',
   ].filter((line, index, all) => line !== '' || (index > 0 && all[index - 1] !== '')).join('\n');
 
