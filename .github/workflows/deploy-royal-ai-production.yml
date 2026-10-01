@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: royal-bank-royal-ai-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -112,6 +112,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: royal-bank-exam-production-content
           ROYAL_AI_CORPUS_ROOT: royal-ai-corpus
+          ROYAL_AI_CORPUS_CONCURRENCY: '16'
         run: node scripts/publish-royal-ai-corpus.mjs
 
       - name: Provision or verify Royal AI Search instance
