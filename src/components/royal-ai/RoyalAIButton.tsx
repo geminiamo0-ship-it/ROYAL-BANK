@@ -36,6 +36,8 @@ type JsonPayload = {
   conversationId?: string;
   dailyLimit?: number;
   remainingToday?: number;
+  entitled?: boolean;
+  supportUrl?: string;
   error?: { code?: string; message?: string };
 };
 
@@ -75,6 +77,7 @@ export function RoyalAIButton() {
   const [error, setError] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [dailyLimit, setDailyLimit] = useState<number | null>(null);
+  const [entitled, setEntitled] = useState<boolean | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isEmpty = messages.length === 0;
@@ -108,6 +111,7 @@ export function RoyalAIButton() {
       if (saved === 'ar' || saved === 'en') setLanguage(saved);
       setRemaining(typeof usage.remainingToday === 'number' ? usage.remainingToday : null);
       setDailyLimit(typeof usage.dailyLimit === 'number' ? usage.dailyLimit : null);
+      setEntitled(typeof usage.entitled === 'boolean' ? usage.entitled : null);
       setHistory(Array.isArray(list.conversations) ? list.conversations : []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to open Royal AI.');
@@ -227,9 +231,11 @@ export function RoyalAIButton() {
         const payload = await response.json().catch(() => ({})) as JsonPayload;
         if (typeof payload.remainingToday === 'number') setRemaining(payload.remainingToday);
         if (typeof payload.dailyLimit === 'number') setDailyLimit(payload.dailyLimit);
+        if (payload.error?.code === 'ROYAL_AI_ACCESS_REQUIRED') setEntitled(false);
         throw new Error(payload.error?.message || 'Unable to send message.');
       }
 
+      setEntitled(true);
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = '';
       let finalSources: RoyalAISourceCard[] = [];
@@ -317,7 +323,7 @@ export function RoyalAIButton() {
               </div>
 
               <div className="flex items-center gap-1.5">
-                {remaining != null && dailyLimit != null ? (
+                {entitled === true && remaining != null && dailyLimit != null ? (
                   <span className="hidden rounded-full border border-[#c9a75f]/20 px-2.5 py-1 text-[9px] font-semibold text-[#9b722a] dark:text-[#dfc078] sm:inline-flex">
                     {remaining} / {dailyLimit} today
                   </span>
@@ -366,16 +372,22 @@ export function RoyalAIButton() {
                           <Sparkles className="h-5 w-5" />
                         </div>
                         <h3 className="mt-4 font-serif text-[26px] font-semibold">
-                          {language === 'ar' ? 'اسأل Royal أي حاجة في الطب' : 'Ask Royal anything in medicine'}
+                          {entitled === false
+                            ? (language === 'ar' ? 'Royal AI غير مفعّل على هذا الحساب' : 'Royal AI is not active on this account')
+                            : (language === 'ar' ? 'اسأل Royal أي حاجة في الطب' : 'Ask Royal anything in medicine')}
                         </h3>
                         <p className="mt-2 max-w-xl text-[11px] leading-5 text-[#797166] dark:text-white/42">
-                          {language === 'ar'
-                            ? 'يعتمد على مكتبات Royal والمصادر الطبية المضافة لقاعدة المعرفة.'
-                            : 'Grounded in Royal medical libraries and the medical sources in its knowledge base.'}
+                          {entitled === false
+                            ? (language === 'ar'
+                                ? 'فعّل اشتراك Royal AI من الدعم لاستخدام المحادثة الطبية. يمكنك الاستمرار في مشاهدة المحادثات السابقة.'
+                                : 'Activate a Royal AI subscription through support to generate new answers. Your existing chat history remains available.')
+                            : (language === 'ar'
+                                ? 'يعتمد على مكتبات Royal والمصادر الطبية المضافة لقاعدة المعرفة.'
+                                : 'Grounded in Royal medical libraries and the medical sources in its knowledge base.')}
                         </p>
                         <div className="mt-6 flex max-w-[620px] flex-wrap justify-center gap-2">
                           {quickPrompts.map((prompt) => (
-                            <button key={prompt} onClick={() => void sendMessage(undefined, prompt)} className="rounded-full border border-black/10 bg-[#fffdf8] px-3 py-2 text-[10px] font-medium hover:border-[#c9a75f]/40 dark:border-white/10 dark:bg-[#151d23]">
+                            <button key={prompt} onClick={() => void sendMessage(undefined, prompt)} disabled={entitled === false} className="rounded-full border border-black/10 bg-[#fffdf8] px-3 py-2 text-[10px] font-medium hover:border-[#c9a75f]/40 dark:border-white/10 dark:bg-[#151d23]">
                               {prompt}
                             </button>
                           ))}
@@ -434,15 +446,19 @@ export function RoyalAIButton() {
                       rows={1}
                       placeholder={language === 'ar' ? 'اسأل Royal…' : 'Ask Royal…'}
                       className="max-h-32 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-[12.5px] outline-none placeholder:text-[#9c9388] dark:placeholder:text-white/28"
-                      disabled={sending}
+                      disabled={sending || entitled === false}
                     />
-                    <button type="submit" disabled={sending || !input.trim()} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#b88a32] text-white hover:bg-[#a97927] disabled:opacity-40">
+                    <button type="submit" disabled={sending || entitled === false || !input.trim()} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#b88a32] text-white hover:bg-[#a97927] disabled:opacity-40">
                       <Send className="h-4 w-4" />
                     </button>
                   </div>
                   <div className="mx-auto mt-1.5 flex max-w-[840px] items-center justify-between px-1 text-[8.5px] text-[#958c80] dark:text-white/28">
                     <span>Royal may make mistakes. Verify critical clinical decisions.</span>
-                    {remaining != null && dailyLimit != null ? <span>{remaining}/{dailyLimit} today</span> : null}
+                    {entitled === false
+                      ? <span>Royal AI inactive</span>
+                      : remaining != null && dailyLimit != null
+                        ? <span>{remaining}/{dailyLimit} today</span>
+                        : null}
                   </div>
                 </form>
               </>
