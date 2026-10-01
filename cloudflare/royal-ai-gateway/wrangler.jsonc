@@ -21,7 +21,10 @@
       { "name": "ROYAL_AI_USERS", "class_name": "RoyalAiUserState" }
     ]
   },
-  "migrations": [\n    { "tag": "v1", "new_sqlite_classes": ["RoyalAiUserState"] }\n  ],\n  "exports": {
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RoyalAiUserState"] }
+  ],
+  "exports": {
     "RoyalAiUserState": {
       "type": "durable-object",
       "storage": "sqlite"
