@@ -4,7 +4,7 @@ import React from 'react';
 import { usePathname } from 'next/navigation';
 import { ExamRateLimitNotice } from '@/components/exam/ExamRateLimitNotice';
 import { PassMedicineSidebar } from '@/components/layout/PassMedicineSidebar';
-import { StudentHeader } from '@/components/layout/StudentHeader';
+import { StudentHeader } from '@/components/layout/StudentHeader';\nimport { RoyalAIButton } from '@/components/royal-ai/RoyalAIButton';
 
 interface StudentShellProps {
   children: React.ReactNode;
