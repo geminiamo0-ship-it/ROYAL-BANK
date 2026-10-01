@@ -101,7 +101,7 @@ jobs:
           if npx wrangler ai-search get royal-medical-knowledge-v2 --json >/tmp/get.json 2>/tmp/get.err; then
             SOURCE="$(jq -r '.source // empty' /tmp/get.json)"
             if [ "$SOURCE" != "royal-ai-production-corpus" ]; then
-              npx wrangler ai-search delete royal-medical-knowledge-v2 --yes
+              npx wrangler ai-search delete royal-medical-knowledge-v2 --force
               for i in $(seq 1 20); do
                 if ! npx wrangler ai-search get royal-medical-knowledge-v2 --json >/dev/null 2>&1; then break; fi
                 sleep 3
