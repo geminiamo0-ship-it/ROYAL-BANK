@@ -277,6 +277,17 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
       return { ok: false, code: 'ROYAL_AI_MESSAGE_PENDING' };
     }
 
+    const limits = this.limits(input.defaultDailyLimit);
+    if (!limits.entitled) {
+      return {
+        ok: false,
+        code: 'ROYAL_AI_ACCESS_REQUIRED',
+        entitled: false,
+        dailyLimit: 0,
+        remainingToday: 0,
+      };
+    }
+
     let conversationId = input.conversationId;
     let conversation = conversationId
       ? this.one<{ id: string; summary: string; language: string; message_count: number }>(
@@ -310,17 +321,6 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
       conversationId,
     )?.count ?? 0);
     if (pending > 0) return { ok: false, code: 'ROYAL_AI_MESSAGE_PENDING' };
-
-    const limits = this.limits(input.defaultDailyLimit);
-    if (!limits.entitled) {
-      return {
-        ok: false,
-        code: 'ROYAL_AI_ACCESS_REQUIRED',
-        entitled: false,
-        dailyLimit: 0,
-        remainingToday: 0,
-      };
-    }
 
     const dayKey = cairoDayKey();
     const used = this.used(dayKey);
