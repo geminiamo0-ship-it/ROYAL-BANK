@@ -4,6 +4,7 @@ const PAGE_SIZE = 1000;
 const args = new Set(process.argv.slice(2));
 const dryRun = args.has('--dry-run');
 const concurrency = Math.min(32, Math.max(1, Number(process.env.ROYAL_AI_CORPUS_CONCURRENCY || 16) || 16));
+const forcePublish = /^(1|true|yes)$/i.test(process.env.ROYAL_AI_FORCE_PUBLISH || '');
 
 function required(...names) {
   for (const name of names) {
@@ -228,7 +229,7 @@ for (const article of articles) {
 
   const contentHash = sha256(markdown);
   const existing = registryByArticle.get(articleId);
-  if (!existing || existing.content_hash !== contentHash || existing.object_key !== objectKey) {
+  if (forcePublish || !existing || existing.content_hash !== contentHash || existing.object_key !== objectKey) {
     uploadOps.push({ articleId, objectKey, markdown, contentHash, oldKey: existing?.object_key || null });
   }
 }
@@ -277,6 +278,7 @@ console.log(JSON.stringify({
   enabled: activeIds.size,
   uploadedOrUpdated: writes.length,
   concurrency,
+  forcePublish,
   removed: registry.filter((row) => !activeIds.has(String(row.article_id))).length,
   bucket,
   root,
