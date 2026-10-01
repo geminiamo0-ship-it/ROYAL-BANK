@@ -4,7 +4,8 @@ import React from 'react';
 import { usePathname } from 'next/navigation';
 import { ExamRateLimitNotice } from '@/components/exam/ExamRateLimitNotice';
 import { PassMedicineSidebar } from '@/components/layout/PassMedicineSidebar';
-import { StudentHeader } from '@/components/layout/StudentHeader';\nimport { RoyalAIButton } from '@/components/royal-ai/RoyalAIButton';
+import { StudentHeader } from '@/components/layout/StudentHeader';
+import { RoyalAIButton } from '@/components/royal-ai/RoyalAIButton';
 
 interface StudentShellProps {
   children: React.ReactNode;
@@ -21,6 +22,7 @@ export function StudentShell({
   const isExamRoute = pathname.startsWith('/exam/');
   const isStudyPlanRoute = pathname.includes('/study-plan');
   const isReviewRoute = /^\/bank\/[^/]+\/review(?:\/|$)/.test(pathname);
+  const showRoyalAi = pathname === '/dashboard' || /^\/bank\/\d+$/.test(pathname);
 
   if (isExamRoute) {
     return (
@@ -54,6 +56,7 @@ export function StudentShell({
         <main className={mainClass}>
           {children}
         </main>
+        {showRoyalAi ? <RoyalAIButton /> : null}
       </div>
     </div>
   );
