@@ -11,6 +11,20 @@ export type RoyalAiSource = {
   score: number;
 };
 
+function cleanRetrievedText(value: string): string {
+  return value
+    .replace(/You've never been tested on this concept\.?/gi, '')
+    .replace(/You've not yet rated this concept\.?/gi, '')
+    .replace(/\bImportance:\s*\d+\b/gi, '')
+    .replace(/Report broken media/gi, '')
+    .replace(/Suggest link\s+Report broken link/gi, '')
+    .replace(/Report broken link/gi, '')
+    .replace(/👍\s*\d+\s*👎\s*\d+/g, '')
+    .replace(/\+?\s*PassMedicine Notes\b/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function titleFromKey(key: string): string {
   const file = key.split('/').filter(Boolean).pop() || 'Royal medical source';
   const withoutExt = file.replace(/\.[^.]+$/, '').replace(/^.+?--/, '');
@@ -78,7 +92,7 @@ export async function retrieveRoyalKnowledge(
             const parsed = matched ? Number(matched) : NaN;
             return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
           })(),
-          text: chunk.text.trim().slice(0, 12_000),
+          text: cleanRetrievedText(chunk.text).slice(0, 12_000),
           score: Number(chunk.score || 0),
         };
       });
