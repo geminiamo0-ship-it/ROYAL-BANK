@@ -6,6 +6,9 @@ on:
       - fix/royal-ai-search-readiness
     paths:
       - '.github/workflows/bootstrap-royal-ai-v2.yml'
+      - 'scripts/publish-royal-ai-corpus.mjs'
+      - 'cloudflare/royal-ai-gateway/src/retrieval.ts'
+      - 'cloudflare/royal-ai-gateway/wrangler.jsonc'
 
 permissions:
   contents: read
