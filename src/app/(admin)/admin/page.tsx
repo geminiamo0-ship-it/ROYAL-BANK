@@ -3,6 +3,7 @@ import {
   Activity,
   BadgePercent,
   Banknote,
+  Bot,
   CircleDollarSign,
   Headphones,
   KeyRound,
@@ -141,7 +142,8 @@ export default async function AdminOverviewPage() {
         <QuickLink href="/admin/users" icon={Users} title="Users" note="Suspend, reactivate, roles and password recovery" />
         <QuickLink href="/admin/access" icon={KeyRound} title="Access Management" note="Grant ledger, expiry, extension and revocation" />
         <QuickLink href="/admin/support-performance" icon={Activity} title="Support Performance" note="Contacts, activation time, backlog and agents" />
-        <QuickLink href="/support" icon={Headphones} title="Support Activation" note="Request → payment → access activation" />\n        <QuickLink href="/admin/royal-ai" icon={Bot} title="Royal AI" note="Model, quota, grounding, cost and latency" />
+        <QuickLink href="/support" icon={Headphones} title="Support Activation" note="Request → payment → access activation" />
+        <QuickLink href="/admin/royal-ai" icon={Bot} title="Royal AI" note="Model, quota, grounding, cost and latency" />
         <QuickLink href="/admin/revenue" icon={CircleDollarSign} title="Revenue" note="Cash, refunds, commission cost and contribution" />
         <QuickLink href="/admin/promos" icon={BadgePercent} title="Promo Codes" note="Ownership, discounts and internal commission rules" />
         <QuickLink href="/admin/commissions" icon={WalletCards} title="Commissions" note="Approved, paid, reversed and settlements" />
