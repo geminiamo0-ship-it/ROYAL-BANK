@@ -1,0 +1,48 @@
+name: Inspect Royal AI Job
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/inspect-royal-ai-job.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Inspect AI Search job and items
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai-search/namespaces/default/instances/royal-medical-knowledge"
+
+          echo "=== INSTANCE ==="
+          curl --fail --silent --show-error "$BASE"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" | jq '.result | {id,status,paused,last_activity,source_params}'
+
+          echo "=== STATS ==="
+          curl --fail --silent --show-error "$BASE/stats"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" | jq '.result'
+
+          echo "=== JOBS ==="
+          curl --fail --silent --show-error "$BASE/jobs"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" | tee /tmp/jobs.json | jq '.result[0:10]'
+
+          JOB_ID="$(jq -r '.result[0].id // empty' /tmp/jobs.json)"
+          if [ -n "$JOB_ID" ]; then
+            echo "=== LATEST JOB $JOB_ID ==="
+            curl --silent --show-error "$BASE/jobs/$JOB_ID"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json" | jq '.'
+          fi
+
+          echo "=== ITEMS ==="
+          curl --fail --silent --show-error "$BASE/items?per_page=100"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" > /tmp/items.json
+          jq '.result[] | select(.status != "skipped")' /tmp/items.json
+
+          echo "=== RAW FIRST NON-SKIPPED KEYS ==="
+          jq -r '.result[] | select(.status != "skipped") | [.status,.key,(.error // .message // .reason // "")] | @tsv' /tmp/items.json
