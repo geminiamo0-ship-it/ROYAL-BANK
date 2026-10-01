@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, Loader2, Lock, X } from 'lucide-react';
 import { openLibraryArticleAction } from '@/actions/library';
-import type { LibraryArticleContent } from '@/lib/library';
+
+type OpenedLibraryArticle = { id: string; name: string; category: string | null; contentHtml: string };
 
 export type RoyalAISourceCard = {
   id: string;
@@ -62,7 +63,7 @@ function RoyalAISourceViewer({
   source: RoyalAISourceCard;
   onClose: () => void;
 }) {
-  const [article, setArticle] = useState<LibraryArticleContent | null>(null);
+  const [article, setArticle] = useState<OpenedLibraryArticle | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'locked' | 'missing' | 'error'>('loading');
 
   useEffect(() => {
