@@ -41,7 +41,7 @@ jobs:
           fi
 
           echo "=== ITEMS ==="
-          curl --fail --silent --show-error "$BASE/items?per_page=100"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" > /tmp/items.json
+          curl --fail --silent --show-error "$BASE/items"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" > /tmp/items.json
           jq '.result[] | select(.status != "skipped")' /tmp/items.json
 
           echo "=== RAW FIRST NON-SKIPPED KEYS ==="
