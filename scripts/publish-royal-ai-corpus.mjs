@@ -208,12 +208,12 @@ for (const article of articles) {
 
   activeIds.add(articleId);
   const category = slug(article.category, 'general');
-  const nameSlug = slug(article.name, 'article-' + articleId);
+  const nameSlug = slug(article.topic || article.name, 'article-' + articleId);
   const bankId = bankByArticle.get(articleId) ?? null;
   const bankSegment = bankId ? 'bank-' + bankId : 'unmapped';
   const objectKey = root + '/' + bankSegment + '/' + category + '/' + articleId + '--' + nameSlug + '.md';
   const markdown = [
-    '# ' + String(article.name || 'Royal medical article'),
+    '# ' + String(article.topic || article.name || 'Royal medical article'),
     '',
     article.category ? 'Category: ' + String(article.category) : '',
     article.topic ? 'Topic: ' + String(article.topic) : '',
