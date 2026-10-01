@@ -1,0 +1,63 @@
+name: Diagnose Royal AI Index
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/diagnose-royal-ai-index.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Count R2 corpus objects and inspect AI Search items
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          ACCOUNT="$CLOUDFLARE_ACCOUNT_ID"
+          TOKEN="$CLOUDFLARE_API_TOKEN"
+          BUCKET="royal-bank-exam-production-content"
+          PREFIX="royal-ai-corpus/"
+
+          count=0
+          cursor=""
+          : > /tmp/r2-sample.txt
+
+          while :; do
+            url="https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/r2/buckets/$BUCKET/objects?per_page=1000&prefix=royal-ai-corpus%2F"
+            if [ -n "$cursor" ]; then
+              url="$url&cursor=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$cursor")"
+            fi
+            curl --fail --silent --show-error "$url"               -H "Authorization: Bearer $TOKEN"               -H "Content-Type: application/json"               > /tmp/r2-page.json
+            page_count="$(jq '.result | length' /tmp/r2-page.json)"
+            count=$((count + page_count))
+            jq -r '.result[0:5][]?.key' /tmp/r2-page.json >> /tmp/r2-sample.txt
+            cursor="$(jq -r '.result_info.cursor // empty' /tmp/r2-page.json)"
+            [ -n "$cursor" ] || break
+          done
+
+          echo "R2_CORPUS_OBJECTS=$count"
+          echo "R2_SAMPLE_KEYS"
+          head -20 /tmp/r2-sample.txt
+
+          INSTANCE_URL="https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/ai-search/namespaces/default/instances/royal-medical-knowledge"
+
+          curl --fail --silent --show-error "$INSTANCE_URL/stats"             -H "Authorization: Bearer $TOKEN"             -H "Content-Type: application/json"             | tee /tmp/ai-stats.json
+
+          curl --fail --silent --show-error "$INSTANCE_URL/items"             -H "Authorization: Bearer $TOKEN"             -H "Content-Type: application/json"             | tee /tmp/ai-items.json >/dev/null
+
+          echo "AI_ITEMS_FIRST_PAGE=$(jq '.result | length' /tmp/ai-items.json)"
+          echo "AI_ITEM_STATUS_COUNTS"
+          jq -r '.result[]?.status' /tmp/ai-items.json | sort | uniq -c
+          echo "AI_ITEM_SAMPLE"
+          jq -r '.result[0:20][]? | [.status,.key] | @tsv' /tmp/ai-items.json
