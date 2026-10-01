@@ -1,0 +1,176 @@
+name: Bootstrap Royal AI Production Index
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/bootstrap-royal-ai-production-index.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    defaults:
+      run:
+        working-directory: cloudflare/royal-ai-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloudflare/royal-ai-gateway/package.json
+
+      - name: Install Wrangler
+        run: npm install --no-audit --no-fund
+
+      - name: Verify isolated Royal AI bucket
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler r2 bucket info royal-ai-production-corpus --json | tee /tmp/bucket.json
+          grep -q 'royal-ai-production-corpus' /tmp/bucket.json
+
+      - name: Create final Production AI Search instance
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if npx wrangler ai-search get royal-medical-knowledge-production --json >/tmp/existing.json 2>/dev/null; then
+            SOURCE="$(jq -r '.source // empty' /tmp/existing.json)"
+            if [ "$SOURCE" != "royal-ai-production-corpus" ]; then
+              echo "Final Production index exists with the wrong source."
+              exit 1
+            fi
+          else
+            npx wrangler ai-search create royal-medical-knowledge-production \
+              --type r2 \
+              --source royal-ai-production-corpus \
+              --chunk-size 576 \
+              --chunk-overlap 10 \
+              --max-num-results 10 \
+              --hybrid-search true \
+              --json | tee /tmp/create.json
+          fi
+
+          npx wrangler ai-search get royal-medical-knowledge-production --json | tee /tmp/get.json
+          test "$(jq -r '.source' /tmp/get.json)" = "royal-ai-production-corpus"
+          test "$(jq -r '.chunk_size' /tmp/get.json)" = "576"
+          test "$(jq -r '.chunk_overlap' /tmp/get.json)" = "10"
+          test "$(jq -r '.hybrid_search_enabled' /tmp/get.json)" = "true"
+
+      - name: Wait for clean semantic readiness
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=0
+          stable_complete_seen=0
+
+          for attempt in $(seq 1 180); do
+            npx wrangler ai-search stats royal-medical-knowledge-production --json >/tmp/stats.json
+
+            QUEUED="$(jq -r '.queued // 0' /tmp/stats.json)"
+            RUNNING="$(jq -r '.running // 0' /tmp/stats.json)"
+            COMPLETED="$(jq -r '.completed // 0' /tmp/stats.json)"
+            ERRORS="$(jq -r '.error // 0' /tmp/stats.json)"
+            SKIPPED="$(jq -r '.skipped // 0' /tmp/stats.json)"
+            OUTDATED="$(jq -r '.outdated // 0' /tmp/stats.json)"
+            VECTORS="$(jq -r '.engine.vectorize.vectorsCount // 0' /tmp/stats.json)"
+            TIMEOUT_ERRORS="$(jq -r '.file_embed_errors.workers_ai_timeout_error // 0' /tmp/stats.json)"
+            NON_TIMEOUT_ERRORS=$((ERRORS - TIMEOUT_ERRORS))
+
+            echo "attempt=$attempt queued=$QUEUED running=$RUNNING completed=$COMPLETED errors=$ERRORS timeout_errors=$TIMEOUT_ERRORS skipped=$SKIPPED outdated=$OUTDATED vectors=$VECTORS"
+
+            if [ "$SKIPPED" -gt 0 ] || [ "$OUTDATED" -gt 0 ] || [ "$NON_TIMEOUT_ERRORS" -gt 0 ]; then
+              echo "Unexpected Production AI Search indexing state."
+              cat /tmp/stats.json
+              exit 1
+            fi
+
+            # Require the main index to fully drain. A transient Workers AI timeout is retried
+            # with one explicit sync only after all other work is complete.
+            if [ "$QUEUED" -eq 0 ] && [ "$RUNNING" -eq 0 ] && [ "$VECTORS" -gt 0 ] && [ "$COMPLETED" -gt 0 ]; then
+              if [ "$ERRORS" -gt 0 ] && [ "$stable_complete_seen" -eq 0 ]; then
+                echo "Retrying transient embedding timeout with one consistency sync..."
+                npx wrangler ai-search jobs create royal-medical-knowledge-production \
+                  --description "Royal AI Production transient retry" --json >/tmp/retry.json
+                cat /tmp/retry.json
+                stable_complete_seen=1
+                sleep 15
+                continue
+              fi
+
+              npx wrangler ai-search search royal-medical-knowledge-production \
+                --query "hypertension treatment" --json >/tmp/search.json
+
+              CHUNKS="$(jq -r '.chunks | length' /tmp/search.json)"
+              VECTOR_RESULTS="$(jq -r '.hybrid_meta.vector_result_count // 0' /tmp/search.json)"
+              KEYWORD_RESULTS="$(jq -r '.hybrid_meta.keyword_result_count // 0' /tmp/search.json)"
+              BAD_KEYS="$(jq -r '[.chunks[]?.item?.key | select(. != null and (startswith("royal-ai-corpus/") | not))] | length' /tmp/search.json)"
+              UI_NOISE="$(jq -r '[.chunks[]?.text // "" | select(test("You.?ve never been tested on this concept|You.?ve not yet rated this concept|Importance:"; "i"))] | length' /tmp/search.json)"
+
+              echo "semantic_smoke chunks=$CHUNKS vector_results=$VECTOR_RESULTS keyword_results=$KEYWORD_RESULTS bad_keys=$BAD_KEYS ui_noise=$UI_NOISE"
+
+              if [ "$CHUNKS" -gt 0 ] && [ "$VECTOR_RESULTS" -gt 0 ] && [ "$KEYWORD_RESULTS" -gt 0 ] && [ "$BAD_KEYS" -eq 0 ] && [ "$UI_NOISE" -eq 0 ]; then
+                ready=1
+                echo "ROYAL_AI_PRODUCTION_INDEX_READY=true"
+                cat /tmp/stats.json
+                cat /tmp/search.json
+                break
+              fi
+            fi
+
+            sleep 10
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            echo "Production AI Search did not become clean and semantically ready."
+            cat /tmp/stats.json 2>/dev/null || true
+            cat /tmp/search.json 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Configure Production secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+          SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$SUPABASE_SECRET_KEY_PRODUCTION" | npx wrangler secret put SUPABASE_SECRET_KEY --env production
+          printf '%s' "$OPENROUTER_API_KEY" | npx wrangler secret put OPENROUTER_API_KEY --env production
+
+      - name: Deploy Royal AI Production Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: npx wrangler deploy --env production
+
+      - name: Verify Production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 10 --retry-delay 3 \
+            https://royal-ai-production.geminiamo0.workers.dev/health | tee /tmp/health.json
+          test "$(jq -r '.ok' /tmp/health.json)" = "true"
+          test "$(jq -r '.environment' /tmp/health.json)" = "production"
+          test "$(jq -r '.aiSearchInstance' /tmp/health.json)" = "royal-medical-knowledge-production"
+          test "$(jq -r '.openRouterConfigured' /tmp/health.json)" = "true"
