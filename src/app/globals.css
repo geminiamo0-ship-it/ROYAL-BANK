@@ -463,3 +463,51 @@ body {
 [data-medical-image-gallery="true"] img:not([data-no-preview="true"]) {
   cursor: zoom-in;
 }
+
+
+/* Royal AI launch motion: bottom-up on mobile, expanding from the home-page corner on larger screens. */
+.royal-ai-backdrop {
+  background: rgba(18, 16, 12, 0);
+  backdrop-filter: blur(0);
+  transition: background-color 280ms ease, backdrop-filter 280ms ease;
+}
+
+.royal-ai-backdrop.is-entered {
+  background: rgba(39, 31, 18, 0.18);
+  backdrop-filter: blur(4px);
+}
+
+.royal-ai-surface {
+  transform: translateY(100%);
+  opacity: 0.98;
+  transition:
+    transform 380ms cubic-bezier(.22,1,.36,1),
+    opacity 260ms ease;
+  will-change: transform, clip-path;
+}
+
+.royal-ai-surface.is-entered {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+@media (min-width: 641px) {
+  .royal-ai-surface {
+    transform: none;
+    opacity: 1;
+    clip-path: circle(0 at calc(100% - 48px) calc(100% - 48px));
+    transition: clip-path 480ms cubic-bezier(.22,1,.36,1);
+  }
+
+  .royal-ai-surface.is-entered {
+    transform: none;
+    clip-path: circle(155% at calc(100% - 48px) calc(100% - 48px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .royal-ai-backdrop,
+  .royal-ai-surface {
+    transition: none !important;
+  }
+}
