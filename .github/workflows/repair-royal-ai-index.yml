@@ -32,9 +32,10 @@ jobs:
           curl --fail --silent --show-error -X PUT "$BASE"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json"             --data @/tmp/update.json | tee /tmp/updated.json
 
           test "$(jq -r '.success' /tmp/updated.json)" = "true"
-          test "$(jq -r '.result.source_params.include_items[0]' /tmp/updated.json)" = "royal-ai-corpus/**"
+          test "$(jq -r '.result.source_params.prefix' /tmp/updated.json)" = "royal-ai-corpus/"
+          test "$(jq -r '.result.source_params.include_items | length' /tmp/updated.json)" = "0"
 
-          curl --fail --silent --show-error -X POST "$BASE/jobs"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json"             --data '{"description":"Royal AI corrected path-filter reindex"}'             | tee /tmp/job.json
+          curl --fail --silent --show-error -X POST "$BASE/jobs"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json"             --data '{"description":"Royal AI prefix-scoped reindex"}'             | tee /tmp/job.json
 
           test "$(jq -r '.success' /tmp/job.json)" = "true"
           echo "JOB_ID=$(jq -r '.result.id' /tmp/job.json)"
