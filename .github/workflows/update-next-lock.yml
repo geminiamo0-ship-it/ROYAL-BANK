@@ -1,11 +1,13 @@
 name: Update Next lockfile
 
 on:
-  push:
+  pull_request:
     branches:
-      - feat/royal-ai-v1
+      - main
     paths:
       - '.github/workflows/update-next-lock.yml'
+      - 'package.json'
+      - 'package-lock.json'
 
 permissions:
   contents: write
