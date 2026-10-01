@@ -108,6 +108,13 @@ alter table public.library_articles
 create index if not exists idx_library_articles_ai_search
   on public.library_articles(ai_search_enabled, source_id);
 
+create table if not exists public.ai_royal_tutor_corpus_registry (
+  article_id text primary key,
+  object_key text not null unique,
+  content_hash text not null,
+  published_at timestamptz not null default now()
+);
+
 alter table public.ai_royal_tutor_config enable row level security;
 alter table public.ai_royal_tutor_entitlements enable row level security;
 alter table public.ai_royal_tutor_entitlement_audit enable row level security;
