@@ -45,6 +45,7 @@ function sourceCards(sources: RoyalAiSource[]) {
     id: source.id,
     title: source.title,
     articleId: source.articleId,
+    bankId: source.bankId,
     score: source.score,
   }));
 }
@@ -230,7 +231,7 @@ async function processModelStream(input: {
   upstream: Awaited<ReturnType<typeof openRouterStream>>;
   retrievalMs: number;
   groundingMode: 'royal' | 'general';
-  sources: Array<{ id: string; title: string; articleId: string | null; score: number }>;
+  sources: Array<{ id: string; title: string; articleId: string | null; bankId: number | null; score: number }>;
   writer: WritableStreamDefaultWriter<Uint8Array>;
   totalStarted: number;
 }): Promise<void> {
