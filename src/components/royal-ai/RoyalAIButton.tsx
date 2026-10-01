@@ -12,20 +12,14 @@ import {
 } from 'lucide-react';
 import { DeepDiveMarkdown } from '@/components/exam/DeepDiveMarkdown';
 import { RoyalAIHistoryPanel, type RoyalAIConversationSummary } from '@/components/royal-ai/RoyalAIHistoryPanel';
+import { RoyalAISources, type RoyalAIRoyalAISourceCard } from '@/components/royal-ai/RoyalAISources';
 
 type Language = 'en' | 'ar';
-
-type SourceCard = {
-  id: string;
-  title: string;
-  articleId: string | null;
-  score?: number;
-};
 
 type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
-  sources?: SourceCard[];
+  sources?: RoyalAISourceCard[];
   groundingMode?: 'royal' | 'general';
 };
 
@@ -37,7 +31,7 @@ type JsonPayload = {
   messages?: Array<{
     role: 'user' | 'assistant';
     content: string;
-    sources?: SourceCard[];
+    sources?: RoyalAISourceCard[];
   }>;
   conversationId?: string;
   dailyLimit?: number;
@@ -238,7 +232,7 @@ export function RoyalAIButton() {
 
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = '';
-      let finalSources: SourceCard[] = [];
+      let finalSources: RoyalAISourceCard[] = [];
       let finalGrounding: 'royal' | 'general' = 'general';
 
       for (;;) {
@@ -259,7 +253,7 @@ export function RoyalAIButton() {
             if (typeof payload.remainingToday === 'number') setRemaining(payload.remainingToday);
             if (typeof payload.dailyLimit === 'number') setDailyLimit(payload.dailyLimit);
             finalGrounding = payload.groundingMode === 'royal' ? 'royal' : 'general';
-            finalSources = Array.isArray(payload.sources) ? payload.sources as SourceCard[] : [];
+            finalSources = Array.isArray(payload.sources) ? payload.sources as RoyalAISourceCard[] : [];
             setStatus(language === 'ar' ? 'Royal بيجهز الإجابة…' : 'Royal is preparing the answer…');
           }
 
@@ -405,22 +399,7 @@ export function RoyalAIButton() {
                                     ? '✓ Grounded in Royal sources'
                                     : '○ General medical knowledge'}
                                 </p>
-                                {message.sources?.length ? (
-                                  <details className="mt-2">
-                                    <summary className="cursor-pointer text-[10px] font-semibold text-[#9a722d] dark:text-[#e0bf73]">
-                                      Sources used · {message.sources.length}
-                                    </summary>
-                                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                      {message.sources.map((source) => (
-                                        <div key={source.id + source.title} className="rounded-xl border border-black/8 bg-black/[.015] px-3 py-2 dark:border-white/8 dark:bg-white/[.025]">
-                                          <p className="text-[9px] font-bold text-[#9a722d]">{source.id}</p>
-                                          <p className="mt-0.5 text-[10.5px] font-semibold">{source.title}</p>
-                                          <p className="mt-0.5 text-[9px] text-[#8a8175] dark:text-white/35">Source used by Royal</p>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </details>
-                                ) : null}
+                                {message.sources?.length ? <RoyalAISources sources={message.sources} /> : null}
                               </div>
                             )}
                           </div>
