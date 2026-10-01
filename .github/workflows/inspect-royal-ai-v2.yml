@@ -13,6 +13,7 @@ permissions:
 # probe-2
 # probe-3
 # probe-4
+# probe-5
 
 jobs:
   inspect:
