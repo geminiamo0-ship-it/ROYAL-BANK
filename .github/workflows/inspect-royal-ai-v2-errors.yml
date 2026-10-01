@@ -1,0 +1,51 @@
+name: Inspect Royal AI V2 Errors
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/inspect-royal-ai-v2-errors.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Inspect V2 error items
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai-search/namespaces/default/instances/royal-medical-knowledge-v2"
+
+          echo "=== STATS ==="
+          curl --fail --silent --show-error "$BASE/stats"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" | jq '.result'
+
+          echo "=== ERROR ITEMS ==="
+          cursor=""
+          found=0
+          for page in $(seq 1 100); do
+            url="$BASE/items"
+            if [ -n "$cursor" ]; then
+              encoded="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$cursor")"
+              url="$url?cursor=$encoded"
+            fi
+            curl --fail --silent --show-error "$url"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json" > /tmp/items.json
+
+            page_found="$(jq '[.result[] | select(.status == "error")] | length' /tmp/items.json)"
+            if [ "$page_found" -gt 0 ]; then
+              jq '.result[] | select(.status == "error")' /tmp/items.json
+              found=$((found + page_found))
+            fi
+
+            cursor="$(jq -r '.result_info.cursor // .cursor // empty' /tmp/items.json)"
+            [ -n "$cursor" ] || break
+          done
+          echo "ERROR_ITEMS_FOUND=$found"
