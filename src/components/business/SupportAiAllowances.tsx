@@ -21,6 +21,7 @@ type RoyalSnapshot = {
   usedToday?: number;
   remainingToday?: number;
   dailyLimit?: number;
+  entitled?: boolean;
   totalConversations?: number;
   totalMessages?: number;
   override?: { dailyLimit: number; expiresAtMs: number | null } | null;
@@ -79,7 +80,7 @@ export function SupportAiAllowances() {
     setDeepDaily(String(deepPayload.dailyLimit ?? 4));
     setDeepFollowups(String(deepPayload.followupLimit ?? 12));
     setDeepExpiry(toLocalInput(deepPayload.override?.expiresAtMs));
-    setRoyalDaily(String(royalPayload.dailyLimit ?? 15));
+    setRoyalDaily(String(royalPayload.override?.dailyLimit ?? (royalPayload.dailyLimit || 15)));
     setRoyalExpiry(toLocalInput(royalPayload.override?.expiresAtMs));
   }
 
@@ -148,21 +149,21 @@ export function SupportAiAllowances() {
           reason: reason.trim() || 'Support allowance change',
         });
         await load(user);
-        setNotice('Royal AI allowance updated.');
+        setNotice('Royal AI activated / allowance updated.');
       } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to update Royal AI allowance.'); }
     });
   }
 
   function clear(which: 'deep' | 'royal') {
     if (!user || pending) return;
-    if (!window.confirm(`Restore the default ${which === 'deep' ? 'Deep Dive' : 'Royal AI'} allowance?`)) return;
+    if (!window.confirm(which === 'deep' ? 'Restore the default Deep Dive allowance?' : 'Disable Royal AI for this account?')) return;
     startTransition(async () => {
       setError(null); setNotice(null);
       try {
         const url = which === 'deep' ? '/api/deep-dive/admin/entitlement' : '/api/royal-ai/admin/entitlement';
         await post(url, { action: 'clear', userId: user.id, reason: reason.trim() || 'Support reset to default' });
         await load(user);
-        setNotice('Default allowance restored.');
+        setNotice(which === 'deep' ? 'Default Deep Dive allowance restored.' : 'Royal AI disabled for this account.');
       } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to reset allowance.'); }
     });
   }
@@ -225,8 +226,8 @@ export function SupportAiAllowances() {
             <form onSubmit={saveRoyal} className="rounded-xl border border-slate-800 bg-[#081120] p-4">
               <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-[#d7b665]" /><h3 className="text-xs font-black text-white">Royal AI</h3></div>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <Metric label="Used today" value={`${royal.usedToday ?? 0} / ${royal.dailyLimit ?? 15}`} />
-                <Metric label="Remaining" value={String(royal.remainingToday ?? 0)} />
+                <Metric label="Access" value={royal.entitled ? 'Active' : 'Inactive'} />
+                <Metric label="Used today" value={royal.entitled ? `${royal.usedToday ?? 0} / ${royal.dailyLimit ?? 15}` : '—'} />
                 <Metric label="Conversations" value={String(royal.totalConversations ?? 0)} />
                 <Metric label="User messages" value={String(royal.totalMessages ?? 0)} />
               </div>
@@ -238,8 +239,8 @@ export function SupportAiAllowances() {
                 {[15, 25, 50, 100].map((value) => <button key={value} type="button" onClick={() => setRoyalDaily(String(value))} className="rounded-md border border-slate-700 px-2.5 py-1.5 text-[9px] font-bold text-slate-300 hover:border-[#c49a46]/50 hover:text-[#e2c276]">{value}/day</button>)}
               </div>
               <div className="mt-4 flex justify-end gap-2">
-                {royal.override ? <button type="button" onClick={() => clear('royal')} disabled={pending} className="h-9 rounded-lg border border-slate-700 px-3 text-[10px] font-bold text-slate-300">Restore default</button> : null}
-                <button type="submit" disabled={pending} className="h-9 rounded-lg bg-[#c49a46] px-4 text-[10px] font-black text-[#16120b]">Save Royal AI</button>
+                {royal.entitled ? <button type="button" onClick={() => clear('royal')} disabled={pending} className="h-9 rounded-lg border border-slate-700 px-3 text-[10px] font-bold text-slate-300">Disable Royal AI</button> : null}
+                <button type="submit" disabled={pending} className="h-9 rounded-lg bg-[#c49a46] px-4 text-[10px] font-black text-[#16120b]">{royal.entitled ? 'Update Royal AI' : 'Activate Royal AI'}</button>
               </div>
             </form>
           </div>
