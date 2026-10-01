@@ -1,4 +1,4 @@
-name: Inspect Royal AI V2
+name: Inspect Royal AI Production Index
 
 on:
   push:
@@ -9,11 +9,6 @@ on:
 
 permissions:
   contents: read
-
-# probe-2
-# probe-3
-# probe-4
-# probe-5
 
 jobs:
   inspect:
@@ -31,16 +26,23 @@ jobs:
           cache: npm
           cache-dependency-path: cloudflare/royal-ai-gateway/package.json
       - run: npm install --no-audit --no-fund
-      - name: Inspect v2
+      - name: Inspect production index
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          echo "=== GET ==="
-          npx wrangler ai-search get royal-medical-knowledge-production --json | tee /tmp/get.json || true
-          echo "=== STATS ==="
-          npx wrangler ai-search stats royal-medical-knowledge-production --json | tee /tmp/stats.json || true
-          echo "=== SEARCH ==="
-          npx wrangler ai-search search royal-medical-knowledge-production --query "hypertension treatment" --json | tee /tmp/search.json || true
+          npx wrangler ai-search stats royal-medical-knowledge-production --json >/tmp/stats.json
+          jq '{last_activity,queued,running,completed,error,skipped,outdated,file_embed_errors,vectors:.engine.vectorize.vectorsCount,objects:.engine.r2.objectCount}' /tmp/stats.json
+
+          npx wrangler ai-search search royal-medical-knowledge-production \
+            --query "hypertension treatment" --json >/tmp/search.json || true
+          jq '{
+            chunks:(.chunks|length),
+            vector_result_count:(.hybrid_meta.vector_result_count // 0),
+            keyword_result_count:(.hybrid_meta.keyword_result_count // 0),
+            bad_keys:([.chunks[]?.item?.key | select(. != null and (startswith("royal-ai-corpus/") | not))] | length),
+            ui_noise:([.chunks[]?.text // "" | select(test("You.?ve never been tested on this concept|You.?ve not yet rated this concept|Importance:"; "i"))] | length),
+            sample_keys:[.chunks[0:3][]?.item?.key]
+          }' /tmp/search.json
