@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { DeepDiveMarkdown } from '@/components/exam/DeepDiveMarkdown';
 import { RoyalAIHistoryPanel, type RoyalAIConversationSummary } from '@/components/royal-ai/RoyalAIHistoryPanel';
-import { RoyalAISources, type RoyalAIRoyalAISourceCard } from '@/components/royal-ai/RoyalAISources';
+import { RoyalAISources, type RoyalAISourceCard } from '@/components/royal-ai/RoyalAISources';
 
 type Language = 'en' | 'ar';
 
