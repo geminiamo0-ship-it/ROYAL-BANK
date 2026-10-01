@@ -155,7 +155,7 @@ function decodeEntities(value) {
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'");
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'");
 }
 
 function htmlToMarkdown(value) {
@@ -177,14 +177,16 @@ function htmlToMarkdown(value) {
 
 function cleanCorpusText(value) {
   return String(value || '')
-    .replace(/^You've never been tested on this concept\.?$/gim, '')
-    .replace(/^You've not yet rated this concept\.?$/gim, '')
-    .replace(/^Importance:\s*\d+\s*$/gim, '')
-    .replace(/^Report broken media\s*$/gim, '')
-    .replace(/^Suggest link\s+Report broken link\s*$/gim, '')
-    .replace(/^Report broken link\s*$/gim, '')
-    .replace(/^👍\s*\d+\s*👎\s*\d+\s*$/gim, '')
-    .replace(/^\+?\s*PassMedicine Notes\s*/gim, '')
+    .replace(/You've never been tested on this concept\.?/gi, '')
+    .replace(/You've not yet rated this concept\.?/gi, '')
+    .replace(/\bImportance:\s*\d+\b/gi, '')
+    .replace(/Report broken media/gi, '')
+    .replace(/Suggest link\s+Report broken link/gi, '')
+    .replace(/Report broken link/gi, '')
+    .replace(/👍\s*\d+\s*👎\s*\d+/g, '')
+    .replace(/\+?\s*PassMedicine Notes\b/gi, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
