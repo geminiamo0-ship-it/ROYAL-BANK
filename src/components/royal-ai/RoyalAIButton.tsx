@@ -162,19 +162,12 @@ export function RoyalAIButton() {
     }
   }
 
-  async function newChat() {
-    const nextLanguage = language || 'en';
-    try {
-      const result = await callRoyal({ action: 'new', language: nextLanguage });
-      setConversationId(result.conversationId || null);
-      setMessages([]);
-      setInput('');
-      setError(null);
-      setHistoryOpen(false);
-      await loadHistorySilently();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to create conversation.');
-    }
+  function newChat() {
+    setConversationId(null);
+    setMessages([]);
+    setInput('');
+    setError(null);
+    setHistoryOpen(false);
   }
 
   async function deleteConversation(id: string) {
@@ -288,7 +281,7 @@ export function RoyalAIButton() {
       ));
       await loadHistorySilently();
     } catch (cause) {
-      setMessages((current) => current.filter((_, index) => index !== assistantIndex));
+      setMessages((current) => current.filter((_, index) => index !== assistantIndex && index !== assistantIndex - 1));
       setInput(message);
       setError(cause instanceof Error ? cause.message : 'Unable to continue this conversation.');
     } finally {
@@ -335,7 +328,7 @@ export function RoyalAIButton() {
                     {remaining} / {dailyLimit} today
                   </span>
                 ) : null}
-                <button onClick={() => void newChat()} className="grid h-9 w-9 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/7" title="New chat">
+                <button onClick={newChat} className="grid h-9 w-9 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/7" title="New chat">
                   <MessageSquarePlus className="h-4 w-4" />
                 </button>
                 <button onClick={() => void loadHistory()} className="grid h-9 w-9 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/7" title="History">
