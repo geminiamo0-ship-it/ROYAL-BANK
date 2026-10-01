@@ -27,7 +27,7 @@ jobs:
 
           curl --fail --silent --show-error "$BASE"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" > /tmp/current.json
 
-          jq '{source_params: (.result.source_params + {include_items:["royal-ai-corpus/**"], exclude_items:[]})}'             /tmp/current.json > /tmp/update.json
+          jq '{source_params: (.result.source_params + {prefix:"royal-ai-corpus/", include_items:[], exclude_items:[]})}'             /tmp/current.json > /tmp/update.json
 
           curl --fail --silent --show-error -X PUT "$BASE"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json"             --data @/tmp/update.json | tee /tmp/updated.json
 
