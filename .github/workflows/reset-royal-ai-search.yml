@@ -1,0 +1,98 @@
+name: Reset Royal AI Search
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/reset-royal-ai-search.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    defaults:
+      run:
+        working-directory: cloudflare/royal-ai-gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloudflare/royal-ai-gateway/package.json
+
+      - name: Install Wrangler dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Delete stale Royal AI Search instance
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai-search/namespaces/default/instances/royal-medical-knowledge"
+
+          status="$(curl --silent --show-error -o /tmp/delete.json -w '%{http_code}' -X DELETE "$BASE"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json")"
+
+          if [ "$status" -ne 200 ] && [ "$status" -ne 204 ] && [ "$status" -ne 404 ]; then
+            cat /tmp/delete.json
+            exit 1
+          fi
+
+          cat /tmp/delete.json 2>/dev/null || true
+          sleep 5
+
+      - name: Create clean prefix-scoped Royal AI Search instance
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler ai-search create royal-medical-knowledge             --type r2             --source royal-bank-exam-production-content             --prefix royal-ai-corpus/             --chunk-size 576             --chunk-overlap 10             --max-num-results 10             --hybrid-search true             --json | tee /tmp/create.json
+
+          npx wrangler ai-search get royal-medical-knowledge --json | tee /tmp/get.json
+          test "$(jq -r '.source_params.prefix // empty' /tmp/get.json)" = "royal-ai-corpus/"
+
+      - name: Wait for real indexed content
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 60); do
+            npx wrangler ai-search stats royal-medical-knowledge --json | tee /tmp/stats.json
+            COMPLETED="$(jq -r '.completed // 0' /tmp/stats.json)"
+            ERRORS="$(jq -r '.error // 0' /tmp/stats.json)"
+            VECTORS="$(jq -r '.engine.vectorize.vectorsCount // 0' /tmp/stats.json)"
+            QUEUED="$(jq -r '.queued // 0' /tmp/stats.json)"
+            echo "attempt=$attempt queued=$QUEUED completed=$COMPLETED errors=$ERRORS vectors=$VECTORS"
+
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "AI Search indexing reported errors"
+              exit 1
+            fi
+
+            if [ "$COMPLETED" -gt 0 ] && [ "$VECTORS" -gt 0 ]; then
+              npx wrangler ai-search search royal-medical-knowledge                 --query "hypertension" --json | tee /tmp/search.json
+              CHUNKS="$(jq -r '.chunks | length' /tmp/search.json)"
+              if [ "$CHUNKS" -gt 0 ]; then
+                echo "ROYAL_AI_SEARCH_READY=true"
+                exit 0
+              fi
+            fi
+
+            sleep 15
+          done
+
+          echo "Timed out waiting for a non-empty Royal AI Search index"
+          exit 1
