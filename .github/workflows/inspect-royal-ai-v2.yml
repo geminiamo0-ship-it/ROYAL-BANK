@@ -1,0 +1,41 @@
+name: Inspect Royal AI V2
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/inspect-royal-ai-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: production
+    defaults:
+      run:
+        working-directory: cloudflare/royal-ai-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloudflare/royal-ai-gateway/package.json
+      - run: npm install --no-audit --no-fund
+      - name: Inspect v2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== GET ==="
+          npx wrangler ai-search get royal-medical-knowledge-v2 --json | tee /tmp/get.json || true
+          echo "=== STATS ==="
+          npx wrangler ai-search stats royal-medical-knowledge-v2 --json | tee /tmp/stats.json || true
+          echo "=== SEARCH ==="
+          npx wrangler ai-search search royal-medical-knowledge-v2 --query "hypertension treatment" --json | tee /tmp/search.json || true
