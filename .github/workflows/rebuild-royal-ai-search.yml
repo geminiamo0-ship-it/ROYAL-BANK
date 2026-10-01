@@ -1,0 +1,104 @@
+name: Rebuild Royal AI Search
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/rebuild-royal-ai-search.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    defaults:
+      run:
+        working-directory: cloudflare/royal-ai-gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloudflare/royal-ai-gateway/package.json
+
+      - name: Install Worker tooling
+        run: npm install --no-audit --no-fund
+
+      - name: Create clean Royal AI Search instance
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          INSTANCE="royal-medical-knowledge-v2"
+
+          if npx wrangler ai-search get "$INSTANCE" --json >/tmp/v2.json 2>/tmp/v2.err; then
+            cat /tmp/v2.json
+          else
+            cat /tmp/v2.err || true
+            npx wrangler ai-search create "$INSTANCE" \
+              --type r2 \
+              --source royal-bank-exam-production-content \
+              --prefix royal-ai-corpus/ \
+              --hybrid-search true \
+              --json | tee /tmp/v2.json
+          fi
+
+          PREFIX="$(jq -r '.source_params.prefix // empty' /tmp/v2.json)"
+          SOURCE="$(jq -r '.source // empty' /tmp/v2.json)"
+          test "$PREFIX" = "royal-ai-corpus/"
+          test "$SOURCE" = "royal-bank-exam-production-content"
+
+          npx wrangler ai-search jobs create "$INSTANCE" \
+            --description "Royal AI clean prefix-scoped index" \
+            --json >/tmp/v2-job.json || true
+          cat /tmp/v2-job.json 2>/dev/null || true
+
+      - name: Wait for real indexed vectors and non-empty search
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          INSTANCE="royal-medical-knowledge-v2"
+
+          for attempt in $(seq 1 80); do
+            npx wrangler ai-search stats "$INSTANCE" --json >/tmp/v2-stats.json
+            QUEUED="$(jq -r '.queued // 0' /tmp/v2-stats.json)"
+            COMPLETED="$(jq -r '.completed // 0' /tmp/v2-stats.json)"
+            ERROR="$(jq -r '.error // 0' /tmp/v2-stats.json)"
+            SKIPPED="$(jq -r '.skipped // 0' /tmp/v2-stats.json)"
+            VECTORS="$(jq -r '.engine.vectorize.vectorsCount // 0' /tmp/v2-stats.json)"
+            echo "attempt=$attempt queued=$QUEUED completed=$COMPLETED error=$ERROR skipped=$SKIPPED vectors=$VECTORS"
+
+            if [ "$ERROR" -gt 0 ]; then
+              cat /tmp/v2-stats.json
+              exit 1
+            fi
+
+            if [ "$COMPLETED" -gt 0 ] && [ "$VECTORS" -gt 0 ]; then
+              npx wrangler ai-search search "$INSTANCE" \
+                --query "hypertension treatment" --json >/tmp/v2-search.json
+              CHUNKS="$(jq -r '.chunks | length' /tmp/v2-search.json)"
+              if [ "$CHUNKS" -gt 0 ]; then
+                cat /tmp/v2-stats.json
+                cat /tmp/v2-search.json
+                exit 0
+              fi
+            fi
+
+            sleep 15
+          done
+
+          echo "Clean Royal AI Search instance did not become ready."
+          cat /tmp/v2-stats.json
+          exit 1
