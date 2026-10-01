@@ -185,13 +185,15 @@ function slug(value, fallback) {
   return normalized || fallback;
 }
 
-const [articles, sources, registry] = await Promise.all([
+const [articles, sources, registry, mappings] = await Promise.all([
   fetchAll('library_articles', 'id,name,category,topic,content_html,source_id,ai_search_enabled', 'id.asc'),
   fetchAll('library_sources', 'id,name,slug,edition,version,source_date,ai_search_enabled', 'id.asc'),
   fetchAll('ai_royal_tutor_corpus_registry', 'article_id,object_key,content_hash,published_at', 'article_id.asc'),
+  fetchAll('question_bank_library_articles', 'question_bank_id,article_id', 'article_id.asc'),
 ]);
 
 const sourceById = new Map(sources.map((row) => [String(row.id), row]));
+const bankByArticle = new Map(mappings.map((row) => [String(row.article_id), Number(row.question_bank_id)]));
 const registryByArticle = new Map(registry.map((row) => [String(row.article_id), row]));
 const activeIds = new Set();
 const uploadOps = [];
@@ -206,12 +208,15 @@ for (const article of articles) {
   activeIds.add(articleId);
   const category = slug(article.category, 'general');
   const nameSlug = slug(article.name, 'article-' + articleId);
-  const objectKey = root + '/' + category + '/' + articleId + '--' + nameSlug + '.md';
+  const bankId = bankByArticle.get(articleId) ?? null;
+  const bankSegment = bankId ? 'bank-' + bankId : 'unmapped';
+  const objectKey = root + '/' + bankSegment + '/' + category + '/' + articleId + '--' + nameSlug + '.md';
   const markdown = [
     '# ' + String(article.name || 'Royal medical article'),
     '',
     article.category ? 'Category: ' + String(article.category) : '',
     article.topic ? 'Topic: ' + String(article.topic) : '',
+    bankId ? 'Question bank ID: ' + String(bankId) : '',
     source?.name ? 'Source: ' + String(source.name) : 'Source: Royal Library',
     source?.edition ? 'Edition: ' + String(source.edition) : '',
     source?.version ? 'Version: ' + String(source.version) : '',
