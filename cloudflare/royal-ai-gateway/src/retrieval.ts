@@ -5,6 +5,7 @@ export type RoyalAiSource = {
   id: string;
   title: string;
   key: string;
+  articleId: string | null;
   text: string;
   score: number;
 };
@@ -70,6 +71,7 @@ export async function retrieveRoyalKnowledge(
           id: `[S${index + 1}]`,
           title: titleFromKey(key),
           key,
+          articleId: key.match(/(?:^|\\/)(\\d+)--/)?.[1] || null,
           text: chunk.text.trim().slice(0, 12_000),
           score: Number(chunk.score || 0),
         };
