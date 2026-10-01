@@ -112,19 +112,19 @@ alter table public.ai_royal_tutor_config enable row level security;
 alter table public.ai_royal_tutor_entitlements enable row level security;
 alter table public.ai_royal_tutor_entitlement_audit enable row level security;
 alter table public.ai_royal_tutor_usage_events enable row level security;
-alter table public.library_sources enable row level security;
+alter table public.library_sources enable row level security;\nalter table public.ai_royal_tutor_corpus_registry enable row level security;
 
 revoke all on table public.ai_royal_tutor_config from anon, authenticated;
 revoke all on table public.ai_royal_tutor_entitlements from anon, authenticated;
 revoke all on table public.ai_royal_tutor_entitlement_audit from anon, authenticated;
 revoke all on table public.ai_royal_tutor_usage_events from anon, authenticated;
-revoke all on table public.library_sources from anon, authenticated;
+revoke all on table public.library_sources from anon, authenticated;\nrevoke all on table public.ai_royal_tutor_corpus_registry from anon, authenticated;
 
 grant all on table public.ai_royal_tutor_config to service_role;
 grant all on table public.ai_royal_tutor_entitlements to service_role;
 grant all on table public.ai_royal_tutor_entitlement_audit to service_role;
 grant all on table public.ai_royal_tutor_usage_events to service_role;
-grant all on table public.library_sources to service_role;
+grant all on table public.library_sources to service_role;\ngrant all on table public.ai_royal_tutor_corpus_registry to service_role;
 
 create or replace function public.admin_get_royal_ai_overview_session(
   p_from timestamptz default (now() - interval '30 days')
