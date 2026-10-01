@@ -28,6 +28,11 @@ jobs:
           echo "=== STATS ==="
           curl --fail --silent --show-error "$BASE/stats"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json" | jq '.result'
 
+          echo "=== JOBS ==="
+          curl --fail --silent --show-error "$BASE/jobs" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" | jq '.result[0:10]'
+
           echo "=== ERROR ITEMS ==="
           cursor=""
           found=0
