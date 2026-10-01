@@ -1,4 +1,4 @@
-name: Rebuild Royal AI Search
+name: Rebuild Royal AI Search Cleanly
 
 on:
   push:
@@ -27,78 +27,78 @@ jobs:
           cache: npm
           cache-dependency-path: cloudflare/royal-ai-gateway/package.json
 
-      - name: Install Worker tooling
+      - name: Install Wrangler
         run: npm install --no-audit --no-fund
 
-      - name: Create clean Royal AI Search instance
+      - name: Delete polluted AI Search instance
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          BASE="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai-search/namespaces/default/instances/royal-medical-knowledge"
 
-          INSTANCE="royal-medical-knowledge-v2"
+          STATUS="$(curl --silent --show-error -o /tmp/delete.json -w '%{http_code}' -X DELETE "$BASE"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json")"
 
-          if npx wrangler ai-search get "$INSTANCE" --json >/tmp/v2.json 2>/tmp/v2.err; then
-            cat /tmp/v2.json
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 300 ]; then
+            cat /tmp/delete.json
+          elif [ "$STATUS" = "404" ]; then
+            echo "Instance already absent."
           else
-            cat /tmp/v2.err || true
-            npx wrangler ai-search create "$INSTANCE" \
-              --type r2 \
-              --source royal-bank-exam-production-content \
-              --prefix royal-ai-corpus/ \
-              --hybrid-search true \
-              --json | tee /tmp/v2.json
+            cat /tmp/delete.json
+            exit 1
           fi
 
-          PREFIX="$(jq -r '.source_params.prefix // empty' /tmp/v2.json)"
-          SOURCE="$(jq -r '.source // empty' /tmp/v2.json)"
-          test "$PREFIX" = "royal-ai-corpus/"
-          test "$SOURCE" = "royal-bank-exam-production-content"
+          for i in $(seq 1 20); do
+            CODE="$(curl --silent --show-error -o /tmp/get.json -w '%{http_code}' "$BASE"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json")"
+            if [ "$CODE" = "404" ]; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Instance did not disappear in time."
+          exit 1
 
-          npx wrangler ai-search jobs create "$INSTANCE" \
-            --description "Royal AI clean prefix-scoped index" \
-            --json >/tmp/v2-job.json || true
-          cat /tmp/v2-job.json 2>/dev/null || true
-
-      - name: Wait for real indexed vectors and non-empty search
+      - name: Create clean Royal-only AI Search instance
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          INSTANCE="royal-medical-knowledge-v2"
+          npx wrangler ai-search create royal-medical-knowledge             --type r2             --source royal-bank-exam-production-content             --prefix royal-ai-corpus/             --chunk-size 576             --chunk-overlap 10             --max-num-results 10             --hybrid-search true             --json | tee /tmp/create.json
 
+          npx wrangler ai-search get royal-medical-knowledge --json | tee /tmp/get.json
+          test "$(jq -r '.source_params.prefix // empty' /tmp/get.json)" = "royal-ai-corpus/"
+
+      - name: Wait for real indexed vectors and search hits
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
           for attempt in $(seq 1 80); do
-            npx wrangler ai-search stats "$INSTANCE" --json >/tmp/v2-stats.json
-            QUEUED="$(jq -r '.queued // 0' /tmp/v2-stats.json)"
-            COMPLETED="$(jq -r '.completed // 0' /tmp/v2-stats.json)"
-            ERROR="$(jq -r '.error // 0' /tmp/v2-stats.json)"
-            SKIPPED="$(jq -r '.skipped // 0' /tmp/v2-stats.json)"
-            VECTORS="$(jq -r '.engine.vectorize.vectorsCount // 0' /tmp/v2-stats.json)"
-            echo "attempt=$attempt queued=$QUEUED completed=$COMPLETED error=$ERROR skipped=$SKIPPED vectors=$VECTORS"
+            npx wrangler ai-search stats royal-medical-knowledge --json >/tmp/stats.json
+            QUEUED="$(jq -r '.queued // 0' /tmp/stats.json)"
+            COMPLETED="$(jq -r '.completed // 0' /tmp/stats.json)"
+            ERRORS="$(jq -r '.error // 0' /tmp/stats.json)"
+            VECTORS="$(jq -r '.engine.vectorize.vectorsCount // 0' /tmp/stats.json)"
+            echo "attempt=$attempt queued=$QUEUED completed=$COMPLETED errors=$ERRORS vectors=$VECTORS"
 
-            if [ "$ERROR" -gt 0 ]; then
-              cat /tmp/v2-stats.json
-              exit 1
-            fi
-
-            if [ "$COMPLETED" -gt 0 ] && [ "$VECTORS" -gt 0 ]; then
-              npx wrangler ai-search search "$INSTANCE" \
-                --query "hypertension treatment" --json >/tmp/v2-search.json
-              CHUNKS="$(jq -r '.chunks | length' /tmp/v2-search.json)"
+            if [ "$VECTORS" -gt 0 ] && [ "$COMPLETED" -gt 0 ]; then
+              npx wrangler ai-search search royal-medical-knowledge                 --query "hypertension" --json >/tmp/search.json
+              CHUNKS="$(jq -r '.chunks | length' /tmp/search.json)"
               if [ "$CHUNKS" -gt 0 ]; then
-                cat /tmp/v2-stats.json
-                cat /tmp/v2-search.json
+                cat /tmp/stats.json
+                cat /tmp/search.json
                 exit 0
               fi
             fi
-
-            sleep 15
+            sleep 10
           done
 
-          echo "Clean Royal AI Search instance did not become ready."
-          cat /tmp/v2-stats.json
+          echo "AI Search failed to become ready."
+          cat /tmp/stats.json
           exit 1
