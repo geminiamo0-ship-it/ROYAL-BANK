@@ -13,7 +13,7 @@ export type RoyalAiSource = {
 
 function titleFromKey(key: string): string {
   const file = key.split('/').filter(Boolean).pop() || 'Royal medical source';
-  const withoutExt = file.replace(/\.[^.]+$/, '').replace(/^\d+--/, '');
+  const withoutExt = file.replace(/\.[^.]+$/, '').replace(/^.+?--/, '');
   return withoutExt
     .split(/[-_]+/)
     .filter(Boolean)
@@ -72,7 +72,7 @@ export async function retrieveRoyalKnowledge(
           id: `[S${index + 1}]`,
           title: titleFromKey(key),
           key,
-          articleId: key.split('/').pop()?.match(/^(\d+)--/)?.[1] || null,
+          articleId: key.split('/').pop()?.match(/^(.+?)--/)?.[1] || null,
           bankId: (() => {
             const matched = key.match(/(?:^|\/)bank-(\d+)(?:\/|$)/)?.[1];
             const parsed = matched ? Number(matched) : NaN;
