@@ -6,6 +6,7 @@ export type RoyalAiSource = {
   title: string;
   key: string;
   articleId: string | null;
+  bankId: number | null;
   text: string;
   score: number;
 };
@@ -72,6 +73,11 @@ export async function retrieveRoyalKnowledge(
           title: titleFromKey(key),
           key,
           articleId: key.split('/').pop()?.match(/^(\d+)--/)?.[1] || null,
+          bankId: (() => {
+            const matched = key.match(/(?:^|\/)bank-(\d+)(?:\/|$)/)?.[1];
+            const parsed = matched ? Number(matched) : NaN;
+            return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+          })(),
           text: chunk.text.trim().slice(0, 12_000),
           score: Number(chunk.score || 0),
         };
