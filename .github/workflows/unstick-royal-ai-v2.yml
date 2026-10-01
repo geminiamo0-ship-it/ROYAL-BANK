@@ -1,0 +1,55 @@
+name: Unstick Royal AI V2
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/unstick-royal-ai-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    defaults:
+      run:
+        working-directory: cloudflare/royal-ai-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloudflare/royal-ai-gateway/package.json
+      - run: npm install --no-audit --no-fund
+      - name: Cancel stalled sync and trigger fresh consistency sync
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JOB_ID="0cc267db-2d1b-4c97-bcc9-39fe02d3fb3c"
+          npx wrangler ai-search jobs get royal-medical-knowledge-v2 "$JOB_ID" --json | tee /tmp/job-before.json
+
+          if [ "$(jq -r '.ended_at // empty' /tmp/job-before.json)" = "" ]; then
+            npx wrangler ai-search jobs cancel royal-medical-knowledge-v2 "$JOB_ID" --force
+          fi
+
+          for i in $(seq 1 20); do
+            npx wrangler ai-search jobs get royal-medical-knowledge-v2 "$JOB_ID" --json >/tmp/job-after.json
+            if [ "$(jq -r '.ended_at // empty' /tmp/job-after.json)" != "" ]; then
+              cat /tmp/job-after.json
+              break
+            fi
+            sleep 3
+          done
+
+          npx wrangler ai-search jobs create royal-medical-knowledge-v2 \
+            --description "Royal AI clean consistency sync after stalled initial job" \
+            --json | tee /tmp/new-job.json
