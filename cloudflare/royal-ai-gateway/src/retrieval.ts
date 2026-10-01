@@ -71,7 +71,7 @@ export async function retrieveRoyalKnowledge(
           id: `[S${index + 1}]`,
           title: titleFromKey(key),
           key,
-          articleId: key.match(/(?:^|\\/)(\\d+)--/)?.[1] || null,
+          articleId: key.split('/').pop()?.match(/^(\d+)--/)?.[1] || null,
           text: chunk.text.trim().slice(0, 12_000),
           score: Number(chunk.score || 0),
         };
