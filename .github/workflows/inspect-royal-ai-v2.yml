@@ -39,8 +39,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== GET ==="
-          npx wrangler ai-search get royal-medical-knowledge-v2 --json | tee /tmp/get.json || true
+          npx wrangler ai-search get royal-medical-knowledge-production --json | tee /tmp/get.json || true
           echo "=== STATS ==="
-          npx wrangler ai-search stats royal-medical-knowledge-v2 --json | tee /tmp/stats.json || true
+          npx wrangler ai-search stats royal-medical-knowledge-production --json | tee /tmp/stats.json || true
           echo "=== SEARCH ==="
-          npx wrangler ai-search search royal-medical-knowledge-v2 --query "hypertension treatment" --json | tee /tmp/search.json || true
+          npx wrangler ai-search search royal-medical-knowledge-production --query "hypertension treatment" --json | tee /tmp/search.json || true
