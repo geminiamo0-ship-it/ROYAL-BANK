@@ -175,22 +175,39 @@ jobs:
           grep -q '"aiSearchInstance":"royal-medical-knowledge"' /tmp/royal-ai-health.json
           grep -q '"openRouterConfigured":true' /tmp/royal-ai-health.json
 
-      - name: Verify Royal AI Search is queryable
+      - name: Verify Royal AI Search is ready and queryable
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          npx wrangler ai-search stats royal-medical-knowledge --json | tee /tmp/royal-ai-stats.json
-          for attempt in 1 2 3 4 5 6; do
-            if npx wrangler ai-search search royal-medical-knowledge \
-              --query "acute coronary syndrome management" --json \
-              >/tmp/royal-ai-search-smoke.json 2>/tmp/royal-ai-search-smoke.err; then
-              cat /tmp/royal-ai-search-smoke.json
-              exit 0
+
+          for attempt in $(seq 1 40); do
+            npx wrangler ai-search stats royal-medical-knowledge --json >/tmp/royal-ai-stats.json
+            COMPLETED="$(jq -r '.completed // 0' /tmp/royal-ai-stats.json)"
+            VECTORS="$(jq -r '.engine.vectorize.vectorsCount // 0' /tmp/royal-ai-stats.json)"
+
+            echo "AI Search readiness attempt $attempt: completed=$COMPLETED vectors=$VECTORS"
+
+            if [ "$COMPLETED" -gt 0 ] && [ "$VECTORS" -gt 0 ]; then
+              if npx wrangler ai-search search royal-medical-knowledge \
+                --query "hypertension" --json \
+                >/tmp/royal-ai-search-smoke.json 2>/tmp/royal-ai-search-smoke.err; then
+                CHUNKS="$(jq -r '.chunks | length' /tmp/royal-ai-search-smoke.json 2>/dev/null || echo 0)"
+                if [ "$CHUNKS" -gt 0 ]; then
+                  cat /tmp/royal-ai-stats.json
+                  cat /tmp/royal-ai-search-smoke.json
+                  exit 0
+                fi
+              fi
             fi
-            cat /tmp/royal-ai-search-smoke.err
-            sleep 10
+
+            cat /tmp/royal-ai-search-smoke.err 2>/dev/null || true
+            sleep 15
           done
+
+          echo "Royal AI Search did not become ready with non-empty results."
+          cat /tmp/royal-ai-stats.json 2>/dev/null || true
+          cat /tmp/royal-ai-search-smoke.json 2>/dev/null || true
           exit 1
