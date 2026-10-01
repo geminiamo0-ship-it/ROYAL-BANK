@@ -128,9 +128,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          if ! npx wrangler ai-search get royal-medical-knowledge-v2 --json >/tmp/royal-ai-search.json 2>/tmp/royal-ai-search.err; then
+          if ! npx wrangler ai-search get royal-medical-knowledge-production --json >/tmp/royal-ai-search.json 2>/tmp/royal-ai-search.err; then
             cat /tmp/royal-ai-search.err
-            npx wrangler ai-search create royal-medical-knowledge-v2 \
+            npx wrangler ai-search create royal-medical-knowledge-production \
               --type r2 \
               --source royal-ai-production-corpus \
               --chunk-size 576 \
@@ -140,11 +140,11 @@ jobs:
               --json >/tmp/royal-ai-search.json
           fi
 
-          npx wrangler ai-search get royal-medical-knowledge-v2 --json | tee /tmp/royal-ai-search.json
+          npx wrangler ai-search get royal-medical-knowledge-production --json | tee /tmp/royal-ai-search.json
           test "$(jq -r '.source' /tmp/royal-ai-search.json)" = "royal-ai-production-corpus"
 
           # Ask AI Search to notice newly published/updated corpus objects immediately.
-          npx wrangler ai-search jobs create royal-medical-knowledge-v2 \
+          npx wrangler ai-search jobs create royal-medical-knowledge-production \
             --description "Royal AI production corpus sync" \
             --json >/tmp/royal-ai-job.json || true
           cat /tmp/royal-ai-job.json 2>/dev/null || true
@@ -161,7 +161,7 @@ jobs:
           consistency_sync_started=0
 
           for attempt in $(seq 1 180); do
-            npx wrangler ai-search stats royal-medical-knowledge-v2 --json >/tmp/stats.json
+            npx wrangler ai-search stats royal-medical-knowledge-production --json >/tmp/stats.json
 
             QUEUED="$(jq -r '.queued // 0' /tmp/stats.json)"
             RUNNING="$(jq -r '.running // 0' /tmp/stats.json)"
@@ -186,7 +186,7 @@ jobs:
             # 2) corpus objects updated while the first pass was running are reindexed.
             if [ "$QUEUED" -eq 0 ] && [ "$RUNNING" -eq 0 ] && [ "$VECTORS" -gt 0 ] && [ "$consistency_sync_started" -eq 0 ]; then
               echo "Starting final Royal AI corpus consistency sync..."
-              npx wrangler ai-search jobs create royal-medical-knowledge-v2 \
+              npx wrangler ai-search jobs create royal-medical-knowledge-production \
                 --description "Royal AI final corpus consistency sync" --json >/tmp/final-sync.json
               cat /tmp/final-sync.json
               consistency_sync_started=1
@@ -195,7 +195,7 @@ jobs:
             fi
 
             if [ "$consistency_sync_started" -eq 1 ] && [ "$QUEUED" -eq 0 ] && [ "$RUNNING" -eq 0 ] && [ "$OUTDATED" -eq 0 ] && [ "$VECTORS" -gt 0 ] && [ "$COMPLETED" -gt 0 ]; then
-              npx wrangler ai-search search royal-medical-knowledge-v2 \
+              npx wrangler ai-search search royal-medical-knowledge-production \
                 --query "hypertension treatment" --json >/tmp/search.json
 
               CHUNKS="$(jq -r '.chunks | length' /tmp/search.json)"
@@ -255,5 +255,5 @@ jobs:
             | tee /tmp/royal-ai-health.json
           grep -q '"ok":true' /tmp/royal-ai-health.json
           grep -q '"environment":"production"' /tmp/royal-ai-health.json
-          grep -q '"aiSearchInstance":"royal-medical-knowledge-v2"' /tmp/royal-ai-health.json
+          grep -q '"aiSearchInstance":"royal-medical-knowledge-production"' /tmp/royal-ai-health.json
           grep -q '"openRouterConfigured":true' /tmp/royal-ai-health.json
