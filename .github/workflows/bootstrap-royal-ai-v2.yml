@@ -1,0 +1,180 @@
+name: Bootstrap Royal AI V2
+
+on:
+  push:
+    branches:
+      - fix/royal-ai-search-readiness
+    paths:
+      - '.github/workflows/bootstrap-royal-ai-v2.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: royal-ai-v2-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    defaults:
+      run:
+        working-directory: cloudflare/royal-ai-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: cloudflare/royal-ai-gateway/package.json
+
+      - name: Install Worker tooling
+        run: npm install --no-audit --no-fund
+
+      - name: Create isolated Royal AI R2 bucket
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if ! npx wrangler r2 bucket info royal-ai-production-corpus --json >/tmp/bucket.json 2>/tmp/bucket.err; then
+            cat /tmp/bucket.err
+            npx wrangler r2 bucket create royal-ai-production-corpus
+          fi
+          npx wrangler r2 bucket info royal-ai-production-corpus --json | tee /tmp/bucket.json
+          grep -q 'royal-ai-production-corpus' /tmp/bucket.json
+
+      - name: Publish all Royal medical articles to isolated bucket
+        working-directory: .
+        env:
+          SUPABASE_URL: https://trnvsgenmzhyuayxxdoq.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: royal-ai-production-corpus
+          ROYAL_AI_CORPUS_ROOT: royal-ai-corpus
+          ROYAL_AI_CORPUS_CONCURRENCY: '16'
+          ROYAL_AI_FORCE_PUBLISH: 'true'
+        run: node scripts/publish-royal-ai-corpus.mjs | tee /tmp/publish.json
+
+      - name: Verify isolated bucket object count
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          count=0
+          cursor=""
+          while :; do
+            url="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/royal-ai-production-corpus/objects?per_page=1000&prefix=royal-ai-corpus%2F"
+            if [ -n "$cursor" ]; then
+              encoded="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$cursor")"
+              url="$url&cursor=$encoded"
+            fi
+            curl --fail --silent --show-error "$url"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json" > /tmp/r2-page.json
+            page="$(jq '.result | length' /tmp/r2-page.json)"
+            count=$((count + page))
+            cursor="$(jq -r '.result_info.cursor // empty' /tmp/r2-page.json)"
+            [ -n "$cursor" ] || break
+          done
+          echo "ROYAL_AI_R2_OBJECTS=$count"
+          test "$count" -eq 1369
+
+      - name: Create or verify isolated AI Search v2
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          if npx wrangler ai-search get royal-medical-knowledge-v2 --json >/tmp/get.json 2>/tmp/get.err; then
+            SOURCE="$(jq -r '.source // empty' /tmp/get.json)"
+            if [ "$SOURCE" != "royal-ai-production-corpus" ]; then
+              npx wrangler ai-search delete royal-medical-knowledge-v2 --yes
+              for i in $(seq 1 20); do
+                if ! npx wrangler ai-search get royal-medical-knowledge-v2 --json >/dev/null 2>&1; then break; fi
+                sleep 3
+              done
+            fi
+          fi
+
+          if ! npx wrangler ai-search get royal-medical-knowledge-v2 --json >/tmp/get.json 2>/dev/null; then
+            npx wrangler ai-search create royal-medical-knowledge-v2               --type r2               --source royal-ai-production-corpus               --chunk-size 576               --chunk-overlap 10               --max-num-results 10               --hybrid-search true               --json | tee /tmp/create.json
+          fi
+
+          npx wrangler ai-search get royal-medical-knowledge-v2 --json | tee /tmp/get.json
+          test "$(jq -r '.source' /tmp/get.json)" = "royal-ai-production-corpus"
+
+      - name: Wait for indexed vectors and real search hits
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            npx wrangler ai-search stats royal-medical-knowledge-v2 --json >/tmp/stats.json
+            QUEUED="$(jq -r '.queued // 0' /tmp/stats.json)"
+            RUNNING="$(jq -r '.running // 0' /tmp/stats.json)"
+            COMPLETED="$(jq -r '.completed // 0' /tmp/stats.json)"
+            ERRORS="$(jq -r '.error // 0' /tmp/stats.json)"
+            SKIPPED="$(jq -r '.skipped // 0' /tmp/stats.json)"
+            VECTORS="$(jq -r '.engine.vectorize.vectorsCount // 0' /tmp/stats.json)"
+            echo "attempt=$attempt queued=$QUEUED running=$RUNNING completed=$COMPLETED errors=$ERRORS skipped=$SKIPPED vectors=$VECTORS"
+
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "AI Search v2 indexing errors detected."
+              cat /tmp/stats.json
+              exit 1
+            fi
+
+            if [ "$COMPLETED" -gt 0 ] && [ "$VECTORS" -gt 0 ]; then
+              npx wrangler ai-search search royal-medical-knowledge-v2                 --query "hypertension treatment" --json >/tmp/search.json
+              CHUNKS="$(jq -r '.chunks | length' /tmp/search.json)"
+              BAD_KEYS="$(jq -r '[.chunks[]?.item?.key | select(. != null and (startswith("royal-ai-corpus/") | not))] | length' /tmp/search.json)"
+              if [ "$CHUNKS" -gt 0 ] && [ "$BAD_KEYS" -eq 0 ]; then
+                echo "ROYAL_AI_SEARCH_V2_READY=true"
+                cat /tmp/stats.json
+                cat /tmp/search.json
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Royal AI Search v2."
+          cat /tmp/stats.json
+          exit 1
+
+      - name: Configure Production secrets
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+          SUPABASE_SECRET_KEY_PRODUCTION: ${{ secrets.SUPABASE_SECRET_KEY_PRODUCTION }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$SUPABASE_SECRET_KEY_PRODUCTION" | npx wrangler secret put SUPABASE_SECRET_KEY --env production
+          printf '%s' "$OPENROUTER_API_KEY" | npx wrangler secret put OPENROUTER_API_KEY --env production
+
+      - name: Deploy Royal AI Worker on v2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: npx wrangler deploy --env production
+
+      - name: Verify production health points to v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 10 --retry-delay 3             https://royal-ai-production.geminiamo0.workers.dev/health             | tee /tmp/health.json
+          test "$(jq -r '.ok' /tmp/health.json)" = "true"
+          test "$(jq -r '.aiSearchInstance' /tmp/health.json)" = "royal-medical-knowledge-v2"
