@@ -161,10 +161,8 @@ function decodeEntities(value) {
 
 
 function htmlAttribute(tag, name) {
-  const match = tag.match(new RegExp(
-    '\\\\b' + name + '\\\\s*=\\\\s*(?:\"([^\"]*)\"|\\'([^\\']*)\\'|([^\\\\s>]+))',
-    'i',
-  ));
+  const pattern = '\\b' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))';
+  const match = tag.match(new RegExp(pattern, 'i'));
   return (match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim();
 }
 
@@ -191,14 +189,14 @@ function trustedR2ImageUrl(value) {
 
 function imageTagToMarkdown(tag) {
   const src = trustedR2ImageUrl(htmlAttribute(tag, 'src'));
-  if (!src) return '\\n';
+  if (!src) return '\n';
 
   const rawAlt = htmlAttribute(tag, 'alt')
     .replace(/[\[\]\r\n]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   const alt = rawAlt || 'Royal medical image';
-  return '\\n\\n![' + alt + '](' + src + ')\\n\\n';
+  return '\n\n![' + alt + '](' + src + ')\n\n';
 }
 
 function htmlToMarkdown(value) {
@@ -217,6 +215,19 @@ function htmlToMarkdown(value) {
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+
+if (args.has('--self-test-images')) {
+  const sample = htmlToMarkdown(
+    '<p>Before</p><img class="ajaximage" src="/offline_media/cardiology_xrb073b.jpg" alt="Aortic dissection CT" /><p>After</p>',
+  );
+  const expected = '![Aortic dissection CT](' + PUBLIC_R2_MEDIA_URL + '/offline_media/cardiology_xrb073b.jpg)';
+  if (!sample.includes(expected)) {
+    throw new Error('Royal AI corpus image self-test failed: ' + sample);
+  }
+  console.log(JSON.stringify({ ok: true, expected, sample }, null, 2));
+  process.exit(0);
 }
 
 function cleanCorpusText(value) {
