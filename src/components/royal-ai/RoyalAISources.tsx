@@ -108,7 +108,7 @@ function RoyalAISourceViewer({
         <header className="flex h-[62px] shrink-0 items-center justify-between border-b border-black/8 px-4 dark:border-white/8">
           <div className="min-w-0">
             <p className="text-[8px] font-bold uppercase tracking-[.14em] text-[#9a722d]">Royal source</p>
-            <h3 className="truncate font-serif text-[15px] font-semibold">{article?.name || source.title}</h3>
+            <h3 className="truncate font-serif text-[15px] font-semibold">{source.title}</h3>
           </div>
           <button
             type="button"
@@ -154,7 +154,7 @@ function RoyalAISourceViewer({
                 <span className="rounded bg-[#c9a75f]/12 px-2.5 py-1 text-[9px] font-bold text-[#936c28] dark:text-[#e0bf73]">
                   {article.category || 'General'}
                 </span>
-                <h2 className="mt-2 font-serif text-xl font-semibold">{article.name}</h2>
+                <h2 className="mt-2 font-serif text-xl font-semibold">{source.title}</h2>
               </div>
               <div
                 className="pm-explanation-container pt-5 text-sm leading-relaxed text-slate-800 dark:text-slate-200"

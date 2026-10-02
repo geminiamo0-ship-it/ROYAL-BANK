@@ -1,6 +1,7 @@
 import { getRoyalAiConfig, type RoyalAiConfig } from './config';
 import type { RoyalAiEnv, RoyalAiUsageEvent } from './env';
 import { buildRuntimePrompt, type RoyalAiLanguage } from './prompt';
+import { normalizedSupabaseUrl } from './auth';
 import { openRouterStream, summarizeConversation } from './openrouter';
 import { retrieveRoyalKnowledge, type RoyalAiSource } from './retrieval';
 
@@ -18,6 +19,7 @@ function json(value: unknown, status = 200): Response {
 }
 
 function statusFor(code: string): number {
+  if (code === 'ROYAL_AI_ACCESS_REQUIRED') return 403;
   if (code === 'ROYAL_AI_DAILY_LIMIT') return 429;
   if (code === 'ROYAL_AI_CONVERSATION_NOT_FOUND') return 404;
   if (code === 'ROYAL_AI_MESSAGE_PENDING' || code === 'ROYAL_AI_REQUEST_ID_REUSED') return 409;
@@ -92,6 +94,30 @@ export async function handleRoyalAiChat(
     if (!doAction) {
       return json({ error: { code: 'INVALID_ACTION', message: 'Unsupported Royal AI action.' } }, 400);
     }
+
+    if (action === 'new') {
+      let access = await stub.handle({
+        userId,
+        action: 'usage',
+        defaultDailyLimit: config.dailyLimit,
+      }) as Record<string, unknown>;
+      if (access.entitled !== true && await hydrateRoyalAiEntitlement(env, userId, stub)) {
+        access = await stub.handle({
+          userId,
+          action: 'usage',
+          defaultDailyLimit: config.dailyLimit,
+        }) as Record<string, unknown>;
+      }
+      if (access.entitled !== true) {
+        return json({
+          error: {
+            code: 'ROYAL_AI_ACCESS_REQUIRED',
+            message: 'Royal AI is not active on this account.',
+          },
+        }, 403);
+      }
+    }
+
     const result = await stub.handle({
       userId,
       action: doAction,
@@ -107,7 +133,7 @@ export async function handleRoyalAiChat(
   const language: RoyalAiLanguage = body.language === 'ar' ? 'ar' : 'en';
   const conversationId = typeof body.conversationId === 'string' ? body.conversationId : null;
 
-  const prepared = await stub.handle({
+  let prepared = await stub.handle({
     userId,
     action: 'prepareMessage',
     requestId,
@@ -118,15 +144,33 @@ export async function handleRoyalAiChat(
     maxMessageChars: config.maxMessageChars,
   }) as Record<string, unknown>;
 
+  if (prepared.ok !== true && prepared.code === 'ROYAL_AI_ACCESS_REQUIRED') {
+    const hydrated = await hydrateRoyalAiEntitlement(env, userId, stub);
+    if (hydrated) {
+      prepared = await stub.handle({
+        userId,
+        action: 'prepareMessage',
+        requestId,
+        message,
+        language,
+        conversationId,
+        defaultDailyLimit: config.dailyLimit,
+        maxMessageChars: config.maxMessageChars,
+      }) as Record<string, unknown>;
+    }
+  }
+
   if (prepared.ok !== true) {
     const code = String(prepared.code || 'ROYAL_AI_REQUEST_FAILED');
     return json({
       error: {
         code,
         message:
-          code === 'ROYAL_AI_DAILY_LIMIT'
-            ? 'You have used today\'s Royal AI messages.'
-            : code === 'ROYAL_AI_MESSAGE_PENDING'
+          code === 'ROYAL_AI_ACCESS_REQUIRED'
+            ? 'Royal AI is not active on this account.'
+            : code === 'ROYAL_AI_DAILY_LIMIT'
+              ? 'You have used today\'s Royal AI messages.'
+              : code === 'ROYAL_AI_MESSAGE_PENDING'
               ? 'Royal is already answering this conversation.'
               : code === 'ROYAL_AI_CONVERSATION_NOT_FOUND'
                 ? 'Conversation not found.'
@@ -192,6 +236,43 @@ export async function handleRoyalAiChat(
       'x-royal-ai': 'cloudflare-v1',
     },
   });
+}
+
+async function hydrateRoyalAiEntitlement(
+  env: RoyalAiEnv,
+  userId: string,
+  stub: DurableObjectStub<import('./user-state').RoyalAiUserState>,
+): Promise<boolean> {
+  const url = new URL(normalizedSupabaseUrl(env) + '/rest/v1/ai_royal_tutor_entitlements');
+  url.searchParams.set('user_id', 'eq.' + userId);
+  url.searchParams.set('select', 'daily_limit,expires_at');
+  url.searchParams.set('limit', '1');
+
+  const response = await fetch(url, {
+    headers: {
+      apikey: env.SUPABASE_SECRET_KEY,
+      authorization: 'Bearer ' + env.SUPABASE_SECRET_KEY,
+      accept: 'application/json',
+    },
+  }).catch(() => null);
+  if (!response?.ok) return false;
+
+  const rows = await response.json<Array<{ daily_limit?: number; expires_at?: string | null }>>().catch(() => []);
+  const row = rows[0];
+  const dailyLimit = Number(row?.daily_limit);
+  if (!row || !Number.isSafeInteger(dailyLimit) || dailyLimit < 1) return false;
+
+  const expiresAtMs = row.expires_at ? new Date(row.expires_at).getTime() : null;
+  if (expiresAtMs != null && (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now())) return false;
+
+  const result = await stub.handle({
+    userId,
+    action: 'setEntitlement',
+    dailyLimit,
+    expiresAtMs,
+  }) as Record<string, unknown>;
+
+  return result.ok === true;
 }
 
 function replayResponse(ctx: ExecutionContext, prepared: Record<string, unknown>): Response {

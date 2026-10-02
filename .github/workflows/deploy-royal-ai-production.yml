@@ -64,15 +64,19 @@ jobs:
           test -n "$OPENROUTER_API_KEY" || { echo 'OPENROUTER_API_KEY is missing'; exit 1; }
           test "$R2_ACCOUNT_ID" = "$CLOUDFLARE_ACCOUNT_ID" || { echo 'R2 account does not match Cloudflare account'; exit 1; }
 
-      - name: Verify shared Production R2 bucket
+      - name: Provision or verify isolated Royal AI R2 bucket
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          npx wrangler r2 bucket info royal-bank-exam-production-content --json >/tmp/royal-ai-r2.json
-          grep -q 'royal-bank-exam-production-content' /tmp/royal-ai-r2.json
+          if ! npx wrangler r2 bucket info royal-ai-production-corpus --json >/tmp/royal-ai-r2.json 2>/tmp/royal-ai-r2.err; then
+            cat /tmp/royal-ai-r2.err
+            npx wrangler r2 bucket create royal-ai-production-corpus
+          fi
+          npx wrangler r2 bucket info royal-ai-production-corpus --json >/tmp/royal-ai-r2.json
+          grep -q 'royal-ai-production-corpus' /tmp/royal-ai-r2.json
 
       - name: Provision or verify Royal AI Queue
         shell: bash
@@ -110,36 +114,114 @@ jobs:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET_NAME: royal-bank-exam-production-content
+          R2_BUCKET_NAME: royal-ai-production-corpus
           ROYAL_AI_CORPUS_ROOT: royal-ai-corpus
           ROYAL_AI_CORPUS_CONCURRENCY: '16'
         run: node scripts/publish-royal-ai-corpus.mjs
 
-      - name: Provision or verify Royal AI Search instance
+      - name: Provision or verify Royal AI Search v2
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          if ! npx wrangler ai-search get royal-medical-knowledge --json >/tmp/royal-ai-search.json 2>/tmp/royal-ai-search.err; then
+
+          if ! npx wrangler ai-search get royal-medical-knowledge-production --json >/tmp/royal-ai-search.json 2>/tmp/royal-ai-search.err; then
             cat /tmp/royal-ai-search.err
-            npx wrangler ai-search create royal-medical-knowledge \
+            npx wrangler ai-search create royal-medical-knowledge-production \
               --type r2 \
-              --source royal-bank-exam-production-content \
-              --prefix royal-ai-corpus/ \
-              --chunk-size 512 \
-              --chunk-overlap 64 \
-              --max-num-results 20 \
+              --source royal-ai-production-corpus \
+              --chunk-size 576 \
+              --chunk-overlap 10 \
+              --max-num-results 10 \
               --hybrid-search true \
-              --reranking true \
               --json >/tmp/royal-ai-search.json
           fi
-          cat /tmp/royal-ai-search.json
-          npx wrangler ai-search jobs create royal-medical-knowledge \
+
+          npx wrangler ai-search get royal-medical-knowledge-production --json | tee /tmp/royal-ai-search.json
+          test "$(jq -r '.source' /tmp/royal-ai-search.json)" = "royal-ai-production-corpus"
+
+          # Ask AI Search to notice newly published/updated corpus objects immediately.
+          npx wrangler ai-search jobs create royal-medical-knowledge-production \
             --description "Royal AI production corpus sync" \
             --json >/tmp/royal-ai-job.json || true
           cat /tmp/royal-ai-job.json 2>/dev/null || true
+
+      - name: Verify semantic Royal-only search before deployment
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          ready=0
+          consistency_sync_started=0
+
+          for attempt in $(seq 1 180); do
+            npx wrangler ai-search stats royal-medical-knowledge-production --json >/tmp/stats.json
+
+            QUEUED="$(jq -r '.queued // 0' /tmp/stats.json)"
+            RUNNING="$(jq -r '.running // 0' /tmp/stats.json)"
+            COMPLETED="$(jq -r '.completed // 0' /tmp/stats.json)"
+            ERRORS="$(jq -r '.error // 0' /tmp/stats.json)"
+            SKIPPED="$(jq -r '.skipped // 0' /tmp/stats.json)"
+            OUTDATED="$(jq -r '.outdated // 0' /tmp/stats.json)"
+            VECTORS="$(jq -r '.engine.vectorize.vectorsCount // 0' /tmp/stats.json)"
+            TIMEOUT_ERRORS="$(jq -r '.file_embed_errors.workers_ai_timeout_error // 0' /tmp/stats.json)"
+            NON_TIMEOUT_ERRORS=$((ERRORS - TIMEOUT_ERRORS))
+
+            echo "attempt=$attempt queued=$QUEUED running=$RUNNING completed=$COMPLETED errors=$ERRORS timeout_errors=$TIMEOUT_ERRORS skipped=$SKIPPED outdated=$OUTDATED vectors=$VECTORS final_sync=$consistency_sync_started"
+
+            if [ "$SKIPPED" -gt 0 ] || [ "$NON_TIMEOUT_ERRORS" -gt 0 ]; then
+              echo "Royal AI Search has unexpected indexing failures."
+              cat /tmp/stats.json
+              exit 1
+            fi
+
+            # First let the initial index fully drain. Then force one final sync so:
+            # 1) any transient Workers AI timeout is retried, and
+            # 2) corpus objects updated while the first pass was running are reindexed.
+            if [ "$QUEUED" -eq 0 ] && [ "$RUNNING" -eq 0 ] && [ "$VECTORS" -gt 0 ] && [ "$consistency_sync_started" -eq 0 ]; then
+              echo "Starting final Royal AI corpus consistency sync..."
+              npx wrangler ai-search jobs create royal-medical-knowledge-production \
+                --description "Royal AI final corpus consistency sync" --json >/tmp/final-sync.json
+              cat /tmp/final-sync.json
+              consistency_sync_started=1
+              sleep 15
+              continue
+            fi
+
+            if [ "$consistency_sync_started" -eq 1 ] && [ "$QUEUED" -eq 0 ] && [ "$RUNNING" -eq 0 ] && [ "$OUTDATED" -eq 0 ] && [ "$VECTORS" -gt 0 ] && [ "$COMPLETED" -gt 0 ]; then
+              npx wrangler ai-search search royal-medical-knowledge-production \
+                --query "hypertension treatment" --json >/tmp/search.json
+
+              CHUNKS="$(jq -r '.chunks | length' /tmp/search.json)"
+              VECTOR_RESULTS="$(jq -r '.hybrid_meta.vector_result_count // 0' /tmp/search.json)"
+              BAD_KEYS="$(jq -r '[.chunks[]?.item?.key | select(. != null and (startswith("royal-ai-corpus/") | not))] | length' /tmp/search.json)"
+              UI_NOISE="$(jq -r '[.chunks[]?.text // "" | select(test("You.?ve never been tested on this concept|You.?ve not yet rated this concept|Importance:"; "i"))] | length' /tmp/search.json)"
+
+              echo "semantic_smoke chunks=$CHUNKS vector_results=$VECTOR_RESULTS bad_keys=$BAD_KEYS ui_noise=$UI_NOISE"
+
+              if [ "$CHUNKS" -gt 0 ] && [ "$VECTOR_RESULTS" -gt 0 ] && [ "$BAD_KEYS" -eq 0 ] && [ "$UI_NOISE" -eq 0 ]; then
+                ready=1
+                echo "ROYAL_AI_SEARCH_V2_READY=true"
+                cat /tmp/stats.json
+                cat /tmp/search.json
+                break
+              fi
+            fi
+
+            sleep 10
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            echo "Timed out waiting for clean Royal AI semantic search readiness."
+            cat /tmp/stats.json 2>/dev/null || true
+            cat /tmp/search.json 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Configure Production Supabase secret
         shell: bash
@@ -172,25 +254,5 @@ jobs:
             | tee /tmp/royal-ai-health.json
           grep -q '"ok":true' /tmp/royal-ai-health.json
           grep -q '"environment":"production"' /tmp/royal-ai-health.json
-          grep -q '"aiSearchInstance":"royal-medical-knowledge"' /tmp/royal-ai-health.json
+          grep -q '"aiSearchInstance":"royal-medical-knowledge-production"' /tmp/royal-ai-health.json
           grep -q '"openRouterConfigured":true' /tmp/royal-ai-health.json
-
-      - name: Verify Royal AI Search is queryable
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          npx wrangler ai-search stats royal-medical-knowledge --json | tee /tmp/royal-ai-stats.json
-          for attempt in 1 2 3 4 5 6; do
-            if npx wrangler ai-search search royal-medical-knowledge \
-              --query "acute coronary syndrome management" --json \
-              >/tmp/royal-ai-search-smoke.json 2>/tmp/royal-ai-search-smoke.err; then
-              cat /tmp/royal-ai-search-smoke.json
-              exit 0
-            fi
-            cat /tmp/royal-ai-search-smoke.err
-            sleep 10
-          done
-          exit 1

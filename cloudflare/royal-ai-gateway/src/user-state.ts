@@ -104,18 +104,25 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
     if (!this.ctx.id.name || this.ctx.id.name !== userId) throw new Error('ROYAL_AI_USER_SHARD_MISMATCH');
   }
 
-  private limits(defaultDailyLimit: number): { dailyLimit: number; override: null | { dailyLimit: number; expiresAtMs: number | null; updatedAtMs: number } } {
+  private limits(_defaultDailyLimit: number): {
+    entitled: boolean;
+    dailyLimit: number;
+    override: null | { dailyLimit: number; expiresAtMs: number | null; updatedAtMs: number };
+  } {
     const row = this.one<{ daily_limit: number; expires_at_ms: number | null; updated_at_ms: number }>(
       'SELECT daily_limit, expires_at_ms, updated_at_ms FROM entitlement WHERE id = 1',
     );
-    if (!row) return { dailyLimit: defaultDailyLimit, override: null };
+    if (!row) return { entitled: false, dailyLimit: 0, override: null };
+
     const expiresAtMs = row.expires_at_ms == null ? null : Number(row.expires_at_ms);
     if (expiresAtMs != null && expiresAtMs <= Date.now()) {
       this.ctx.storage.sql.exec('DELETE FROM entitlement WHERE id = 1');
-      return { dailyLimit: defaultDailyLimit, override: null };
+      return { entitled: false, dailyLimit: 0, override: null };
     }
+
     const dailyLimit = Number(row.daily_limit);
     return {
+      entitled: true,
       dailyLimit,
       override: {
         dailyLimit,
@@ -270,6 +277,17 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
       return { ok: false, code: 'ROYAL_AI_MESSAGE_PENDING' };
     }
 
+    const limits = this.limits(input.defaultDailyLimit);
+    if (!limits.entitled) {
+      return {
+        ok: false,
+        code: 'ROYAL_AI_ACCESS_REQUIRED',
+        entitled: false,
+        dailyLimit: 0,
+        remainingToday: 0,
+      };
+    }
+
     let conversationId = input.conversationId;
     let conversation = conversationId
       ? this.one<{ id: string; summary: string; language: string; message_count: number }>(
@@ -304,7 +322,6 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
     )?.count ?? 0);
     if (pending > 0) return { ok: false, code: 'ROYAL_AI_MESSAGE_PENDING' };
 
-    const limits = this.limits(input.defaultDailyLimit);
     const dayKey = cairoDayKey();
     const used = this.used(dayKey);
     if (used >= limits.dailyLimit) {
@@ -532,10 +549,11 @@ export class RoyalAiUserState extends DurableObject<RoyalAiEnv> {
     const usedToday = this.used(dayKey);
     return {
       ok: true,
+      entitled: limits.entitled,
       dayKey,
       usedToday,
       dailyLimit: limits.dailyLimit,
-      remainingToday: Math.max(0, limits.dailyLimit - usedToday),
+      remainingToday: limits.entitled ? Math.max(0, limits.dailyLimit - usedToday) : 0,
     };
   }
 

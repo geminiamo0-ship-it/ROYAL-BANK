@@ -107,6 +107,7 @@ async function hydrateOverride(
   env: RoyalAiEnv,
   userId: string,
   stub: DurableObjectStub<import('./user-state').RoyalAiUserState>,
+  defaultDailyLimit: number,
 ): Promise<void> {
   const url = new URL(normalizedSupabaseUrl(env) + '/rest/v1/ai_royal_tutor_entitlements');
   url.searchParams.set('user_id', 'eq.' + userId);
@@ -123,15 +124,27 @@ async function hydrateOverride(
   if (!response.ok) return;
   const rows = await response.json<Array<{ daily_limit?: number; expires_at?: string | null }>>();
   const row = rows[0];
-  if (!row || !Number.isSafeInteger(Number(row.daily_limit))) return;
+  const dailyLimit = Number(row?.daily_limit);
+  const expiresAtMs = row?.expires_at ? new Date(row.expires_at).getTime() : null;
+  const valid =
+    !!row &&
+    Number.isSafeInteger(dailyLimit) &&
+    dailyLimit >= 1 &&
+    (expiresAtMs == null || (Number.isFinite(expiresAtMs) && expiresAtMs > Date.now()));
 
-  const expiresAtMs = row.expires_at ? new Date(row.expires_at).getTime() : null;
-  if (expiresAtMs != null && expiresAtMs <= Date.now()) return;
+  if (!valid) {
+    await stub.handle({
+      userId,
+      action: 'clearEntitlement',
+      defaultDailyLimit,
+    });
+    return;
+  }
 
   await stub.handle({
     userId,
     action: 'setEntitlement',
-    dailyLimit: Number(row.daily_limit),
+    dailyLimit,
     expiresAtMs,
   });
 }
@@ -164,7 +177,7 @@ export async function handleRoyalAiEntitlementAdmin(
   const stub = env.ROYAL_AI_USERS.getByName(userId);
 
   if (action === 'get') {
-    await hydrateOverride(env, userId, stub);
+    await hydrateOverride(env, userId, stub, config.dailyLimit);
     return json(await stub.handle({
       userId,
       action: 'getSupportSnapshot',

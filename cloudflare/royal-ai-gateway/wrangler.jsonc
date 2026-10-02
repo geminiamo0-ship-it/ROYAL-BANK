@@ -57,7 +57,7 @@
         "SERVICE_NAME": "royal-ai-production",
         "SUPABASE_PROJECT_REF": "trnvsgenmzhyuayxxdoq",
         "SUPABASE_URL": "https://trnvsgenmzhyuayxxdoq.supabase.co",
-        "AI_SEARCH_INSTANCE": "royal-medical-knowledge",
+        "AI_SEARCH_INSTANCE": "royal-medical-knowledge-production",
         "ROYAL_AI_SYNC_QUEUE_NAME": "royal-ai-sync-production"
       },
       "durable_objects": {

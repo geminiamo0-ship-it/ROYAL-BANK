@@ -4,6 +4,7 @@ const PAGE_SIZE = 1000;
 const args = new Set(process.argv.slice(2));
 const dryRun = args.has('--dry-run');
 const concurrency = Math.min(32, Math.max(1, Number(process.env.ROYAL_AI_CORPUS_CONCURRENCY || 16) || 16));
+const forcePublish = /^(1|true|yes)$/i.test(process.env.ROYAL_AI_FORCE_PUBLISH || '');
 
 function required(...names) {
   for (const name of names) {
@@ -154,7 +155,7 @@ function decodeEntities(value) {
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'");
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'");
 }
 
 function htmlToMarkdown(value) {
@@ -170,6 +171,22 @@ function htmlToMarkdown(value) {
     .replace(/<[^>]+>/g, ' ')
     .replace(/[ \t]+/g, ' ')
     .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function cleanCorpusText(value) {
+  return String(value || '')
+    .replace(/You've never been tested on this concept\.?/gi, '')
+    .replace(/You've not yet rated this concept\.?/gi, '')
+    .replace(/\bImportance:\s*\d+\b/gi, '')
+    .replace(/Report broken media/gi, '')
+    .replace(/Suggest link\s+Report broken link/gi, '')
+    .replace(/Report broken link/gi, '')
+    .replace(/👍\s*\d+\s*👎\s*\d+/g, '')
+    .replace(/\+?\s*PassMedicine Notes\b/gi, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -207,12 +224,12 @@ for (const article of articles) {
 
   activeIds.add(articleId);
   const category = slug(article.category, 'general');
-  const nameSlug = slug(article.name, 'article-' + articleId);
+  const nameSlug = slug(article.topic || article.name, 'article-' + articleId);
   const bankId = bankByArticle.get(articleId) ?? null;
   const bankSegment = bankId ? 'bank-' + bankId : 'unmapped';
   const objectKey = root + '/' + bankSegment + '/' + category + '/' + articleId + '--' + nameSlug + '.md';
   const markdown = [
-    '# ' + String(article.name || 'Royal medical article'),
+    '# ' + String(article.topic || article.name || 'Royal medical article'),
     '',
     article.category ? 'Category: ' + String(article.category) : '',
     article.topic ? 'Topic: ' + String(article.topic) : '',
@@ -222,13 +239,13 @@ for (const article of articles) {
     source?.version ? 'Version: ' + String(source.version) : '',
     source?.source_date ? 'Source date: ' + String(source.source_date) : '',
     '',
-    htmlToMarkdown(article.content_html),
+    cleanCorpusText(htmlToMarkdown(article.content_html)),
     '',
   ].filter((line, index, all) => line !== '' || (index > 0 && all[index - 1] !== '')).join('\n');
 
   const contentHash = sha256(markdown);
   const existing = registryByArticle.get(articleId);
-  if (!existing || existing.content_hash !== contentHash || existing.object_key !== objectKey) {
+  if (forcePublish || !existing || existing.content_hash !== contentHash || existing.object_key !== objectKey) {
     uploadOps.push({ articleId, objectKey, markdown, contentHash, oldKey: existing?.object_key || null });
   }
 }
@@ -277,6 +294,7 @@ console.log(JSON.stringify({
   enabled: activeIds.size,
   uploadedOrUpdated: writes.length,
   concurrency,
+  forcePublish,
   removed: registry.filter((row) => !activeIds.has(String(row.article_id))).length,
   bucket,
   root,

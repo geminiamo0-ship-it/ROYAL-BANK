@@ -121,7 +121,9 @@ export async function POST(request: Request): Promise<Response> {
         parsed.error && typeof parsed.error === 'object' && !Array.isArray(parsed.error)
           ? (parsed.error as { code?: unknown }).code
           : null;
-      if (errorCode === 'ROYAL_AI_DAILY_LIMIT') parsed.supportUrl = getRoyalSupportTelegramUrl();
+      if (errorCode === 'ROYAL_AI_DAILY_LIMIT' || errorCode === 'ROYAL_AI_ACCESS_REQUIRED') {
+        parsed.supportUrl = getRoyalSupportTelegramUrl();
+      }
       return Response.json(parsed, {
         status: upstream.status,
         headers: { 'cache-control': 'no-store', 'x-royal-ai-proxy': 'cloudflare' },
