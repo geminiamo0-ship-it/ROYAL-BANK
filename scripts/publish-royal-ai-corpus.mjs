@@ -5,6 +5,7 @@ const args = new Set(process.argv.slice(2));
 const dryRun = args.has('--dry-run');
 const concurrency = Math.min(32, Math.max(1, Number(process.env.ROYAL_AI_CORPUS_CONCURRENCY || 16) || 16));
 const forcePublish = /^(1|true|yes)$/i.test(process.env.ROYAL_AI_FORCE_PUBLISH || '');
+const PUBLIC_R2_MEDIA_URL = 'https://pub-2a81f2cb19cc4473a3d076e657af6121.r2.dev';
 
 function required(...names) {
   for (const name of names) {
@@ -158,10 +159,51 @@ function decodeEntities(value) {
     .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'");
 }
 
+
+function htmlAttribute(tag, name) {
+  const pattern = '\\b' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))';
+  const match = tag.match(new RegExp(pattern, 'i'));
+  return (match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim();
+}
+
+function trustedR2ImageUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  let candidate = raw;
+  const legacy = candidate.match(
+    /^(?:https?:\/\/storage\.blablabl234a\.online\/offline_media\/|https:\/\/media\.royalbank\.com\/questions\/|\/?offline_media\/)(.+)$/i,
+  );
+  if (legacy) candidate = PUBLIC_R2_MEDIA_URL + '/offline_media/' + legacy[1];
+
+  try {
+    const url = new URL(candidate, PUBLIC_R2_MEDIA_URL);
+    const trusted = new URL(PUBLIC_R2_MEDIA_URL);
+    if (url.protocol !== 'https:' || url.host !== trusted.host) return null;
+    if (!url.pathname.startsWith('/offline_media/')) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function imageTagToMarkdown(tag) {
+  const src = trustedR2ImageUrl(htmlAttribute(tag, 'src'));
+  if (!src) return '\n';
+
+  const rawAlt = htmlAttribute(tag, 'alt')
+    .replace(/[\[\]\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const alt = rawAlt || 'Royal medical image';
+  return '\n\n![' + alt + '](' + src + ')\n\n';
+}
+
 function htmlToMarkdown(value) {
   return decodeEntities(String(value || ''))
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<img\b[^>]*>/gi, imageTagToMarkdown)
     .replace(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi, '\n# $1\n')
     .replace(/<h2\b[^>]*>([\s\S]*?)<\/h2>/gi, '\n## $1\n')
     .replace(/<h3\b[^>]*>([\s\S]*?)<\/h3>/gi, '\n### $1\n')
@@ -173,6 +215,19 @@ function htmlToMarkdown(value) {
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+
+if (args.has('--self-test-images')) {
+  const sample = htmlToMarkdown(
+    '<p>Before</p><img class="ajaximage" src="/offline_media/cardiology_xrb073b.jpg" alt="Aortic dissection CT" /><p>After</p>',
+  );
+  const expected = '![Aortic dissection CT](' + PUBLIC_R2_MEDIA_URL + '/offline_media/cardiology_xrb073b.jpg)';
+  if (!sample.includes(expected)) {
+    throw new Error('Royal AI corpus image self-test failed: ' + sample);
+  }
+  console.log(JSON.stringify({ ok: true, expected, sample }, null, 2));
+  process.exit(0);
 }
 
 function cleanCorpusText(value) {

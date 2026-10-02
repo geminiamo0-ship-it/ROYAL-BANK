@@ -19,6 +19,32 @@ function textDirection(value: string, preferred: DeepDiveTextDirection): 'ltr' |
   return arabic > 0 && arabic >= Math.max(2, Math.floor(latin * 0.2)) ? 'rtl' : 'ltr';
 }
 
+const TRUSTED_ROYAL_MEDIA_HOST = 'pub-2a81f2cb19cc4473a3d076e657af6121.r2.dev';
+
+function safeImageSrc(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== 'https:' ||
+      url.host !== TRUSTED_ROYAL_MEDIA_HOST ||
+      !url.pathname.startsWith('/offline_media/')
+    ) {
+      return null;
+    }
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function imageMarkdown(line: string): { alt: string; src: string } | null {
+  const match = line.trim().match(/^!\[([^\]]*)\]\((https:\/\/[^\s)]+)\)$/);
+  if (!match) return null;
+  const src = safeImageSrc(match[2]);
+  if (!src) return null;
+  return { alt: match[1].trim() || 'Royal medical image', src };
+}
+
 function safeHref(value: string): string | null {
   try {
     const url = new URL(value, 'https://royal-bank-five.vercel.app');
@@ -137,7 +163,7 @@ function isRule(line: string): boolean {
 function startsBlock(lines: string[], index: number): boolean {
   const line = lines[index] ?? '';
   if (!line.trim()) return true;
-  if (isFence(line) || isList(line) || isHeading(line) || isRule(line) || /^\s*>\s?/.test(line)) return true;
+  if (isFence(line) || isList(line) || isHeading(line) || isRule(line) || imageMarkdown(line) || /^\s*>\s?/.test(line)) return true;
   return line.includes('|') && index + 1 < lines.length && isTableSeparator(lines[index + 1]);
 }
 
@@ -174,6 +200,38 @@ function MarkdownBlocks({
           <pre dir="ltr" className="m-0 min-w-max p-3 font-mono text-[11px] leading-5 text-[#302b24] dark:text-[#dce3e8]"><code>{code.join('\n')}</code></pre>
         </div>,
       );
+      continue;
+    }
+
+    const image = imageMarkdown(raw);
+    if (image) {
+      nodes.push(
+        <figure
+          key={`image-${i}`}
+          className="my-4 overflow-hidden rounded-xl border border-black/10 bg-[#f7f2e8] shadow-sm dark:border-white/10 dark:bg-[#0f171d]"
+        >
+          <a href={image.src} target="_blank" rel="noreferrer" className="block">
+            <img
+              src={image.src}
+              alt={image.alt}
+              loading="lazy"
+              decoding="async"
+              referrerPolicy="no-referrer"
+              draggable={false}
+              className="mx-auto block max-h-[520px] w-auto max-w-full object-contain"
+            />
+          </a>
+          {image.alt && image.alt !== 'Royal medical image' ? (
+            <figcaption
+              dir="auto"
+              className="border-t border-black/[0.07] px-3 py-2 text-[10.5px] leading-4 text-[#7b7367] dark:border-white/[0.07] dark:text-white/45"
+            >
+              {image.alt}
+            </figcaption>
+          ) : null}
+        </figure>,
+      );
+      i += 1;
       continue;
     }
 

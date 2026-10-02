@@ -45,3 +45,7 @@ jobs:
 
       - name: Syntax-check corpus publisher
         run: node --check scripts/publish-royal-ai-corpus.mjs
+
+
+      - name: Verify Royal AI corpus image conversion
+        run: node scripts/publish-royal-ai-corpus.mjs --dry-run --self-test-images
