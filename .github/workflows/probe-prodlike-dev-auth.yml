@@ -23,29 +23,30 @@ jobs:
           WORKER_URL: https://royal-bank-v2-exam.geminiamo0.workers.dev
         run: |
           set -euo pipefail
-          EMAIL="royal-probe-${GITHUB_RUN_ID}@load.invalid"
+          EMAIL="royal-probe-${GITHUB_RUN_ID}@example.com"
           PASSWORD="RoyalProbe!$(openssl rand -hex 16)"
-          curl --fail-with-body --silent --show-error \
+          CODE=$(curl --silent --show-error -o /tmp/signup.json -w '%{http_code}' \
             -X POST "$SUPABASE_URL/auth/v1/signup" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
             -H 'content-type: application/json' \
-            --data "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\",\"data\":{\"full_name\":\"Royal Load Probe\"}}" \
-            > /tmp/signup.json
-          node <<'NODE'
+            --data "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\",\"data\":{\"full_name\":\"Royal Load Probe\"}}")
+          node <<'NODE' "$CODE"
           const fs = require('fs');
-          const payload = JSON.parse(fs.readFileSync('/tmp/signup.json','utf8'));
+          const code = Number(process.argv[2]);
+          let payload = {};
+          try { payload = JSON.parse(fs.readFileSync('/tmp/signup.json','utf8')); } catch {}
           const token = payload.access_token || payload.session?.access_token || '';
-          console.log(JSON.stringify({has_user:Boolean(payload.user || payload.id),has_access_token:Boolean(token),keys:Object.keys(payload).sort()}));
+          console.log(JSON.stringify({signup_status:code,has_user:Boolean(payload.user || payload.id),has_access_token:Boolean(token),error_code:payload.error_code || payload.code || null,msg:payload.msg || payload.message || null,keys:Object.keys(payload).sort()}));
           if (!token) process.exit(2);
           fs.writeFileSync('/tmp/token', token, {mode:0o600});
           NODE
           TOKEN="$(cat /tmp/token)"
-          CODE=$(curl --silent --show-error -o /tmp/prepare.json -w '%{http_code}' \
+          PREPARE_CODE=$(curl --silent --show-error -o /tmp/prepare.json -w '%{http_code}' \
             -X POST "$WORKER_URL/exam" \
             -H "authorization: Bearer $TOKEN" \
             -H 'content-type: application/json' \
             --data '{"action":"prepare","args":{"p_bank_id":1}}')
-          node <<'NODE' "$CODE"
+          node <<'NODE' "$PREPARE_CODE"
           const fs = require('fs');
           const code = Number(process.argv[2]);
           let body = {};
