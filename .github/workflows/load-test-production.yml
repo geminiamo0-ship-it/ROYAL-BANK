@@ -2,6 +2,11 @@ name: Authenticated staged exam load
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - loadtest/prod-1000-users-20261003
+    paths:
+      - '.github/workflows/load-test-production.yml'
 
 permissions:
   contents: read
