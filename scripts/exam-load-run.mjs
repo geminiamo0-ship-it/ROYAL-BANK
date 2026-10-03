@@ -33,8 +33,9 @@ async function request(user, action, args, token, scenario = 'setup') {
       headers, body: JSON.stringify({ action, args }), signal: AbortSignal.timeout(10000) });
     const raw = await response.text();
     try { json = JSON.parse(raw); } catch { /* Fail closed on non-JSON responses. */ }
+    // Cloudflare V2 no longer requires a window_access_token on Create. A valid
+    // Create must still return a real session and hydrated question data.
     const valid = action !== 'create' || (uuid.test(json?.session?.id || '')
-      && typeof json?.window_access_token === 'string' && json.window_access_token.length > 0
       && Array.isArray(json?.questions) && json.questions.length > 0);
     row = { action, scenario, status: response.status,
       ok: response.status === 200 && json != null && !json.error && valid,
