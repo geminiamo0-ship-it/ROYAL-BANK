@@ -1,0 +1,55 @@
+name: Probe Production-like DEV Auth
+
+on:
+  push:
+    branches:
+      - loadtest/prodlike-1000-dev
+    paths:
+      - '.github/workflows/probe-prodlike-dev-auth.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe DEV signup and Worker prepare
+        shell: bash
+        env:
+          SUPABASE_URL: https://dcttiqdrsvkufzjahjzw.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_vX3BOhBpWmIxleWmzr69BQ_WRWmhiXR
+          WORKER_URL: https://royal-bank-v2-exam.geminiamo0.workers.dev
+        run: |
+          set -euo pipefail
+          EMAIL="royal-probe-${GITHUB_RUN_ID}@load.invalid"
+          PASSWORD="RoyalProbe!$(openssl rand -hex 16)"
+          curl --fail-with-body --silent --show-error \
+            -X POST "$SUPABASE_URL/auth/v1/signup" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+            -H 'content-type: application/json' \
+            --data "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\",\"data\":{\"full_name\":\"Royal Load Probe\"}}" \
+            > /tmp/signup.json
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/signup.json','utf8'));
+          const token = payload.access_token || payload.session?.access_token || '';
+          console.log(JSON.stringify({has_user:Boolean(payload.user || payload.id),has_access_token:Boolean(token),keys:Object.keys(payload).sort()}));
+          if (!token) process.exit(2);
+          fs.writeFileSync('/tmp/token', token, {mode:0o600});
+          NODE
+          TOKEN="$(cat /tmp/token)"
+          CODE=$(curl --silent --show-error -o /tmp/prepare.json -w '%{http_code}' \
+            -X POST "$WORKER_URL/exam" \
+            -H "authorization: Bearer $TOKEN" \
+            -H 'content-type: application/json' \
+            --data '{"action":"prepare","args":{"p_bank_id":1}}')
+          node <<'NODE' "$CODE"
+          const fs = require('fs');
+          const code = Number(process.argv[2]);
+          let body = {};
+          try { body = JSON.parse(fs.readFileSync('/tmp/prepare.json','utf8')); } catch {}
+          console.log(JSON.stringify({prepare_status:code,ok:code===200,error:body?.error?.code || null}));
+          if (code !== 200) process.exit(3);
+          NODE
